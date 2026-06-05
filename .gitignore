@@ -1,0 +1,50 @@
+# =====================================================================
+# Applination — keep personal data and secrets out of the repository.
+# A fresh clone starts blank; the onboarding flow (or the *.example
+# templates under master_data/templates/) seeds these files locally.
+# =====================================================================
+
+# --- Secrets / personal config ---------------------------------------
+/config.yaml
+/config.yaml.*
+/private/
+
+# --- Personal master data (created by onboarding) --------------------
+/master_data/resume.yaml
+/master_data/bio.md
+/master_data/*.docx
+/master_data/*.pdf
+/master_data/stories/*.md
+!/master_data/stories/_INDEX.md
+/master_data/cover_letters/examples/*
+!/master_data/cover_letters/examples/.gitkeep
+
+# --- Generated artifacts ---------------------------------------------
+/output/
+/data/app.db
+/data/*.db
+.job_cache.json
+
+# --- Python ----------------------------------------------------------
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# --- Node / web ------------------------------------------------------
+web/node_modules/
+web/.next/
+web/out/
+
+# --- OS / editor -----------------------------------------------------
+.DS_Store
+Thumbs.db
+
+testsprite_tests/tmp/
+
+# Stray build/debug artifacts
+/_dump.html
+/_layout.js
+/_runtime.js
+/HANDOFF_PROMPT.md
+/logs/

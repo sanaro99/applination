@@ -1,0 +1,95 @@
+# =====================================================================
+# MASTER RESUME (template) — copy to ../resume.yaml and fill in.
+# This is the "everything" file: list ALL your real experience and
+# projects with generous bullets. The LLM selects and trims per job, so
+# more truthful material here = better tailoring. Never invent content.
+#
+# The onboarding flow can generate this for you from an uploaded resume.
+# =====================================================================
+
+# Optional: pins your identity so tailored summaries stay truthful. If
+# omitted, it is derived from your most-recent non-internship roles +
+# top education (see src/profile.py). Set it when the derivation is wrong.
+profile:
+  identity_titles: ["Software Engineer"]   # your REAL job title(s)
+  seniority: "professional"                 # student | new-grad | professional
+  preserve_fulltime: true                   # keep your full-time roles in every tailored resume
+  # education_close: "BS Computer Science, State University"   # optional closing credential
+
+# Multiple summary options. The LLM remixes one per JD (never copies verbatim).
+summary_options:
+  - "Software Engineer with 3+ years building production web services. Shipped X that did Y, improving Z by N%. BS in Computer Science."
+  - "Backend-leaning software engineer focused on reliability and APIs. Led <project>, <impact>. Comfortable across the stack."
+
+# Core skills — MUST appear in every tailored resume regardless of JD.
+# Keep to the load-bearing ATS keywords for your target roles.
+core_skills:
+  - "Python"
+  - "SQL"
+  - "Git"
+  - "REST APIs"
+  - "System Design"
+  - "Unit Testing"
+
+# Skills the LLM may ADD when a JD calls for them — only credible adjacents
+# you can speak to from nearby work.
+ats_adjacent_skills:
+  - "Docker"
+  - "PostgreSQL"
+  - "CI/CD"
+  - "AWS"
+  - "Data Structures & Algorithms"
+
+# Grouped skills for the rendered resume.
+skills:
+  languages: ["Python", "JavaScript", "SQL"]
+  frameworks: ["React", "FastAPI", "Flask"]
+  data: ["PostgreSQL", "Redis"]
+  devops_cloud: ["Docker", "Git", "CI/CD", "AWS"]
+  practices: ["Agile", "Code Review", "Unit Testing", "System Design"]
+
+experience:
+  - company: "Example Corp"
+    role: "Software Engineer"             # NOT an internship -> treated as full-time
+    location: "City, ST"
+    start_date: "Jun 2022"
+    end_date: "Present"
+    bullets_all:
+      - "Built <thing> using <tech>, achieving <quantified outcome> (e.g. cut latency 40%, served 100K requests/day)."
+      - "Owned <system/area>; collaborated with <whom> to ship <result> under <constraint>."
+      - "Add as many real, specific bullets as you can — the tailor picks the best per job."
+
+  - company: "Example Corp"
+    role: "Software Engineering Intern"   # contains 'intern' -> treated as internship
+    location: "City, ST"
+    start_date: "Jun 2021"
+    end_date: "Aug 2021"
+    bullets_all:
+      - "Shipped <feature> that <impact>."
+
+projects:
+  - name: "Your Project"
+    tech: "Python, FastAPI, React"
+    link: "github.com/you/project"
+    bullets_all:
+      - "What it does and the interesting/hard part, with a concrete result."
+      - "A second bullet on scope, scale, or what you learned."
+
+education:
+  - school: "State University"
+    degree: "BS Computer Science"
+    location: "City, ST"
+    start_date: "Sep 2018"
+    end_date: "Jun 2022"
+    gpa: "3.8/4.0"               # optional
+    coursework:                 # optional — used to fill the page when space allows
+      - "Data Structures"
+      - "Algorithms"
+      - "Operating Systems"
+      - "Databases"
+
+certifications: []              # optional, list of strings
+
+awards: []                      # optional, list of {name, date, description}
+
+activities: []                  # optional, list of strings

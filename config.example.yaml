@@ -1,0 +1,176 @@
+# =====================================================================
+# Applination — User Configuration (template)
+# ---------------------------------------------------------------------
+# Copy this file to `config.yaml` and fill it in, OR just run the web
+# app and complete the onboarding flow, which writes config.yaml for you.
+# config.yaml is gitignored, so your keys and details never get committed.
+# =====================================================================
+
+user:
+  full_name: "Your Name"
+  email: "you@example.com"
+  phone: "+1 (555) 555-5555"
+  location_city: "City, ST"
+  linkedin: "linkedin.com/in/you"
+  github: "github.com/you"
+  portfolio: ""               # optional personal site
+
+# What kind of roles do you want?
+search:
+  # Keywords used to query job boards. Be specific. Quoted phrases are AND.
+  # Examples: ["software engineer intern", "data scientist", "ML engineer"]
+  keywords:
+    - "software engineer intern"
+    - "machine learning intern"
+    - "data science intern"
+
+  # "last_n_hours" controls the freshness filter (default 24).
+  last_n_hours: 24
+
+  # Remote / hybrid / onsite preference. Used for filtering + Excel column.
+  remote_ok: true
+  onsite_cities: ["Remote"]
+
+  # Countries to restrict to (ISO codes). Used by Adzuna/JSearch where supported.
+  countries: ["us"]
+
+  # Maximum jobs written to the day's Excel + folder.
+  max_jobs_per_day: 20
+
+  # Only keep jobs whose match_score >= this (0-100). The LLM ranks them.
+  min_match_score: 55
+
+  # Skip re-processing jobs seen within the last N days (uses output/.job_cache.json).
+  # Set to 0 or use --no-cache flag to disable. Cuts costs ~80% on day 2+ runs.
+  cache_ttl_days: 7
+
+# =====================================================================
+# Job sources. Enable/disable and fill keys. All are free or free-tier.
+# =====================================================================
+sources:
+  remotive:
+    enabled: true          # No key required. Remote jobs only.
+
+  themuse:
+    enabled: true          # No key required. Good variety.
+
+  adzuna:
+    enabled: false         # Free. Register at https://developer.adzuna.com
+    app_id: ""
+    app_key: ""
+
+  jsearch:
+    enabled: false         # RapidAPI. LinkedIn+Indeed coverage. Free tier = 200/mo.
+    rapidapi_key: ""       # or set RAPIDAPI_KEY env var
+
+  greenhouse:
+    enabled: true
+    # A built-in list of ~250 known Greenhouse company slugs is used by default.
+    use_builtin_list: true
+    extra_companies: []    # add slugs from a company's careers URL
+
+  # SimplifyJobs / Pitt CSC intern list (no key needed). Updated daily.
+  simplify_github:
+    enabled: true
+    max_age_days: 9999  # get ALL currently open roles; set to 7 for "what's new"
+    us_only: true
+
+  # Lever — company career boards (no key needed). Add slugs you know use Lever.
+  lever:
+    enabled: false
+    last_n_hours: 720
+    companies: []          # e.g. [mistral, plaid] — verify at jobs.lever.co/{slug}
+
+# =====================================================================
+# LLM providers — primary + fallbacks.
+# Fill in the API key for at least ONE provider. The onboarding flow can
+# do this for you and test connectivity.
+# =====================================================================
+llm:
+  primary: "gemini"        # claude | gemini | ollama | nim | openrouter | deepseek | mistral
+  fallbacks: ["mistral", "openrouter"]
+
+  # Per-task provider chains. Omit a task block to inherit the global chain above.
+  tasks:
+    ranking:
+      primary: "gemini"
+      fallbacks: ["mistral", "openrouter"]
+    tailoring:
+      primary: "gemini"
+      fallbacks: ["mistral", "openrouter"]
+    tailoring_premium:
+      primary: "gemini"
+      fallbacks: ["mistral", "openrouter"]
+    cover_letter:
+      primary: "gemini"
+      fallbacks: ["mistral", "openrouter"]
+    critique:
+      primary: "mistral"
+      fallbacks: ["gemini"]
+    answer_questions:
+      primary: "mistral"
+      fallbacks: ["gemini"]
+
+  critique_cover_letters: false
+  critique_top_n: 15
+  tailoring_premium_top_n: 3
+
+  claude:
+    api_key: ""                  # or set ANTHROPIC_API_KEY env var
+    model: "claude-haiku-4-5-20251001"
+  gemini:
+    api_key: ""                  # or set GOOGLE_API_KEY env var — free at aistudio.google.com
+    model: "gemini-2.5-flash"
+  openrouter:
+    api_key: ""                  # or set OPENROUTER_API_KEY env var — free at openrouter.ai/keys
+    model: "tencent/hy3-preview:free"
+    site_url: ""
+    site_name: "applination"
+  deepseek:
+    api_key: ""                  # or set DEEPSEEK_API_KEY env var — platform.deepseek.com
+    model: "deepseek-chat"
+  mistral:
+    api_key: ""                  # or set MISTRAL_API_KEY env var — console.mistral.ai
+    model: "mistral-small-latest"
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "llama3.2"
+  nim:
+    api_key: ""                  # or set NVIDIA_API_KEY env var
+    base_url: "https://integrate.api.nvidia.com/v1"
+    model: "meta/llama-3.1-8b-instruct"
+
+# =====================================================================
+# Output + format
+# =====================================================================
+output:
+  root: "./output"              # folder tree is output/YYYY-MM-DD/Company_Role/
+  produce_pdf: true             # requires LibreOffice or Microsoft Word installed
+  font_name: "Times New Roman"
+  base_font_size: 10.0          # pt. Body text (headings are +2pt = 11pt).
+  margins_inches: 0.25          # left/right; top/bottom auto-set to 0.19"
+
+# =====================================================================
+# Close the loop — read recruiter replies + send reminders.
+# Uses plain IMAP/SMTP (no Google OAuth). For Gmail: turn on 2-Step
+# Verification, then create an "App Password" and paste it below.
+# https://myaccount.google.com/apppasswords
+# =====================================================================
+inbox:
+  enabled: false
+  email: ""                     # your Gmail address
+  app_password: ""              # Gmail App Password (NOT your login password)
+  imap_host: "imap.gmail.com"
+  imap_port: 993
+  scan_days: 30                 # how many days back to scan on each sync
+  min_confidence: 0.6           # only change status when the LLM is this sure (0-1)
+  auto_update_status: true      # advance applied -> interviewing/rejected/offer
+  max_classifications: 80       # cap LLM calls per sync (cost guard)
+
+reminders:
+  digest_enabled: false         # email a daily "what needs attention" digest
+  digest_to: ""                 # recipient; defaults to user.email
+  deadline_window_days: 7       # surface deadlines within this many days
+  follow_up_days: 10            # nudge applications with no reply after N days
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587                # sends via the inbox.email + inbox.app_password

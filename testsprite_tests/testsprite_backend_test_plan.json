@@ -1,0 +1,52 @@
+[
+  {
+    "id": "TC001",
+    "title": "get_health_endpoint_returns_service_status",
+    "description": "Verify that GET /api/health returns a 200 status code with a JSON body containing {ok: true} when the service is healthy."
+  },
+  {
+    "id": "TC002",
+    "title": "post_runs_starts_pipeline_run",
+    "description": "Test POST /api/runs with valid body parameters to start a new pipeline run and verify the response contains the created run record with status and metadata."
+  },
+  {
+    "id": "TC003",
+    "title": "get_runs_list_recent_runs",
+    "description": "Verify GET /api/runs returns a 200 status code with an array of recent runs ordered from newest to oldest."
+  },
+  {
+    "id": "TC004",
+    "title": "get_runs_runid_stream_returns_sse_events",
+    "description": "Test GET /api/runs/{run_id}/stream returns a 200 status with text/event-stream content type streaming pipeline progress events."
+  },
+  {
+    "id": "TC005",
+    "title": "post_runs_runid_stop_cancels_active_run",
+    "description": "Verify POST /api/runs/{run_id}/stop cancels an active run and returns 200 with updated run record; returns 404 if run is missing and 409 if run is not active."
+  },
+  {
+    "id": "TC006",
+    "title": "get_applications_filters_and_retrieves_applications",
+    "description": "Test GET /api/applications with optional run_id and status filters returns 200 with matching application array."
+  },
+  {
+    "id": "TC007",
+    "title": "patch_applications_runid_updates_application",
+    "description": "Verify PATCH /api/applications/{app_id} updates application fields like status, notes, tags, and deadline; returns 422 on invalid status and 404 if application is missing."
+  },
+  {
+    "id": "TC008",
+    "title": "post_ranked_rankedid_generate_rescues_job",
+    "description": "Test POST /api/ranked/{ranked_id}/generate rescues a non-selected job by generating an application; returns 200 with new run_id, 404 if ranked job missing, 409 if already generated, and 400 if no stored description."
+  },
+  {
+    "id": "TC009",
+    "title": "post_inbox_sync_updates_application_statuses",
+    "description": "Verify POST /api/inbox/sync with valid Gmail credentials scans inbox and updates application statuses; returns 400 if inbox credentials are missing."
+  },
+  {
+    "id": "TC010",
+    "title": "get_reminders_digest_preview_returns_digest_content",
+    "description": "Test GET /api/reminders/digest/preview returns 200 with digest subject, html, text, and empty flag without sending an email."
+  }
+]

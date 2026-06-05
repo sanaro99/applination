@@ -1,0 +1,1276 @@
+[
+  {
+    "id": "TC001",
+    "title": "Review dashboard overview cards",
+    "description": "Verifies that the dashboard shows the key application and run summary information needed to orient the user at a glance.",
+    "category": "Dashboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify application summary information is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify recent activity and upcoming deadlines are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC002",
+    "title": "Start a pipeline run",
+    "description": "Verifies that a user can launch a pipeline run from the run page and see progress begin for the current execution.",
+    "category": "Pipeline Run",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /run"
+      },
+      {
+        "type": "action",
+        "description": "Start a pipeline run"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify live run progress is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC003",
+    "title": "Browse applications in table view",
+    "description": "Verifies that a user can open the applications list and review applications in the default table-based browsing experience.",
+    "category": "Applications List",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /applications"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the applications table is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify application rows are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC004",
+    "title": "View application details and version history",
+    "description": "A candidate can open a saved application and review its core details along with version history.",
+    "category": "Application Detail",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /applications/1"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the application record is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify version history is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC005",
+    "title": "Watch pipeline stages update during a run",
+    "description": "Verifies that live pipeline progress updates are shown as the run advances through multiple stages.",
+    "category": "Pipeline Run",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /run"
+      },
+      {
+        "type": "action",
+        "description": "Start a pipeline run"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify multiple run stage updates are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC006",
+    "title": "Edit the cover letter and keep the update",
+    "description": "A candidate can edit the cover letter inline and save the updated draft on the application record.",
+    "category": "Application Detail",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /applications/1"
+      },
+      {
+        "type": "action",
+        "description": "Edit the cover letter text inline"
+      },
+      {
+        "type": "action",
+        "description": "Save the updated draft"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the updated cover letter is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a new version is recorded"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC007",
+    "title": "Update application metadata",
+    "description": "A candidate can update notes, tags, deadline, and status on an application and keep the changes persisted.",
+    "category": "Application Detail",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /applications/1"
+      },
+      {
+        "type": "action",
+        "description": "Update the notes, tags, deadline, and status"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the updated application metadata is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the changes persist on the application record"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC008",
+    "title": "Stop a pipeline run gracefully",
+    "description": "Verifies that a user can stop an in-progress run and see it finish in a controlled way after the current job completes.",
+    "category": "Pipeline Run",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /run"
+      },
+      {
+        "type": "action",
+        "description": "Start a pipeline run"
+      },
+      {
+        "type": "action",
+        "description": "Stop the running pipeline"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the run ends after the current job finishes"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC009",
+    "title": "Inspect the latest resume changes",
+    "description": "A candidate can open the resume diff for an application and see how the latest version changed.",
+    "category": "Application Detail",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /applications/1"
+      },
+      {
+        "type": "action",
+        "description": "Open the resume version diff"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the resume diff is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the latest changes are visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC010",
+    "title": "View the ranked jobs triage",
+    "description": "Verifies that a user can open the ranked triage view and see jobs ready for review.",
+    "category": "Run Detail and Ranked Triage",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /runs/1"
+      },
+      {
+        "type": "action",
+        "description": "Open the ranked jobs triage view"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify ranked jobs are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify triage controls are available"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC011",
+    "title": "Rescue a job from triage",
+    "description": "Verifies that a user can rescue a non-selected job so it is prepared for generation or follow-up.",
+    "category": "Run Detail and Ranked Triage",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /runs/1"
+      },
+      {
+        "type": "action",
+        "description": "Open the ranked jobs triage view"
+      },
+      {
+        "type": "action",
+        "description": "Rescue a non-selected job for generation"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the rescued job is no longer in the non-selected pool"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the rescued job is marked for follow-up"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC012",
+    "title": "Open the runs history page",
+    "description": "Verifies that a user can access the runs history list and see prior pipeline executions.",
+    "category": "Runs History",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /runs"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the list of past runs is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC013",
+    "title": "Apply a bulk status change to selected applications",
+    "description": "Verifies that a user can select multiple applications and update their statuses together from the list view.",
+    "category": "Applications List",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /applications"
+      },
+      {
+        "type": "action",
+        "description": "Select multiple applications"
+      },
+      {
+        "type": "action",
+        "description": "Apply a bulk status change"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected applications reflect the updated status"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC014",
+    "title": "Create a tailored application from a job URL",
+    "description": "A candidate can use the single job wizard to extract a posting from a URL, generate tailored materials, and reach the new application record.",
+    "category": "Single Job Wizard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /single"
+      },
+      {
+        "type": "action",
+        "description": "Provide a job URL"
+      },
+      {
+        "type": "action",
+        "description": "Review the extracted job details"
+      },
+      {
+        "type": "action",
+        "description": "Generate tailored materials"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a new application record is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify document links are available"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC015",
+    "title": "Review run timeline and logs",
+    "description": "Verifies that a user can open a run and see its timeline and log output.",
+    "category": "Run Detail and Ranked Triage",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /runs/1"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the run timeline is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify run logs are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC016",
+    "title": "Search and filter applications",
+    "description": "Verifies that a user can narrow the applications list by searching and filtering to find relevant records quickly.",
+    "category": "Applications List",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /applications"
+      },
+      {
+        "type": "action",
+        "description": "Search for a relevant application"
+      },
+      {
+        "type": "action",
+        "description": "Filter applications by status"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the applications list is narrowed to matching results"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC017",
+    "title": "Download application documents",
+    "description": "A candidate can download the resume or cover letter documents from an application record.",
+    "category": "Application Detail",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /applications/1"
+      },
+      {
+        "type": "action",
+        "description": "Download the resume document"
+      },
+      {
+        "type": "action",
+        "description": "Download the cover letter document"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the exported documents are available"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC018",
+    "title": "Download a calendar reminder from the dashboard",
+    "description": "Verifies that a user can obtain a calendar reminder file from the dashboard to track an upcoming deadline externally.",
+    "category": "Dashboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Request a calendar reminder download from the dashboard"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the reminder download is initiated"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC019",
+    "title": "Inspect run status and timing information",
+    "description": "Verifies that the runs history page shows enough information to compare prior run outcomes and durations.",
+    "category": "Runs History",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /runs"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify run status information is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify run timing information is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC020",
+    "title": "Filter ranked jobs by selection status",
+    "description": "Verifies that a user can narrow the ranked triage pool to the jobs matching a selection status.",
+    "category": "Run Detail and Ranked Triage",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /runs/1"
+      },
+      {
+        "type": "action",
+        "description": "Open the ranked jobs triage view"
+      },
+      {
+        "type": "action",
+        "description": "Filter the pool by a selection status"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the ranked pool updates to reflect the selected filter"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC021",
+    "title": "Dismiss a job from future triage",
+    "description": "Verifies that a user can dismiss a job and remove it from future ranked triage.",
+    "category": "Run Detail and Ranked Triage",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /runs/1"
+      },
+      {
+        "type": "action",
+        "description": "Open the ranked jobs triage view"
+      },
+      {
+        "type": "action",
+        "description": "Dismiss a job from future runs"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the dismissed job is removed from the ranked pool"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the dismissed job is no longer available for future triage"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC022",
+    "title": "Start a mock interview session",
+    "description": "Verifies that a candidate can begin a mock interview and see the first interview question appear.",
+    "category": "Mock Interview",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /interview"
+      },
+      {
+        "type": "action",
+        "description": "Start a mock interview session"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the first interview question is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC023",
+    "title": "Switch applications to kanban view",
+    "description": "Verifies that a user can switch from the table to the kanban view and review applications grouped by status.",
+    "category": "Applications List",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /applications"
+      },
+      {
+        "type": "action",
+        "description": "Switch to kanban view"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify applications are grouped by status in kanban columns"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC024",
+    "title": "Create a tailored application from pasted job details",
+    "description": "A candidate can skip URL extraction, enter job details manually, and generate a job-specific application.",
+    "category": "Single Job Wizard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /single"
+      },
+      {
+        "type": "action",
+        "description": "Skip URL extraction"
+      },
+      {
+        "type": "action",
+        "description": "Enter job details manually"
+      },
+      {
+        "type": "action",
+        "description": "Review and adjust the parsed fields"
+      },
+      {
+        "type": "action",
+        "description": "Generate the job-specific application"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a new application record is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the tailored job details are preserved"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC025",
+    "title": "Open a run from history for more detail",
+    "description": "Verifies that a user can move from the runs list into a specific run detail view.",
+    "category": "Runs History",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /runs"
+      },
+      {
+        "type": "action",
+        "description": "Open a run from the history list"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the run detail view is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC026",
+    "title": "Receive coached feedback after answering",
+    "description": "Verifies that answering a mock interview question produces feedback, a model answer, and the next question.",
+    "category": "Mock Interview",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /interview"
+      },
+      {
+        "type": "action",
+        "description": "Start a mock interview session"
+      },
+      {
+        "type": "action",
+        "description": "Answer the first interview question"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify coached feedback is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a model answer and the next question are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC027",
+    "title": "Sync recruiter replies from inbox sources",
+    "description": "Verifies that a user can trigger inbox syncing from the applications list and see inbox-linked activity updated in the interface.",
+    "category": "Applications List",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /applications"
+      },
+      {
+        "type": "action",
+        "description": "Trigger inbox sync"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify inbox sync feedback is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify inbox-linked application activity is updated"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC028",
+    "title": "Generate an essay draft from a prompt",
+    "description": "Verifies that a user can enter a prompt in the essay drafter and generate a completed draft.",
+    "category": "Essay Drafter",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /essay"
+      },
+      {
+        "type": "action",
+        "description": "Enter an essay prompt"
+      },
+      {
+        "type": "action",
+        "description": "Generate the draft"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a completed essay draft is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC029",
+    "title": "Review the application pipeline overview from a run",
+    "description": "Verifies that a user can move from a run into reviewing the resulting application tracking state and deadlines.",
+    "category": "Run Detail and Ranked Triage",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /runs/1"
+      },
+      {
+        "type": "action",
+        "description": "Open the ranked jobs triage view"
+      },
+      {
+        "type": "action",
+        "description": "Rescue a non-selected job for generation"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the run reflects a rescued job ready to continue the pipeline"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify pipeline progress remains visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC030",
+    "title": "Request an email digest from the dashboard",
+    "description": "Verifies that a user can trigger the dashboard reminder workflow and receive visible status feedback afterward.",
+    "category": "Dashboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Request an email digest from the dashboard"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify reminder status feedback is visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC031",
+    "title": "Continue through multiple interview questions",
+    "description": "Verifies that a user can keep progressing through a structured mock interview across several turns.",
+    "category": "Mock Interview",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /interview"
+      },
+      {
+        "type": "action",
+        "description": "Start a mock interview session"
+      },
+      {
+        "type": "action",
+        "description": "Answer the first interview question"
+      },
+      {
+        "type": "action",
+        "description": "Answer the next interview question"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the interview continues with another question"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify prior coached feedback remains visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC032",
+    "title": "Start a coaching conversation",
+    "description": "An AI-assisted coach user can open the coach page and receive a grounded response to a new question.",
+    "category": "Coach Chat",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /coach"
+      },
+      {
+        "type": "action",
+        "description": "Start a new coaching conversation"
+      },
+      {
+        "type": "action",
+        "description": "Ask a career or application question"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a grounded coach response is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC033",
+    "title": "Generate an essay with instructions and a word limit",
+    "description": "Verifies that optional guidance is applied when drafting an essay and the resulting output is shown.",
+    "category": "Essay Drafter",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /essay"
+      },
+      {
+        "type": "action",
+        "description": "Enter an essay prompt"
+      },
+      {
+        "type": "action",
+        "description": "Add optional instructions"
+      },
+      {
+        "type": "action",
+        "description": "Set a word limit"
+      },
+      {
+        "type": "action",
+        "description": "Generate the draft"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the draft is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the essay reflects the provided constraints"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC034",
+    "title": "Use an application as coaching context",
+    "description": "An AI-assisted coach user can select an application for context and receive advice grounded in that job.",
+    "category": "Coach Chat",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /coach"
+      },
+      {
+        "type": "action",
+        "description": "Select a specific application as context"
+      },
+      {
+        "type": "action",
+        "description": "Ask for help with that job"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a response grounded in the selected application is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC035",
+    "title": "Compare two runs side by side",
+    "description": "Verifies that a user can compare two runs and review the differences between their outcomes.",
+    "category": "Run Compare",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /runs/compare"
+      },
+      {
+        "type": "action",
+        "description": "Select two runs to compare"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the comparison view displays outcome differences"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify shared and unique companies are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC036",
+    "title": "Generate and save an improved bio draft",
+    "description": "Verifies that a user can open the bio tab, request AI assistance, review a generated draft, and save the improved bio content.",
+    "category": "Master Data Editor",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /master-data"
+      },
+      {
+        "type": "action",
+        "description": "Open the bio tab"
+      },
+      {
+        "type": "action",
+        "description": "Request AI assistance for the bio"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an improved bio draft is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Save the bio content"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a save confirmation is visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC037",
+    "title": "Review the mock interview workspace before starting",
+    "description": "Verifies that the mock interview page loads with the main coaching workspace ready for interaction.",
+    "category": "Mock Interview",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /interview"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the coaching workspace is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the page is ready to start an interview session"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC038",
+    "title": "Update and save resume source content",
+    "description": "Verifies that a user can open master data, edit resume content, save the changes, and see the updated resume content persist in the editor.",
+    "category": "Master Data Editor",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /master-data"
+      },
+      {
+        "type": "action",
+        "description": "Open the resume tab"
+      },
+      {
+        "type": "action",
+        "description": "Edit the resume content"
+      },
+      {
+        "type": "action",
+        "description": "Save the resume content"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the updated resume content is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a save confirmation is visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC039",
+    "title": "Review raw application data",
+    "description": "A candidate can view the underlying job and resume data for an application and return to the application record.",
+    "category": "Application Detail",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /applications/1"
+      },
+      {
+        "type": "action",
+        "description": "View the job and resume raw data"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify raw application data is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the application record remains accessible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC040",
+    "title": "Review analytics charts",
+    "description": "Verifies that a user can open the stats page and review the main analytics views for application performance.",
+    "category": "Stats",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /stats"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify analytics charts are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify application outcome trends are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC041",
+    "title": "Review an essay draft after generation",
+    "description": "Verifies that the essay drafter keeps the generated response visible for review after completion.",
+    "category": "Essay Drafter",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /essay"
+      },
+      {
+        "type": "action",
+        "description": "Enter an essay prompt"
+      },
+      {
+        "type": "action",
+        "description": "Generate the draft"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the generated essay remains visible for review"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC042",
+    "title": "Handle an empty applications search result",
+    "description": "Verifies that searching for nothing matching the current applications set shows an empty state instead of stale rows.",
+    "category": "Applications List",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /applications"
+      },
+      {
+        "type": "action",
+        "description": "Search for a unique unmatched term"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an empty state message is visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC043",
+    "title": "Save a useful coaching answer",
+    "description": "An AI-assisted coach user can save a strong coach response to the answer bank for later reuse.",
+    "category": "Coach Chat",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /coach"
+      },
+      {
+        "type": "action",
+        "description": "Start a new coaching conversation"
+      },
+      {
+        "type": "action",
+        "description": "Ask a career or application question"
+      },
+      {
+        "type": "action",
+        "description": "Save the assistant response to the answer bank"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the saved answer is available in the answer bank"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC044",
+    "title": "Create a new story from a description",
+    "description": "Verifies that a user can start a new story from a description, generate a structured story draft, review it, and save the story.",
+    "category": "Master Data Editor",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /master-data"
+      },
+      {
+        "type": "action",
+        "description": "Open the stories tab"
+      },
+      {
+        "type": "action",
+        "description": "Start a new story from a description"
+      },
+      {
+        "type": "action",
+        "description": "Generate the story draft"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a structured story draft is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Save the story"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new story is visible in the stories list"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC045",
+    "title": "Inspect score distribution",
+    "description": "Verifies that a user can review match score distribution data in the analytics view.",
+    "category": "Stats",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /stats"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify score distribution data is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify throughput data is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC046",
+    "title": "Change and save a workflow task assignment",
+    "description": "Verifies that a user can update a workflow task's provider or model assignment and save the routing configuration successfully.",
+    "category": "Workflows Editor",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /workflows"
+      },
+      {
+        "type": "action",
+        "description": "Change a workflow task assignment"
+      },
+      {
+        "type": "action",
+        "description": "Save the routing configuration"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the updated task assignment is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a save confirmation is visible"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC047",
+    "title": "Switch between comparison and analytics workflows",
+    "description": "Verifies that a user can move between run comparison and stats review without losing access to either workflow.",
+    "category": "Run Compare",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /runs/compare"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the comparison view is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /stats"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify analytics charts are displayed"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC048",
+    "title": "Review workflow routing assignments",
+    "description": "Verifies that a user can open the workflows editor and inspect the provider and model assignments for workflow tasks.",
+    "category": "Workflows Editor",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /workflows"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the workflow routing editor is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify task provider and model assignments are displayed"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC049",
+    "title": "Check provider connectivity from config editor",
+    "description": "Verifies that a user can run provider connectivity checks from the config editor and see the connectivity results panel populate.",
+    "category": "Config Editor",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /config"
+      },
+      {
+        "type": "action",
+        "description": "Run the provider connectivity check"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify provider connectivity results are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the results indicate the available providers"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC050",
+    "title": "Inspect the updated workflow task chain",
+    "description": "Verifies that after saving routing changes, a user can review the resulting task chain and confirm the updated assignment order is shown.",
+    "category": "Workflows Editor",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /workflows"
+      },
+      {
+        "type": "action",
+        "description": "Change a workflow task assignment"
+      },
+      {
+        "type": "action",
+        "description": "Save the routing configuration"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the updated task chain is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the changed task remains assigned to the selected provider or model"
+      }
+    ],
+    "priority": "Low"
+  }
+]

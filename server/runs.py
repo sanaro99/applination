@@ -268,7 +268,9 @@ def _link_ranked(s, run_id: int, evt: dict, app_id: int | None) -> None:
 
 
 @router.post("", response_model=RunOut)
-def start_run(body: StartRunBody) -> RunOut:
+def start_run(body: StartRunBody | None = None) -> RunOut:
+    # Body is optional: an empty POST starts a normal (non-dry) run with defaults.
+    body = body or StartRunBody()
     with session() as s:
         run = Run(
             dry_run=body.dry_run,
@@ -295,13 +297,16 @@ class StopRunBody(BaseModel):
 
 
 @router.post("/{run_id}/stop", response_model=RunOut)
-def stop_run(run_id: int, body: StopRunBody) -> RunOut:
+def stop_run(run_id: int, body: StopRunBody | None = None) -> RunOut:
     """Request cancellation of an in-flight run.
 
     `graceful=true` finishes the job currently being tailored and still writes
     the Excel tracker; `graceful=false` stops as soon as that job returns,
     skipping the tracker. Either way the run ends with status `cancelled`.
+
+    The body is optional; an empty POST defaults to a graceful stop.
     """
+    graceful = body.graceful if body is not None else True
     with session() as s:
         r = s.get(Run, run_id)
         if r is None:
@@ -310,11 +315,11 @@ def stop_run(run_id: int, body: StopRunBody) -> RunOut:
             raise HTTPException(
                 409, f"run #{run_id} is not active (status={r.status.value})"
             )
-    mode = "graceful" if body.graceful else "hard"
+    mode = "graceful" if graceful else "hard"
     _request_stop(run_id, mode)
     log.info("stop requested for run %d (%s)", run_id, mode)
     # Surface a non-terminal event so live subscribers can show "stopping…".
-    bus.publish_threadsafe(run_id, {"type": "stopping", "graceful": body.graceful})
+    bus.publish_threadsafe(run_id, {"type": "stopping", "graceful": graceful})
     with session() as s:
         r = s.get(Run, run_id)
         return _run_to_out(r)

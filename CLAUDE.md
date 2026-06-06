@@ -43,8 +43,8 @@ cd web && npm run dev                                    # web only
 - Personal data is gitignored — never commit `config.yaml`, `master_data/resume.yaml`,
   `master_data/bio.md`, `master_data/stories/*.md` (except `_INDEX.md`), or
   `master_data/cover_letters/examples/*` (except `.gitkeep`).
-- Remote: `https://github.com/sanaro99/applination` (branch: `master`)
-- After committing: `git push origin master`
+- Remote: `https://github.com/sanaro99/applination` (branch: `main`)
+- After committing: `git push origin main`
 
 ## Web architecture
 

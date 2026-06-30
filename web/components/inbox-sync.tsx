@@ -53,7 +53,7 @@ export function InboxSync() {
       <Link
         href="/config"
         className={buttonVariants({ variant: "ghost", size: "sm" })}
-        title="Add a Gmail App Password in config to enable inbox sync"
+        title="Connect Gmail in config to enable inbox sync"
       >
         <MailWarning className="size-4" />
         Connect inbox

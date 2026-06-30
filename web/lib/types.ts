@@ -219,7 +219,9 @@ export interface RankedJobPreview {
 export interface InboxStatus {
   configured: boolean;
   enabled: boolean;
-  email_masked: string;
+  account_email: string;
+  has_client_credentials: boolean;
+  redirect_uri: string;
   scan_days: number;
   last_sync: string | null;
   auto_update_status: boolean;

@@ -208,6 +208,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ days: days ?? null }),
     }),
+  inboxOauthCredentials: (clientId: string, clientSecret: string) =>
+    http<{ ok: boolean }>("/api/inbox/oauth/credentials", {
+      method: "PUT",
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+    }),
+  inboxOauthDisconnect: () =>
+    http<{ ok: boolean }>("/api/inbox/oauth/disconnect", { method: "POST" }),
+  inboxOauthAuthorizeUrl: () => `${API_BASE}/api/inbox/oauth/authorize`,
   remindersStatus: () => http<RemindersStatus>("/api/reminders/status"),
   digestPreview: () => http<DigestPreview>("/api/reminders/digest/preview"),
   digestSend: () =>

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TextEditor } from "@/components/text-editor";
 import { ProvidersPanel } from "@/components/providers-panel";
+import { GmailConnectCard } from "@/components/gmail-connect-card";
 import { api } from "@/lib/api";
 
 export default function ConfigPage() {
@@ -17,6 +18,7 @@ export default function ConfigPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       <ProvidersPanel />
+      <GmailConnectCard />
       <Card>
         <CardHeader>
           <CardTitle>config.yaml</CardTitle>

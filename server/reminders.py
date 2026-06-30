@@ -3,10 +3,9 @@
 - ``GET /api/calendar.ics`` serves a live feed of deadlines + interviews that a
   calendar app can import/subscribe to.
 - The digest endpoints assemble "what needs attention" (deadlines, interviews,
-  quiet applications to follow up, fresh matches) and can email it via the
-  inbox's Gmail SMTP credentials.
-
-No Google API / OAuth — stdlib iCalendar + smtplib only.
+  quiet applications to follow up, fresh matches) and email it through the
+  Gmail API, reusing the same OAuth connection as inbox sync
+  (``server/gmail_auth.py``).
 """
 from __future__ import annotations
 import logging
@@ -16,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 from sqlmodel import select
 
+from . import gmail_auth
 from .db import Application, ApplicationStatus, session
 from .deps import load_config
 
@@ -163,44 +163,30 @@ class DigestSendResult(BaseModel):
 
 @router.post("/api/reminders/digest/send", response_model=DigestSendResult)
 def digest_send() -> DigestSendResult:
-    from src.digest import send_email
+    from src.gmail_api import send_via_gmail_api
 
     cfg = load_config()
-    inbox = cfg.get("inbox") or {}
     rem = cfg.get("reminders") or {}
-    sender = str(inbox.get("email") or "")
-    password = str(inbox.get("app_password") or "")
-    if not sender or not password:
+    creds = gmail_auth.get_credentials()
+    sender = gmail_auth.account_email() or ""
+    if creds is None or not sender:
         raise HTTPException(
             400,
-            "Email sending needs inbox.email + inbox.app_password (Gmail App "
-            "Password) — the digest reuses those SMTP credentials.",
+            "Email sending needs Gmail connected — connect it from the Config page.",
         )
     to = str(rem.get("digest_to") or (cfg.get("user") or {}).get("email") or sender)
     _data, subject, html, text = _build_digest_payload()
     try:
-        send_email(
-            host=str(rem.get("smtp_host") or "smtp.gmail.com"),
-            port=int(rem.get("smtp_port", 587) or 587),
-            username=sender,
-            password=password,
-            sender=sender,
-            to=to,
-            subject=subject,
-            html=html,
-            text=text,
-        )
+        send_via_gmail_api(creds, sender=sender, to=to, subject=subject, html=html, text=text)
     except Exception as e:
-        raise HTTPException(400, f"SMTP send failed: {e}")
+        raise HTTPException(400, f"Gmail send failed: {e}")
     return DigestSendResult(sent=True, to=to)
 
 
 @router.get("/api/reminders/status")
 def reminders_status() -> dict:
-    cfg = load_config()
-    inbox = cfg.get("inbox") or {}
-    rem = cfg.get("reminders") or {}
-    can_send = bool(inbox.get("email")) and bool(inbox.get("app_password"))
+    rem = load_config().get("reminders") or {}
+    can_send = gmail_auth.is_connected()
     deadlines, interviews, follow_ups, new_matches, _counts = _gather()
     return {
         "can_send_email": can_send,

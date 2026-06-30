@@ -1,22 +1,21 @@
-"""Read a Gmail (or any IMAP) inbox and classify recruiter replies.
+"""Parse Gmail messages and classify recruiter replies.
 
-Stdlib-only (``imaplib`` + ``email``) so the standalone app needs no Google
-OAuth — just a Gmail address and an app password. This module is engine-side:
-it knows nothing about the DB. The server (``server/inbox.py``) owns matching
-emails to applications and applying status changes.
+Email parsing (``_parse_message``) is transport-agnostic: it takes raw RFC822
+bytes, which ``src/gmail_api.GmailApiScanner`` fetches via the Gmail API
+(OAuth — see ``src/gmail_oauth.py``). This module is engine-side: it knows
+nothing about the DB. The server (``server/inbox.py``) owns matching emails to
+applications and applying status changes.
 
 Classification reuses the provider abstraction so it honors the user's
 configured LLM chain and anti-fabrication conventions.
 """
 from __future__ import annotations
 import email as _email
-import imaplib
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from email.header import decode_header, make_header
 from email.utils import parseaddr, parsedate_to_datetime
-from typing import Iterable
 
 from .providers import LLMProvider, try_chain
 from .scrapers.schema import strip_html
@@ -36,10 +35,6 @@ _CLASSIFY_SCHEMA = {
     },
     "required": ["category", "confidence"],
 }
-
-
-class InboxError(RuntimeError):
-    """IMAP connectivity / auth failure."""
 
 
 @dataclass
@@ -121,88 +116,6 @@ def _parse_message(uid: str, raw: bytes) -> InboxEmail:
         date=dt,
         body=_extract_body(msg)[:4000],
     )
-
-
-class InboxScanner:
-    """Thin IMAP reader. Use as a context manager or call ``fetch_since``."""
-
-    def __init__(
-        self,
-        address: str,
-        app_password: str,
-        host: str = "imap.gmail.com",
-        port: int = 993,
-        mailbox: str = "INBOX",
-    ):
-        if not address or not app_password:
-            raise InboxError("inbox email and app password are required")
-        self.address = address
-        self.app_password = app_password
-        self.host = host
-        self.port = port
-        self.mailbox = mailbox
-
-    def fetch_since(self, days: int = 30, limit: int = 400) -> list[InboxEmail]:
-        """Return parsed emails received in the last ``days`` (most recent first)."""
-        since = (datetime.now(timezone.utc) - timedelta(days=max(1, days)))
-        since_str = since.strftime("%d-%b-%Y")
-        out: list[InboxEmail] = []
-        try:
-            M = imaplib.IMAP4_SSL(self.host, self.port)
-        except Exception as e:
-            raise InboxError(f"could not connect to {self.host}:{self.port} — {e}") from e
-        try:
-            try:
-                M.login(self.address, self.app_password)
-            except imaplib.IMAP4.error as e:
-                raise InboxError(
-                    "IMAP login failed. For Gmail use an App Password "
-                    "(not your account password) and enable IMAP. "
-                    f"Server said: {e}"
-                ) from e
-            M.select(self.mailbox, readonly=True)
-            typ, data = M.search(None, "SINCE", since_str)
-            if typ != "OK" or not data or not data[0]:
-                return []
-            ids = data[0].split()
-            for num in reversed(ids[-limit:]):
-                try:
-                    typ, msg_data = M.fetch(num, "(RFC822)")
-                    if typ != "OK" or not msg_data:
-                        continue
-                    raw = next(
-                        (p[1] for p in msg_data if isinstance(p, tuple) and p[1]),
-                        None,
-                    )
-                    if raw:
-                        out.append(_parse_message(num.decode(errors="replace"), raw))
-                except Exception as e:  # one bad message shouldn't sink the scan
-                    LOG.warning("inbox: failed to fetch/parse a message: %s", e)
-        finally:
-            try:
-                M.logout()
-            except Exception:
-                pass
-        return out
-
-
-def verify_connection(
-    address: str, app_password: str, host: str = "imap.gmail.com", port: int = 993
-) -> None:
-    """Raise InboxError if we can't log in; return None on success."""
-    try:
-        M = imaplib.IMAP4_SSL(host, port)
-    except Exception as e:
-        raise InboxError(f"could not connect to {host}:{port} — {e}") from e
-    try:
-        M.login(address, app_password)
-    except imaplib.IMAP4.error as e:
-        raise InboxError(f"login failed — {e}") from e
-    finally:
-        try:
-            M.logout()
-        except Exception:
-            pass
 
 
 def classify_email(

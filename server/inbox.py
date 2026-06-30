@@ -1,32 +1,39 @@
 """Inbox sync — read recruiter replies and advance application status.
 
-Scans the configured Gmail/IMAP inbox, matches messages to in-flight
-applications by company, classifies each with the LLM, and applies conservative
-forward-only status transitions (generated → applied → interviewing →
-rejected/offer). Idempotent: every classified (message, application) pair is
-recorded so re-syncing never double-counts.
+Scans the Gmail inbox (via OAuth + the Gmail API), matches messages to
+in-flight applications by company, classifies each with the LLM, and applies
+conservative forward-only status transitions (generated → applied →
+interviewing → rejected/offer). Idempotent: every classified (message,
+application) pair is recorded so re-syncing never double-counts.
 
-Configuration lives under ``inbox:`` in config.yaml. Disabled by default.
+OAuth client id/secret live under ``inbox:`` in config.yaml; the access/refresh
+token lives in the ``Setting`` table (see ``server/gmail_auth.py``). Disabled
+until both are present.
 """
 from __future__ import annotations
 import json
 import logging
 import re
+import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlmodel import select
 
+from . import gmail_auth
 from .db import Application, ApplicationStatus, Setting, session
-from .deps import load_config
+from .deps import load_config, update_config
 
 router = APIRouter(prefix="/api/inbox", tags=["inbox"])
 log = logging.getLogger("server.inbox")
 
 _PROCESSED_KEY = "inbox_processed_ids"
 _LAST_SYNC_KEY = "inbox_last_sync"
+_OAUTH_STATE_KEY = "inbox_oauth_state"
 _PROCESSED_CAP = 2000
+_DEFAULT_REDIRECT_URI = "http://127.0.0.1:8000/api/inbox/oauth/callback"
 
 # Forward-progress ordering. A transition is applied only when it moves an
 # application to a strictly higher rank (so a stray rejection never downgrades
@@ -132,49 +139,126 @@ def _get_setting(key: str) -> str:
 class InboxStatus(BaseModel):
     configured: bool
     enabled: bool
-    email_masked: str
+    account_email: str
+    has_client_credentials: bool
+    redirect_uri: str
     scan_days: int
     last_sync: str | None
     auto_update_status: bool
 
 
-def _mask(addr: str) -> str:
-    if "@" not in addr:
-        return addr
-    local, dom = addr.split("@", 1)
-    shown = local[:2] + "***" if len(local) > 2 else "***"
-    return f"{shown}@{dom}"
-
-
 @router.get("/status", response_model=InboxStatus)
 def inbox_status() -> InboxStatus:
     cfg = _inbox_cfg()
-    addr = str(cfg.get("email") or "")
-    has_creds = bool(addr) and bool(cfg.get("app_password"))
+    has_client = bool(cfg.get("client_id")) and bool(cfg.get("client_secret"))
+    connected = gmail_auth.is_connected()
     last = _get_setting(_LAST_SYNC_KEY)
     return InboxStatus(
-        configured=has_creds,
-        enabled=bool(cfg.get("enabled", False)) and has_creds,
-        email_masked=_mask(addr) if addr else "",
+        configured=connected,
+        enabled=bool(cfg.get("enabled", False)) and connected,
+        account_email=gmail_auth.account_email() or "",
+        has_client_credentials=has_client,
+        redirect_uri=str(cfg.get("redirect_uri") or _DEFAULT_REDIRECT_URI),
         scan_days=int(cfg.get("scan_days", 30) or 30),
         last_sync=last or None,
         auto_update_status=bool(cfg.get("auto_update_status", True)),
     )
 
 
+class OAuthCredentials(BaseModel):
+    client_id: str
+    client_secret: str
+
+
+@router.put("/oauth/credentials")
+def set_oauth_credentials(body: OAuthCredentials) -> dict:
+    def mut(data: dict) -> None:
+        inbox = data.get("inbox")
+        if inbox is None:
+            inbox = {}
+            data["inbox"] = inbox
+        inbox["client_id"] = body.client_id
+        inbox["client_secret"] = body.client_secret
+        inbox.setdefault("redirect_uri", _DEFAULT_REDIRECT_URI)
+
+    update_config(mut)
+    return {"ok": True}
+
+
+@router.get("/oauth/authorize")
+def oauth_authorize() -> RedirectResponse:
+    from src.gmail_oauth import build_auth_url
+
+    cfg = _inbox_cfg()
+    client_id = str(cfg.get("client_id") or "")
+    client_secret = str(cfg.get("client_secret") or "")
+    redirect_uri = str(cfg.get("redirect_uri") or _DEFAULT_REDIRECT_URI)
+    if not client_id or not client_secret:
+        raise HTTPException(400, "Set inbox.client_id and inbox.client_secret first.")
+
+    state = secrets.token_urlsafe(24)
+    _set_setting(_OAUTH_STATE_KEY, state)
+    url = build_auth_url(client_id, client_secret, redirect_uri, state)
+    return RedirectResponse(url)
+
+
+@router.get("/oauth/callback")
+def oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None) -> HTMLResponse:
+    from src.gmail_oauth import exchange_code, credentials_to_token_json, get_account_email
+
+    import html as _html
+
+    def _page(message: str, ok: bool) -> HTMLResponse:
+        return HTMLResponse(
+            "<html><body style=\"font-family:sans-serif;padding:2rem\">"
+            f"<p>{_html.escape(message)}</p>"
+            "<script>"
+            f"window.opener && window.opener.postMessage('gmail-{'connected' if ok else 'error'}', '*');"
+            "window.close();"
+            "</script>"
+            "</body></html>"
+        )
+
+    if error:
+        return _page(f"Google sign-in failed: {error}. You can close this window.", False)
+
+    expected_state = _get_setting(_OAUTH_STATE_KEY)
+    if not code or not state or state != expected_state:
+        return _page("Invalid or expired sign-in attempt. You can close this window and try again.", False)
+    _set_setting(_OAUTH_STATE_KEY, "")
+
+    cfg = _inbox_cfg()
+    client_id = str(cfg.get("client_id") or "")
+    client_secret = str(cfg.get("client_secret") or "")
+    redirect_uri = str(cfg.get("redirect_uri") or _DEFAULT_REDIRECT_URI)
+    try:
+        creds = exchange_code(client_id, client_secret, redirect_uri, code)
+        email = get_account_email(creds)
+        gmail_auth.save_token(credentials_to_token_json(creds), email)
+    except Exception as e:
+        log.warning("inbox: oauth exchange failed: %s", e)
+        return _page(f"Could not complete Google sign-in: {e}", False)
+
+    return _page(f"Connected as {email}. You can close this window.", True)
+
+
+@router.post("/oauth/disconnect")
+def oauth_disconnect() -> dict:
+    gmail_auth.clear_token()
+    return {"ok": True}
+
+
 @router.post("/test")
 def inbox_test() -> dict:
-    from src.inbox import verify_connection, InboxError
-    cfg = _inbox_cfg()
+    from src.gmail_oauth import get_account_email
+
+    creds = gmail_auth.get_credentials()
+    if creds is None:
+        raise HTTPException(400, "Gmail is not connected yet.")
     try:
-        verify_connection(
-            str(cfg.get("email") or ""),
-            str(cfg.get("app_password") or ""),
-            host=str(cfg.get("imap_host") or "imap.gmail.com"),
-            port=int(cfg.get("imap_port", 993) or 993),
-        )
-    except InboxError as e:
-        raise HTTPException(400, str(e))
+        get_account_email(creds)
+    except Exception as e:
+        raise HTTPException(400, f"Gmail API call failed: {e}")
     return {"ok": True}
 
 
@@ -205,16 +289,14 @@ class SyncResult(BaseModel):
 
 @router.post("/sync", response_model=SyncResult)
 def inbox_sync(body: SyncBody | None = None) -> SyncResult:
-    from src.inbox import InboxScanner, InboxError, classify_email
+    from src.gmail_api import GmailApiScanner
+    from src.inbox import classify_email
     from src.providers import get_provider_chain
 
     cfg = _inbox_cfg()
-    address = str(cfg.get("email") or "")
-    password = str(cfg.get("app_password") or "")
-    if not address or not password:
-        raise HTTPException(
-            400, "Inbox not configured. Set inbox.email and inbox.app_password."
-        )
+    creds = gmail_auth.get_credentials()
+    if creds is None:
+        raise HTTPException(400, "Gmail is not connected. Connect it from the Config page.")
     days = (body.days if body and body.days else int(cfg.get("scan_days", 30) or 30))
     min_conf = float(cfg.get("min_confidence", 0.6) or 0.6)
     auto_update = bool(cfg.get("auto_update_status", True))
@@ -222,14 +304,10 @@ def inbox_sync(body: SyncBody | None = None) -> SyncResult:
 
     # 1. fetch
     try:
-        scanner = InboxScanner(
-            address, password,
-            host=str(cfg.get("imap_host") or "imap.gmail.com"),
-            port=int(cfg.get("imap_port", 993) or 993),
-        )
+        scanner = GmailApiScanner(creds)
         emails = scanner.fetch_since(days=days)
-    except InboxError as e:
-        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(400, f"Gmail fetch failed: {e}")
 
     # 2. active applications
     full_cfg = load_config()

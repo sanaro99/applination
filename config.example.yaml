@@ -152,16 +152,18 @@ output:
 
 # =====================================================================
 # Close the loop — read recruiter replies + send reminders.
-# Uses plain IMAP/SMTP (no Google OAuth). For Gmail: turn on 2-Step
-# Verification, then create an "App Password" and paste it below.
-# https://myaccount.google.com/apppasswords
+# Uses Google OAuth (Gmail API), not an App Password. Create an OAuth client
+# in Google Cloud Console (APIs & Services > Credentials), enable the Gmail
+# API, add the redirect_uri below to the client's Authorized redirect URIs,
+# then paste client_id/client_secret here — the rest is done from the
+# Config page's "Connect Gmail" card (one-time consent flow; tokens are
+# stored outside config.yaml).
 # =====================================================================
 inbox:
   enabled: false
-  email: ""                     # your Gmail address
-  app_password: ""              # Gmail App Password (NOT your login password)
-  imap_host: "imap.gmail.com"
-  imap_port: 993
+  client_id: ""                 # OAuth client ID from Google Cloud Console
+  client_secret: ""             # OAuth client secret
+  redirect_uri: "http://127.0.0.1:8000/api/inbox/oauth/callback"
   scan_days: 30                 # how many days back to scan on each sync
   min_confidence: 0.6           # only change status when the LLM is this sure (0-1)
   auto_update_status: true      # advance applied -> interviewing/rejected/offer
@@ -172,5 +174,3 @@ reminders:
   digest_to: ""                 # recipient; defaults to user.email
   deadline_window_days: 7       # surface deadlines within this many days
   follow_up_days: 10            # nudge applications with no reply after N days
-  smtp_host: "smtp.gmail.com"
-  smtp_port: 587                # sends via the inbox.email + inbox.app_password

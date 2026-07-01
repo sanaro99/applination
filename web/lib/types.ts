@@ -239,13 +239,38 @@ export interface InboxSyncUpdate {
   summary: string;
 }
 
-export interface InboxSyncResult {
+export interface InboxSyncCandidate {
+  mid: string;
+  application_id: number;
+  company: string;
+  title: string;
+  from_name: string;
+  from_email: string;
+  subject: string;
+  date: string | null;
+  body: string;
+}
+
+export interface InboxSyncCandidatesResult {
   scanned: number;
   matched: number;
-  classified: number;
-  updates: InboxSyncUpdate[];
-  skipped_low_confidence: number;
-  error?: string | null;
+  candidates: InboxSyncCandidate[];
+}
+
+export interface InboxSyncApplyResult {
+  update: InboxSyncUpdate | null;
+  skipped_low_confidence: boolean;
+}
+
+export interface InboxSyncApplyPayload {
+  mid: string;
+  application_id: number;
+  from_email: string;
+  date: string | null;
+  category: string;
+  confidence: number;
+  summary: string;
+  interview_date: string | null;
 }
 
 export interface DigestPreview {

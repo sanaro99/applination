@@ -8,7 +8,9 @@ import type {
   DigestPreview,
   GeneratedStory,
   InboxStatus,
-  InboxSyncResult,
+  InboxSyncApplyPayload,
+  InboxSyncApplyResult,
+  InboxSyncCandidatesResult,
   LlmConfig,
   PipelineEvent,
   PostMessageResult,
@@ -203,10 +205,14 @@ export const api = {
   // Close-the-loop: inbox sync + reminders
   inboxStatus: () => http<InboxStatus>("/api/inbox/status"),
   inboxTest: () => http<{ ok: boolean }>("/api/inbox/test", { method: "POST" }),
-  inboxSync: (days?: number) =>
-    http<InboxSyncResult>("/api/inbox/sync", {
+  inboxSyncCandidates: (days?: number) => {
+    const qs = days ? `?days=${days}` : "";
+    return http<InboxSyncCandidatesResult>(`/api/inbox/sync/candidates${qs}`);
+  },
+  inboxSyncApply: (payload: InboxSyncApplyPayload) =>
+    http<InboxSyncApplyResult>("/api/inbox/sync/apply", {
       method: "POST",
-      body: JSON.stringify({ days: days ?? null }),
+      body: JSON.stringify(payload),
     }),
   inboxOauthCredentials: (clientId: string, clientSecret: string) =>
     http<{ ok: boolean }>("/api/inbox/oauth/credentials", {

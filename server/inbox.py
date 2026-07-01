@@ -1,10 +1,16 @@
 """Inbox sync — read recruiter replies and advance application status.
 
 Scans the Gmail inbox (via OAuth + the Gmail API), matches messages to
-in-flight applications by company, classifies each with the LLM, and applies
-conservative forward-only status transitions (generated → applied →
-interviewing → rejected/offer). Idempotent: every classified (message,
-application) pair is recorded so re-syncing never double-counts.
+in-flight applications by company, and applies conservative forward-only
+status transitions (generated → applied → interviewing → rejected/offer).
+Idempotent: every classified (message, application) pair is recorded so
+re-syncing never double-counts.
+
+Classification itself runs in the browser (WebLLM — see
+``web/lib/webllm-classify.ts``) rather than server-side, so the endpoint that
+used to do fetch+match+classify+apply in one blocking call is split in two:
+``GET /sync/candidates`` (fetch + match only) and ``POST /sync/apply`` (one
+classified message at a time, submitted by the browser).
 
 OAuth client id/secret live under ``inbox:`` in config.yaml; the access/refresh
 token lives in the ``Setting`` table (see ``server/gmail_auth.py``). Disabled
@@ -16,6 +22,7 @@ import logging
 import re
 import secrets
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -273,10 +280,6 @@ def inbox_test() -> dict:
     return {"ok": True}
 
 
-class SyncBody(BaseModel):
-    days: int | None = None
-
-
 class SyncUpdate(BaseModel):
     application_id: int
     company: str
@@ -289,85 +292,126 @@ class SyncUpdate(BaseModel):
     summary: str
 
 
-class SyncResult(BaseModel):
+class SyncCandidate(BaseModel):
+    mid: str
+    application_id: int
+    company: str
+    title: str
+    from_name: str
+    from_email: str
+    subject: str
+    date: str | None
+    body: str
+
+
+class CandidatesResult(BaseModel):
     scanned: int
     matched: int
-    classified: int
-    updates: list[SyncUpdate]
-    skipped_low_confidence: int
-    error: str | None = None
+    candidates: list[SyncCandidate]
 
 
-@router.post("/sync", response_model=SyncResult)
-def inbox_sync(body: SyncBody | None = None) -> SyncResult:
+@router.get("/sync/candidates", response_model=CandidatesResult)
+def sync_candidates(days: int | None = None) -> CandidatesResult:
+    """Fetch + match only — no classification. The browser classifies each
+    candidate (WebLLM) and submits results one at a time to ``/sync/apply``."""
     from src.gmail_api import GmailApiScanner
-    from src.inbox import classify_email
-    from src.providers import get_provider_chain
 
     cfg = _inbox_cfg()
     creds = gmail_auth.get_credentials()
     if creds is None:
         raise HTTPException(400, "Gmail is not connected. Connect it from the Config page.")
-    days = (body.days if body and body.days else int(cfg.get("scan_days", 30) or 30))
-    min_conf = float(cfg.get("min_confidence", 0.6) or 0.6)
-    auto_update = bool(cfg.get("auto_update_status", True))
+    days = days or int(cfg.get("scan_days", 30) or 30)
     max_classifications = int(cfg.get("max_classifications", 80) or 80)
 
-    # 1. fetch
     try:
         scanner = GmailApiScanner(creds)
         emails = scanner.fetch_since(days=days)
     except Exception as e:
         raise HTTPException(400, f"Gmail fetch failed: {e}")
 
-    # 2. active applications
-    full_cfg = load_config()
     with session() as s:
         apps = s.exec(
             select(Application).where(Application.status.in_(_ACTIVE_STATES))  # type: ignore[attr-defined]
         ).all()
 
     processed = _load_processed()
-    chain = get_provider_chain(full_cfg["llm"])
-
     matched = 0
-    classified = 0
-    skipped = 0
-    updates: list[SyncUpdate] = []
+    candidates: list[SyncCandidate] = []
 
     for app in apps:
         tokens = _company_tokens(app.company)
         company_norm = (app.company or "").strip().lower()
-        candidates = [
-            m for m in emails if _email_matches_app(m, tokens, company_norm)
-        ][:5]  # most-recent few per app
-        for msg in candidates:
+        msgs = [m for m in emails if _email_matches_app(m, tokens, company_norm)][:5]
+        for msg in msgs:
             mid = f"{msg.message_id or msg.uid}|{app.id}"
             if mid in processed:
                 continue
             matched += 1
-            if classified >= max_classifications:
+            if len(candidates) >= max_classifications:
                 continue
-            processed.add(mid)
-            result = classify_email(chain, msg, company=app.company, title=app.title)
-            classified += 1
-            upd = _apply_result(app.id, msg, result, min_conf, auto_update)
-            if upd is None:
-                if result["category"] in _CATEGORY_TARGET and result["confidence"] < min_conf:
-                    skipped += 1
-                continue
-            updates.append(upd)
+            candidates.append(SyncCandidate(
+                mid=mid,
+                application_id=app.id,  # type: ignore[arg-type]
+                company=app.company,
+                title=app.title,
+                from_name=msg.from_name,
+                from_email=msg.from_email,
+                subject=msg.subject,
+                date=msg.date.isoformat() if msg.date else None,
+                body=msg.body,
+            ))
 
+    return CandidatesResult(scanned=len(emails), matched=matched, candidates=candidates)
+
+
+class ApplyBody(BaseModel):
+    mid: str
+    application_id: int
+    from_email: str
+    date: str | None = None
+    category: str
+    confidence: float
+    summary: str = ""
+    interview_date: str | None = None
+
+
+class ApplyResult(BaseModel):
+    update: SyncUpdate | None
+    skipped_low_confidence: bool
+
+
+@router.post("/sync/apply", response_model=ApplyResult)
+def sync_apply(body: ApplyBody) -> ApplyResult:
+    """Apply one browser-classified message. Validates/clamps the submitted
+    classification before trusting it (never take client values as-is)."""
+    from src.inbox import normalize_classification
+
+    cfg = _inbox_cfg()
+    min_conf = float(cfg.get("min_confidence", 0.6) or 0.6)
+    auto_update = bool(cfg.get("auto_update_status", True))
+    result = normalize_classification(body.model_dump())
+
+    msg_date = None
+    if body.date:
+        try:
+            msg_date = datetime.fromisoformat(body.date)
+        except ValueError:
+            msg_date = None
+    msg = SimpleNamespace(date=msg_date, from_email=body.from_email)
+
+    upd = _apply_result(body.application_id, msg, result, min_conf, auto_update)
+
+    processed = _load_processed()
+    processed.add(body.mid)
     _save_processed(processed)
     _set_setting(_LAST_SYNC_KEY, datetime.utcnow().isoformat())
 
-    return SyncResult(
-        scanned=len(emails),
-        matched=matched,
-        classified=classified,
-        updates=updates,
-        skipped_low_confidence=skipped,
+    skipped = (
+        upd is None
+        and result["category"] in _CATEGORY_TARGET
+        and result["confidence"] < min_conf
     )
+    return ApplyResult(update=upd, skipped_low_confidence=skipped)
 
 
 def _apply_result(

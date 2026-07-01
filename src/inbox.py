@@ -1,4 +1,4 @@
-"""Parse Gmail messages and classify recruiter replies.
+"""Parse Gmail messages and normalize recruiter-reply classifications.
 
 Email parsing (``_parse_message``) is transport-agnostic: it takes raw RFC822
 bytes, which ``src/gmail_api.GmailApiScanner`` fetches via the Gmail API
@@ -6,35 +6,25 @@ bytes, which ``src/gmail_api.GmailApiScanner`` fetches via the Gmail API
 nothing about the DB. The server (``server/inbox.py``) owns matching emails to
 applications and applying status changes.
 
-Classification reuses the provider abstraction so it honors the user's
-configured LLM chain and anti-fabrication conventions.
+Classification itself runs client-side (in-browser WebLLM — see
+``web/lib/webllm-classify.ts``, which ports the same prompt/schema this module
+used to send to the Python provider chain) rather than through
+``src/providers/``. ``normalize_classification`` validates/clamps whatever the
+browser submits before it's trusted server-side.
 """
 from __future__ import annotations
 import email as _email
-import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from email.header import decode_header, make_header
 from email.utils import parseaddr, parsedate_to_datetime
 
-from .providers import LLMProvider, try_chain
 from .scrapers.schema import strip_html
 
-LOG = logging.getLogger(__name__)
-
-# Outcome categories the classifier may assign to a recruiter email.
+# Outcome categories the classifier may assign to a recruiter email. Kept here
+# as the shared contract between the (TypeScript) prompt and this module's
+# validation.
 CATEGORIES = ("auto_ack", "interview", "rejection", "offer", "other")
-
-_CLASSIFY_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "category": {"type": "string", "enum": list(CATEGORIES)},
-        "confidence": {"type": "number"},
-        "summary": {"type": "string"},
-        "interview_date": {"type": ["string", "null"]},
-    },
-    "required": ["category", "confidence"],
-}
 
 
 @dataclass
@@ -118,67 +108,25 @@ def _parse_message(uid: str, raw: bytes) -> InboxEmail:
     )
 
 
-def classify_email(
-    chain: list[LLMProvider],
-    msg: InboxEmail,
-    *,
-    company: str,
-    title: str,
-) -> dict:
-    """Classify one recruiter email against the application it likely concerns.
+def normalize_classification(raw: dict) -> dict:
+    """Validate/clamp a classification submitted by the browser's WebLLM call.
 
     Returns ``{category, confidence, summary, interview_date}`` where category
-    is one of CATEGORIES and confidence is 0..1. Never fabricates outcomes:
-    when unsure the model is instructed to return ``other`` with low confidence.
+    is one of CATEGORIES and confidence is 0..1 — never trusts the client's
+    values directly.
     """
-    system = (
-        "You triage emails a job applicant receives after applying. Decide what "
-        "an email means for ONE specific application. Categories:\n"
-        "- auto_ack: automated 'we received your application' acknowledgement.\n"
-        "- interview: invitation to interview, schedule a call, or take an "
-        "assessment/OA.\n"
-        "- rejection: the application was declined / position filled / not moving "
-        "forward.\n"
-        "- offer: a job/internship offer is extended.\n"
-        "- other: newsletters, unrelated mail, or anything that does not clearly "
-        "fit the above.\n\n"
-        "BINDING RULES: Judge ONLY from the email text. If the email is not "
-        "clearly about THIS company/role, or is ambiguous, return category "
-        "'other' with low confidence. Do not infer an outcome that the text does "
-        "not state. confidence is your certainty from 0.0 to 1.0. If the email "
-        "proposes a specific interview date/time, put it in interview_date as an "
-        "ISO 8601 string (YYYY-MM-DD or YYYY-MM-DDTHH:MM); otherwise null."
-    )
-    user = (
-        f"APPLICATION: {title} at {company}\n\n"
-        f"EMAIL FROM: {msg.from_name} <{msg.from_email}>\n"
-        f"SUBJECT: {msg.subject}\n"
-        f"DATE: {msg.date.isoformat() if msg.date else 'unknown'}\n\n"
-        f"BODY:\n{msg.body[:2500]}"
-    )
-    try:
-        out = try_chain(
-            chain,
-            lambda p: p.json_call(system, user, max_tokens=300, schema=_CLASSIFY_SCHEMA),
-            any_error=True,
-            task_name="inbox_classify",
-        )
-    except Exception as e:
-        LOG.warning("inbox: classify failed: %s", e)
-        return {"category": "other", "confidence": 0.0, "summary": "", "interview_date": None}
-
-    category = str(out.get("category", "other")).strip().lower()
+    category = str((raw or {}).get("category", "other")).strip().lower()
     if category not in CATEGORIES:
         category = "other"
     try:
-        confidence = max(0.0, min(1.0, float(out.get("confidence", 0.0))))
+        confidence = max(0.0, min(1.0, float((raw or {}).get("confidence", 0.0))))
     except (TypeError, ValueError):
         confidence = 0.0
     return {
         "category": category,
         "confidence": confidence,
-        "summary": str(out.get("summary", "") or "")[:500],
-        "interview_date": _coerce_dt(out.get("interview_date")),
+        "summary": str((raw or {}).get("summary", "") or "")[:500],
+        "interview_date": _coerce_dt((raw or {}).get("interview_date")),
     }
 
 

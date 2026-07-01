@@ -197,8 +197,8 @@ def oauth_authorize() -> RedirectResponse:
         raise HTTPException(400, "Set inbox.client_id and inbox.client_secret first.")
 
     state = secrets.token_urlsafe(24)
-    _set_setting(_OAUTH_STATE_KEY, state)
-    url = build_auth_url(client_id, client_secret, redirect_uri, state)
+    url, code_verifier = build_auth_url(client_id, client_secret, redirect_uri, state)
+    _set_setting(_OAUTH_STATE_KEY, json.dumps({"state": state, "code_verifier": code_verifier}))
     return RedirectResponse(url)
 
 
@@ -209,21 +209,32 @@ def oauth_callback(code: str | None = None, state: str | None = None, error: str
     import html as _html
 
     def _page(message: str, ok: bool) -> HTMLResponse:
+        # On success, close the popup right away — the opener already has what
+        # it needs. On failure, leave it open so the user can actually read
+        # why, and let them close it manually.
+        close_script = "window.close();" if ok else ""
         return HTMLResponse(
             "<html><body style=\"font-family:sans-serif;padding:2rem\">"
             f"<p>{_html.escape(message)}</p>"
             "<script>"
             f"window.opener && window.opener.postMessage('gmail-{'connected' if ok else 'error'}', '*');"
-            "window.close();"
+            f"{close_script}"
             "</script>"
             "</body></html>"
         )
 
     if error:
+        log.warning("inbox: oauth consent declined/failed: %s", error)
         return _page(f"Google sign-in failed: {error}. You can close this window.", False)
 
-    expected_state = _get_setting(_OAUTH_STATE_KEY)
-    if not code or not state or state != expected_state:
+    try:
+        pending = json.loads(_get_setting(_OAUTH_STATE_KEY) or "{}")
+    except Exception:
+        pending = {}
+    expected_state = pending.get("state")
+    code_verifier = pending.get("code_verifier")
+    if not code or not state or not code_verifier or state != expected_state:
+        log.warning("inbox: oauth callback with invalid/expired state")
         return _page("Invalid or expired sign-in attempt. You can close this window and try again.", False)
     _set_setting(_OAUTH_STATE_KEY, "")
 
@@ -232,7 +243,7 @@ def oauth_callback(code: str | None = None, state: str | None = None, error: str
     client_secret = str(cfg.get("client_secret") or "")
     redirect_uri = str(cfg.get("redirect_uri") or _DEFAULT_REDIRECT_URI)
     try:
-        creds = exchange_code(client_id, client_secret, redirect_uri, code)
+        creds = exchange_code(client_id, client_secret, redirect_uri, code, code_verifier)
         email = get_account_email(creds)
         gmail_auth.save_token(credentials_to_token_json(creds), email)
     except Exception as e:

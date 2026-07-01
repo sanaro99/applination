@@ -30,8 +30,13 @@ def _client_config(client_id: str, client_secret: str, redirect_uri: str) -> dic
     }
 
 
-def build_auth_url(client_id: str, client_secret: str, redirect_uri: str, state: str) -> str:
-    """Return the Google consent-screen URL for this client."""
+def build_auth_url(client_id: str, client_secret: str, redirect_uri: str, state: str) -> tuple[str, str]:
+    """Return (consent-screen URL, PKCE code_verifier) for this client.
+
+    The Flow auto-generates a code_verifier and encodes its challenge into the
+    URL; the same verifier must be replayed into ``exchange_code`` below or
+    Google rejects the token exchange with "Missing code verifier".
+    """
     flow = Flow.from_client_config(
         _client_config(client_id, client_secret, redirect_uri),
         scopes=SCOPES,
@@ -43,16 +48,19 @@ def build_auth_url(client_id: str, client_secret: str, redirect_uri: str, state:
         include_granted_scopes="true",
         prompt="consent",
     )
-    return auth_url
+    return auth_url, flow.code_verifier
 
 
-def exchange_code(client_id: str, client_secret: str, redirect_uri: str, code: str) -> Credentials:
+def exchange_code(
+    client_id: str, client_secret: str, redirect_uri: str, code: str, code_verifier: str
+) -> Credentials:
     """Exchange an authorization code for credentials (with a refresh token)."""
     flow = Flow.from_client_config(
         _client_config(client_id, client_secret, redirect_uri),
         scopes=SCOPES,
         redirect_uri=redirect_uri,
     )
+    flow.code_verifier = code_verifier
     flow.fetch_token(code=code)
     return flow.credentials
 

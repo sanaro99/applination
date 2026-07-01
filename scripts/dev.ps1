@@ -2,9 +2,29 @@
 # Usage:  .\scripts\dev.ps1
 $ErrorActionPreference = "Stop"
 
+# A prior run that didn't shut down cleanly (e.g. window closed instead of
+# Ctrl+C) can leave a stale server holding these ports, which then fails the
+# new one with "WinError 10013 access forbidden" instead of a clear
+# port-in-use error. Clear them first.
+foreach ($port in 8000, 3000) {
+  Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty OwningProcess -Unique |
+    ForEach-Object {
+      Write-Host "Killing stale process on port $port (pid=$_)" -ForegroundColor Yellow
+      Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+    }
+}
+
 $root = (Resolve-Path "$PSScriptRoot\..").Path
+
+# Always use the project's venv interpreter — plain "python" resolves to
+# whatever's first on PATH, which may be an unrelated global install missing
+# this project's dependencies.
+$venvPython = Join-Path $root ".venv\Scripts\python.exe"
+$pythonExe = if (Test-Path $venvPython) { $venvPython } else { "python" }
+
 $api  = Start-Process -PassThru -NoNewWindow -WorkingDirectory $root `
-  -FilePath "python" -ArgumentList @("-m","uvicorn","server.app:app","--reload","--port","8000")
+  -FilePath $pythonExe -ArgumentList @("-m","uvicorn","server.app:app","--reload","--port","8000")
 
 # Start-Process can't launch npm directly on Windows — npm is a .cmd shim, not a
 # Win32 exe ("%1 is not a valid Win32 application"). Resolve npm.cmd via PATH.

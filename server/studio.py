@@ -116,11 +116,15 @@ def tweak_endpoint(body: TweakBody) -> dict:
         raise HTTPException(400, "text is required")
 
     from src.content_studio import tweak_content
+    from src.reference_loader import load_stories
 
+    stories = load_stories(STORIES_DIR) if kind in ("resume", "bio") else None
     chain = _resolve_chain(body.provider)
     text = _call(
         chain,
-        lambda p: tweak_content(kind, body.text, body.instruction, provider=p),
+        lambda p: tweak_content(
+            kind, body.text, body.instruction, provider=p, stories=stories
+        ),
     )
     # Guard structured formats so we never hand back unparseable content.
     if kind in ("resume",):

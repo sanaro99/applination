@@ -16,6 +16,19 @@ from pathlib import Path
 LOG = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Shared prompt-assembly char budgets
+# ---------------------------------------------------------------------------
+# Single source of truth for how much master-data text each prompt injects, so
+# tailor.py (cover letters + Q&A) and coach_context.py agree instead of each
+# hard-coding its own slice. Lives here — the retrieval module — because every
+# consumer already imports from reference_loader.
+BIO_CAP = 1000              # bio.md budget for grounding/context uses (coach, Q&A)
+STORY_BODY_CAP = 400        # per-story body cap for context/grounding uses
+COVER_LETTER_BIO_CAP = 1200  # cover letters get a little more voice signal
+STORY_CANDIDATE_CAP = 600   # non-anchor candidate story excerpt in a cover letter
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 

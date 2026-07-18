@@ -16,6 +16,12 @@ from typing import Any
 
 from .providers import LLMProvider
 from .providers.factory import is_quota_error, try_chain
+from .reference_loader import (
+    BIO_CAP,
+    COVER_LETTER_BIO_CAP,
+    STORY_BODY_CAP,
+    STORY_CANDIDATE_CAP,
+)
 
 LOG = logging.getLogger(__name__)
 
@@ -1249,16 +1255,26 @@ class Tailor:
             # let the letter anchor in whichever genuinely fits THIS role. This
             # stops every AI/ML JD from reusing the same top story verbatim — a
             # backend/infra JD should be able to lead with an infra story instead.
+            # The letter anchors in exactly ONE story, so only the top candidate
+            # needs its full body. The rest are shown as title + one-liner + a
+            # short excerpt — enough to let the model pick a better-fitting lower
+            # candidate, without shipping 8-12 KB of story text (and re-shipping
+            # it across the retry/critique ladder).
             best_story_block = (
                 "CANDIDATE STORIES (ranked best-first). Anchor the letter in the "
                 "ONE that best fits this specific role — usually the first, but "
-                "pick a lower one if it maps more directly to the JD:\n\n"
+                "pick a lower one if it maps more directly to the JD. Story 1 is "
+                "shown in full; the rest are summarised — if one of them fits "
+                "better, lead with it and tell it from its one-liner + excerpt:\n\n"
             )
             for i, s in enumerate(stories, 1):
+                body = (s.get("body") or "").strip()
+                if i > 1:
+                    body = body[:STORY_CANDIDATE_CAP]
                 best_story_block += (
                     f"[Story {i}] {s.get('title','')}\n"
                     f"One-liner: {s.get('one_liner','')}\n\n"
-                    f"{s.get('body','')}\n\n"
+                    f"{body}\n\n"
                 )
 
         example_block = ""
@@ -1369,7 +1385,7 @@ class Tailor:
 
         user_prompt = (
             f"Candidate voice, how {first_name} writes (absorb the tone, do not "
-            f"reproduce this section):\n{bio}\n\n"
+            f"reproduce this section):\n{(bio or '')[:COVER_LETTER_BIO_CAP]}\n\n"
             f"Story material:\n{best_story_block}\n"
             f"{example_block}"
             f"{guidelines_block}"
@@ -1637,7 +1653,7 @@ class Tailor:
         story_block = "\n\n".join(
             f"STORY: {s.get('title', '')}\n"
             f"One-liner: {s.get('one_liner', '')}\n"
-            f"{s.get('body', '')[:400]}"
+            f"{(s.get('body') or '')[:STORY_BODY_CAP]}"
             for s in stories[:3]
         ) or "(no stories available)"
 

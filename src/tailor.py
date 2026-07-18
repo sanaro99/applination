@@ -39,7 +39,10 @@ RESUME_CONSTRAINTS = {
     "summary_max_chars": 320,
     "skills_max_total": 42,          # across all groups
     "skills_groups_max": 6,
-    "experience_max_items": 2,
+    # _ensure_core_experience guarantees every full-time role plus the most
+    # recent entry overall; 3 leaves headroom beyond a typical 2 full-time
+    # roles so a current internship isn't crowded out by older history.
+    "experience_max_items": 3,
     "experience_bullets_per_item": 5,
     # Single-line max. NOTE: the authoritative, font-aware bullet bands live in
     # src/line_fitter.py::configure_for_font (10pt single target 116-125). These
@@ -235,14 +238,18 @@ def _normalize_resume_json(result: dict) -> dict:
 
 
 def _ensure_core_experience(tailored: dict, master: dict, profile: dict | None = None) -> dict:
-    """Guarantee the candidate's full-time roles are present in the output.
+    """Guarantee the candidate's full-time roles AND their current/most-recent
+    role are present in the output.
 
     The LLM occasionally drops a full-time role when the JD doesn't strongly
-    map to that work. We splice the missing role(s) back from the master so the
-    candidate's primary professional history is never hidden. "Full-time" is
-    simply any experience entry whose title is not an internship — derived from
-    the resume, not tied to any specific employer. Skipped when the profile
-    opts out via ``preserve_fulltime: false``.
+    map to that work — or drops the most recent role in favor of older, more
+    keyword-dense ones (e.g. a current internship losing out to a past
+    full-time job). We splice the missing role(s) back from the master so the
+    candidate's primary professional history, and what they're doing right
+    now, is never hidden. "Full-time" is simply any experience entry whose
+    title is not an internship — derived from the resume, not tied to any
+    specific employer. Skipped when the profile opts out via
+    ``preserve_fulltime: false``.
     """
     if profile is not None and not profile.get("preserve_fulltime", True):
         return tailored
@@ -258,6 +265,12 @@ def _ensure_core_experience(tailored: dict, master: dict, profile: dict | None =
         return "intern" not in role
 
     required = [e for e in master_exp if _is_fulltime(e)]
+    # Master entries are most-recent-first by convention — always guarantee
+    # that first entry too (even if it's an internship), so a current
+    # internship can't be crowded out by older full-time history.
+    most_recent = master_exp[0]
+    if most_recent not in required:
+        required = [most_recent] + required
     if not required:
         return tailored
 
@@ -324,7 +337,11 @@ def _ensure_core_experience(tailored: dict, master: dict, profile: dict | None =
         return (1, 0)  # unknown roles after known ones, original order via stable sort
 
     out.sort(key=_sort_key)
-    tailored["experience"] = out[: max(2, len(required))]
+    # Cap at the configured item budget, but never below the count of
+    # guaranteed full-time roles (a smaller budget must not cut a required
+    # role that was just spliced back in above).
+    cap = max(len(required), RESUME_CONSTRAINTS["experience_max_items"])
+    tailored["experience"] = out[:cap]
     return tailored
 
 

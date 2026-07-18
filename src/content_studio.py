@@ -219,24 +219,52 @@ _TWEAK_SYSTEMS = {
     "bio": (
         "You revise the candidate's bio/voice reference markdown. Apply the "
         "instruction and return the COMPLETE updated markdown. Preserve the "
-        "headings/structure unless asked otherwise. " + _GROUNDING
+        "headings/structure unless asked otherwise. When the instruction refers "
+        "to a story below (e.g. mentions an employer, project, or theme covered "
+        "by one), pull the real details from that story rather than asking for "
+        "them. " + _GROUNDING
     ),
     "resume": (
         "You revise the candidate's master resume YAML. Apply the instruction "
         "and return the COMPLETE updated YAML only (no code fences, no prose). "
-        "Keep it valid YAML with the same top-level keys. " + _GROUNDING
+        "Keep it valid YAML with the same top-level keys. When the instruction "
+        "refers to a story below (e.g. 'add my X internship'), pull the real "
+        "employer, dates, and bullets from that story's content rather than "
+        "inventing them or leaving placeholders. " + _GROUNDING
     ),
 }
 
 
-def tweak_content(kind: str, text: str, instruction: str, *, provider) -> str:
+def _stories_context(stories: list[dict] | None) -> str:
+    if not stories:
+        return ""
+    block = "\nCANDIDATE'S STORIES (real background — use these for facts/metrics the instruction refers to):\n"
+    for s in stories:
+        block += (
+            f"\n---\nTitle: {s.get('title','')}\n"
+            f"Tags: {', '.join(s.get('tags', []))}\n"
+            f"One-liner: {s.get('one_liner','')}\n"
+            f"{s.get('body','')}\n"
+        )
+    return block
+
+
+def tweak_content(
+    kind: str, text: str, instruction: str, *, provider, stories: list[dict] | None = None
+) -> str:
     """Revise story/bio/resume text per a freeform instruction. Returns the
-    new text (the caller validates + persists)."""
+    new text (the caller validates + persists).
+
+    `stories` (for kind in "resume"/"bio") grounds the edit in the candidate's
+    written stories, so e.g. "add my Testsprite internship" can pull the real
+    employer/dates/bullets instead of the model inventing or refusing them.
+    """
     system = _TWEAK_SYSTEMS.get(kind)
     if system is None:
         raise ValueError(f"unknown content kind: {kind}")
     user = (
-        f"CURRENT CONTENT:\n{text}\n\n"
+        f"CURRENT CONTENT:\n{text}\n"
+        f"{_stories_context(stories) if kind in ('resume', 'bio') else ''}\n"
         f"INSTRUCTION:\n{instruction.strip()}\n\n"
         "Return ONLY the complete updated content, nothing else."
     )

@@ -43,6 +43,31 @@ def _is_reasoning_model(model: str) -> bool:
     return any(hint in m for hint in _REASONING_MODEL_HINTS)
 
 
+def _log_cache_usage(resp, where: str) -> None:
+    """Debug-log DeepSeek's automatic prompt-cache accounting.
+
+    DeepSeek does server-side prefix caching automatically and reports
+    ``prompt_cache_hit_tokens`` / ``prompt_cache_miss_tokens`` on ``usage``.
+    Logging them is the only way to verify that our byte-stable prompt prefixes
+    (e.g. the master resume block in the tailor graph) are actually being served
+    from cache on jobs 2..N of a run. Best-effort: never raise.
+    """
+    try:
+        usage = getattr(resp, "usage", None)
+        if usage is None:
+            return
+        hit = getattr(usage, "prompt_cache_hit_tokens", None)
+        miss = getattr(usage, "prompt_cache_miss_tokens", None)
+        if hit is None and miss is None:
+            return
+        LOG.debug(
+            "DeepSeek cache [%s]: hit=%s miss=%s prompt_tokens=%s",
+            where, hit, miss, getattr(usage, "prompt_tokens", None),
+        )
+    except Exception:
+        pass
+
+
 def _budget_for(model: str, requested: int) -> int:
     if _is_reasoning_model(model):
         return min(_REASONING_MAX_CAP, max(requested * _REASONING_TOKEN_MULTIPLIER, 4000))
@@ -107,6 +132,7 @@ class DeepSeekProvider(LLMProvider):
                     {"role": "user", "content": user},
                 ],
             )
+            _log_cache_usage(resp, "text_call")
             content = (resp.choices[0].message.content or "").strip()
             if not content and _is_reasoning_model(self.model):
                 # The model spent its budget on CoT and never produced a final
@@ -157,6 +183,7 @@ class DeepSeekProvider(LLMProvider):
                     {"role": "user", "content": user},
                 ],
             )
+            _log_cache_usage(resp, "json_call")
             content = (resp.choices[0].message.content or "").strip()
             if not content and _is_reasoning_model(self.model):
                 raise RuntimeError(

@@ -326,9 +326,10 @@ def _run_tailor(state: dict, provider: LLMProvider) -> None:
         "==== PROJECTS ====\n"
         f"At most {c['projects_max_items']} entries, "
         f"{c['projects_bullets_per_item']} bullets each.\n"
-        "Select projects by JD domain match: the MASTER's projects are already "
-        "pre-sorted by relevance to THIS JD, so prefer the ones listed first "
-        "unless a later one clearly maps better to the JD's tech stack/domain.\n"
+        "Select projects by JD domain match. A PROJECT PRIORITY list for THIS "
+        "role is provided after the job description (most relevant first); prefer "
+        "those, but pick a lower-priority one if it clearly maps better to the "
+        "JD's tech stack/domain.\n"
         f"Apply the same LINE-FILL and PAR FORMAT rules as experience bullets — "
         f"either {_lf.SINGLE_TARGET}-{_lf.SINGLE_MAX} chars (a full single line) "
         f"OR {_lf.DOUBLE_MIN}-{_lf.DOUBLE_MAX} chars (full two lines). Never the "
@@ -388,16 +389,24 @@ def _run_tailor(state: dict, provider: LLMProvider) -> None:
             if chunk:
                 guidelines_block += f"{chunk}\n\n"
 
-    # Present the master with its projects pre-sorted by relevance to THIS JD so
-    # the LLM stops defaulting to the same flashy projects for every role.
+    # Keep the MASTER block byte-identical across every job so providers with
+    # automatic prefix caching (DeepSeek/Mistral/Gemini) serve the ~14 KB master
+    # from cache on jobs 2..N of a run instead of re-billing it each time. That
+    # means NOT mutating master (its projects must stay in canonical order). To
+    # keep the old "stop defaulting to the same flashy projects" behaviour, the
+    # per-JD relevance ranking is emitted as an explicit priority hint placed
+    # AFTER the job description (in the volatile tail), not baked into the block.
     jd_for_rank = f"{_safe_title(job)} {_safe_desc(job, 3500)}"
-    master_for_prompt = dict(master)
-    master_for_prompt["projects"] = _rank_projects_by_jd(
-        master.get("projects") or [], jd_for_rank,
+    ranked_projects = _rank_projects_by_jd(master.get("projects") or [], jd_for_rank)
+    ranked_names = [str(p.get("name", "")).strip() for p in ranked_projects if p.get("name")]
+    project_priority_hint = (
+        "PROJECT PRIORITY FOR THIS ROLE (most relevant first):\n"
+        f"  {', '.join(ranked_names)}\n"
+        if ranked_names else ""
     )
 
     user_prompt = (
-        f"MASTER RESUME:\n{json.dumps(master_for_prompt, indent=2)}\n\n"
+        f"MASTER RESUME:\n{json.dumps(master, indent=2)}\n\n"
         f"{extras_block}"
         f"{narrative_block}"
         f"{guidelines_block}"
@@ -406,6 +415,7 @@ def _run_tailor(state: dict, provider: LLMProvider) -> None:
         f"Title: {_safe_title(job)}\n"
         f"Location: {job.get('location','')}\n\n"
         f"{_safe_desc(job, 3500)}\n\n"
+        f"{project_priority_hint}\n"
         "Produce the tailored resume JSON. Use the upper end of every budget. "
         "Never use em dashes (use commas or semicolons instead). "
         "Ensure at least 25 skills total."

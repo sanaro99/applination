@@ -56,8 +56,15 @@ def _log_cache_usage(resp, where: str) -> None:
         usage = getattr(resp, "usage", None)
         if usage is None:
             return
+        # DeepSeek's cache fields are extras on the OpenAI usage model; depending
+        # on SDK version they surface as attributes and/or only in model_extra.
+        extra = getattr(usage, "model_extra", None) or {}
         hit = getattr(usage, "prompt_cache_hit_tokens", None)
+        if hit is None:
+            hit = extra.get("prompt_cache_hit_tokens")
         miss = getattr(usage, "prompt_cache_miss_tokens", None)
+        if miss is None:
+            miss = extra.get("prompt_cache_miss_tokens")
         if hit is None and miss is None:
             return
         LOG.debug(

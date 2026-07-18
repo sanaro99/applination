@@ -56,7 +56,8 @@ cd web && npm run dev                                    # web only
 
 **Scheduling:**
 - Linux/macOS: `bash scripts/setup_cron.sh`
-- Windows: `.\scripts\setup_task_scheduler.ps1 -Time "08:00"`
+- Windows: `.\scripts\setup_task_scheduler.ps1` (omit `-Time` to auto-default into off-peak; `-Time "HH:mm"` to override)
+- **Off-peak default:** DeepSeek (the default provider) bills ~50% less during 16:30–00:30 GMT. Both scripts default the daily run to the local equivalent of 20:00 GMT so it lands in that window automatically, and warn if you pick a peak-hour time (`-FullPrice` silences the PS1 warning).
 
 ## Architecture
 
@@ -128,3 +129,4 @@ Requires Microsoft Word (Windows/macOS) or LibreOffice (`soffice` on PATH for Li
 
 - Claude Haiku: ~$0.10–0.30/run (30 jobs)
 - Gemini Flash / Ollama: effectively free
+- DeepSeek (default): cheapest cloud path; ranking cost is ~fixed per run (scales with jobs *fetched*, not `max_jobs_per_day`), tailoring+cover scale with selected count. **Off-peak (16:30–00:30 GMT): ~50% off** — the scheduler scripts default into this window. No async batch API; use off-peak + prefix caching instead (batch APIs on Claude/Gemini/Mistral give the same 50% but with up to 24h latency, which conflicts with same-run document output).

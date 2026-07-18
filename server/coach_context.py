@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from src.reference_loader import load_stories
+from src.reference_loader import BIO_CAP, STORY_BODY_CAP, load_stories
 
 if TYPE_CHECKING:  # avoid a hard import cycle / DB import at module load
     from .db import Application, ChatMessage
@@ -24,9 +24,11 @@ if TYPE_CHECKING:  # avoid a hard import cycle / DB import at module load
 MASTER_PATH = Path(__file__).resolve().parent.parent / "master_data"
 
 # Rough char budgets so the assembled prompt stays inside the providers'
-# context windows (tailor.py works to a similar ~8K-token ceiling).
-_BIO_CAP = 1000
-_STORY_BODY_CAP = 400
+# context windows (tailor.py works to a similar ~8K-token ceiling). The bio /
+# story-body budgets are shared with tailor.py via reference_loader so every
+# prompt assembler agrees; _JD_CAP / _HISTORY_CAP are coach-specific.
+_BIO_CAP = BIO_CAP
+_STORY_BODY_CAP = STORY_BODY_CAP
 _JD_CAP = 1500
 _HISTORY_CAP = 6000
 

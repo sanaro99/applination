@@ -2,13 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  AlarmClock,
   AlertCircle,
   Briefcase,
   CheckCircle2,
   CircleStop,
+  Clock,
+  DollarSign,
   Loader2,
   OctagonX,
   Play,
@@ -18,13 +21,29 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ShineBorder } from "@/components/ui/shine-border";
 import { MagicCard } from "@/components/ui/magic-card";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { api, subscribeRun } from "@/lib/api";
+import { useLatestRuns, anyRunActive } from "@/lib/use-latest-runs";
+import {
+  estimateRun,
+  formatUsd,
+  formatMinutes,
+  formatElapsed,
+} from "@/lib/cost-estimate";
 import { useUI } from "@/lib/store";
 import type { PipelineEvent } from "@/lib/types";
 import {
@@ -56,14 +75,31 @@ const INITIAL_STAGES: Record<StageId, StageState> = {
 };
 
 export default function RunPage() {
-  const router = useRouter();
   const { setActiveRunId } = useUI();
   const [options, setOptions] = useState({
     dry_run: false,
     no_pdf: false,
     no_cache: false,
   });
+  const [count, setCount] = useState(10);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [runId, setRunId] = useState<number | null>(null);
+  const [elapsedSec, setElapsedSec] = useState<number | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+
+  const { data: runs } = useLatestRuns();
+  const activeElsewhere = anyRunActive(runs) && runId == null;
+  const activeRun = runs?.find(
+    (r) => r.status === "running" || r.status === "queued",
+  );
+
+  const { data: pricing } = useQuery({
+    queryKey: ["pricing-window"],
+    queryFn: () => api.getPricingWindow(),
+    refetchInterval: 60_000,
+  });
+  const peakNow = !!pricing?.avoid_peak && !!pricing?.peak;
+  const est = estimateRun(count, { dryRun: options.dry_run, peak: peakNow });
   const [stages, setStages] = useState<Record<StageId, StageState>>(INITIAL_STAGES);
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [jobs, setJobs] = useState<LiveJob[]>([]);
@@ -96,6 +132,7 @@ export default function RunPage() {
     setFetchSummary(null);
     setDoneSummary(null);
     setStopping(false);
+    setElapsedSec(null);
   }
 
   function handleEvent(evt: PipelineEvent) {
@@ -170,6 +207,8 @@ export default function RunPage() {
         { level: evt.level, msg: evt.msg, ts: Date.now() },
       ]);
     } else if (evt.type === "done") {
+      if (startTimeRef.current)
+        setElapsedSec((Date.now() - startTimeRef.current) / 1000);
       setDoneSummary({
         applications: evt.applications,
         jobs_found: evt.jobs_found,
@@ -180,6 +219,8 @@ export default function RunPage() {
       setStopping(true);
     } else if (evt.type === "cancelled") {
       setStopping(false);
+      if (startTimeRef.current)
+        setElapsedSec((Date.now() - startTimeRef.current) / 1000);
       setDoneSummary({
         applications: evt.applications,
         jobs_found: evt.jobs_found,
@@ -208,18 +249,30 @@ export default function RunPage() {
     }
   }
 
-  async function start() {
-    if (starting || runId) return;
+  async function doRun(scheduledFor?: string) {
+    if (starting || runId != null) return;
+    setConfirmOpen(false);
     setStarting(true);
-    reset();
     try {
-      const r = await api.startRun(options);
+      const r = await api.startRun({
+        ...options,
+        max_jobs: count,
+        ...(scheduledFor ? { scheduled_for: scheduledFor } : {}),
+      });
+      if (scheduledFor) {
+        toast.success(
+          `Run scheduled for ${formatLocalTime(scheduledFor)} — keep Applination open so it can fire.`,
+        );
+        return;
+      }
+      reset();
+      startTimeRef.current = Date.now();
       setRunId(r.id);
       setActiveRunId(r.id);
       closeRef.current = subscribeRun(r.id, handleEvent, () => {
         toast.error("Lost connection to run stream");
       });
-      toast.success(`Run #${r.id} started`);
+      toast.success(`Run #${r.id} started · ${count} applications`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -268,9 +321,33 @@ export default function RunPage() {
             <CardContent className="space-y-6">
               <p className="text-sm text-muted-foreground">
                 Fetch jobs from all enabled sources, rank with the LLM, tailor
-                resumes and cover letters for the top matches, and write today's
-                Excel tracker.
+                resumes and cover letters for the top matches, and write
+                today&apos;s Excel tracker.
               </p>
+
+              <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm">How many applications?</Label>
+                  <span className="font-mono text-lg font-semibold tabular-nums">
+                    {count}
+                  </span>
+                </div>
+                <Slider
+                  min={5}
+                  max={30}
+                  step={5}
+                  value={count}
+                  onValueChange={(v) =>
+                    setCount(Array.isArray(v) ? v[0] : v)
+                  }
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  {[5, 10, 15, 20, 25, 30].map((n) => (
+                    <span key={n}>{n}</span>
+                  ))}
+                </div>
+              </div>
+
               <div className="grid gap-4 sm:grid-cols-3">
                 <OptionRow
                   label="Dry run"
@@ -297,15 +374,110 @@ export default function RunPage() {
                   }
                 />
               </div>
-              <Button onClick={start} disabled={starting} size="lg">
+
+              {activeElsewhere && (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+                  <span className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                    <Loader2 className="size-4 animate-spin" /> A run is already
+                    in progress.
+                  </span>
+                  {activeRun && (
+                    <Link
+                      href={`/runs/${activeRun.id}`}
+                      className={buttonVariants({
+                        variant: "outline",
+                        size: "sm",
+                      })}
+                    >
+                      View it
+                    </Link>
+                  )}
+                </div>
+              )}
+
+              <Button
+                onClick={() => setConfirmOpen(true)}
+                disabled={starting || activeElsewhere}
+                size="lg"
+              >
                 {starting ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (
                   <Play className="size-4" />
                 )}
-                Start run
+                Review &amp; start
               </Button>
             </CardContent>
+
+            <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Generate {count} applications</DialogTitle>
+                  <DialogDescription>
+                    {options.dry_run
+                      ? "Dry run: fetch + rank only, no tailoring."
+                      : "Fetch, rank, tailor resumes + cover letters, and write the tracker."}
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-center gap-4 rounded-lg border border-border bg-muted/40 p-3">
+                    <span className="flex items-center gap-1.5">
+                      <DollarSign className="size-4 text-muted-foreground" />~
+                      {formatUsd(est.usd)}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Clock className="size-4 text-muted-foreground" />
+                      {formatMinutes(est.minutes)}
+                    </span>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      rough estimate
+                    </span>
+                  </div>
+
+                  {peakNow && pricing && (
+                    <div className="space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                      <div className="flex items-center gap-2 font-medium text-amber-600 dark:text-amber-400">
+                        <AlarmClock className="size-4" /> DeepSeek peak-hour
+                        surcharge active
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Costs run ~2× until{" "}
+                        {formatLocalTime(pricing.next_non_peak_utc)}. Schedule to
+                        avoid it (we&apos;ll start it then, as long as
+                        Applination is open), or run now anyway.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <DialogFooter>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setConfirmOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  {peakNow && pricing ? (
+                    <>
+                      <Button variant="outline" onClick={() => doRun()}>
+                        Run now anyway
+                      </Button>
+                      <Button
+                        onClick={() => doRun(pricing.next_non_peak_utc)}
+                      >
+                        <AlarmClock className="size-4" /> Schedule for{" "}
+                        {formatLocalTime(pricing.next_non_peak_utc)}
+                      </Button>
+                    </>
+                  ) : (
+                    <Button onClick={() => doRun()}>
+                      <Play className="size-4" /> Start run
+                    </Button>
+                  )}
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </Card>
         </BlurFade>
       ) : (
@@ -377,6 +549,29 @@ export default function RunPage() {
                 <StatTile label="Top matches" value={jobs.length} />
                 <StatTile label="Tailored" value={completedJobs} />
               </div>
+              {doneSummary && (
+                <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="size-4 text-emerald-500" />
+                    {doneSummary.applications} applications
+                  </span>
+                  {elapsedSec != null && (
+                    <span className="flex items-center gap-1.5">
+                      <Clock className="size-4 text-muted-foreground" />
+                      {formatElapsed(elapsedSec)}
+                    </span>
+                  )}
+                  {!doneSummary.dry_run && (
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <DollarSign className="size-4" />~
+                      {formatUsd(
+                        estimateRun(doneSummary.applications).usd,
+                      )}{" "}
+                      est.
+                    </span>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -445,6 +640,17 @@ export default function RunPage() {
       )}
     </div>
   );
+}
+
+function formatLocalTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
 }
 
 function OptionRow({

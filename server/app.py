@@ -25,6 +25,7 @@ from .studio import router as studio_router
 from .onboarding import router as onboarding_router
 from .inbox import router as inbox_router
 from .reminders import router as reminders_router
+from .pricing import router as pricing_router
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -59,7 +60,14 @@ def create_app() -> FastAPI:
     async def _on_startup() -> None:
         init_db()
         bus.bind_loop(asyncio.get_running_loop())
+        app.state._poller_task = asyncio.create_task(_scheduled_run_poller())
         log.info("server started; output mounted at /files -> %s", out_root)
+
+    @app.on_event("shutdown")
+    async def _on_shutdown() -> None:
+        task = getattr(app.state, "_poller_task", None)
+        if task is not None:
+            task.cancel()
 
     @app.get("/api/health")
     def health() -> dict:
@@ -78,8 +86,27 @@ def create_app() -> FastAPI:
     app.include_router(onboarding_router)
     app.include_router(inbox_router)
     app.include_router(reminders_router)
+    app.include_router(pricing_router)
 
     return app
+
+
+async def _scheduled_run_poller() -> None:
+    """Fire due scheduled runs. One task for the whole app; wakes every 60s.
+
+    Runs the (synchronous, DB-backed) dispatch in a thread so it never blocks
+    the event loop. Scheduled runs persist in the DB, so a restart re-arms them.
+    """
+    from .runs import dispatch_due_scheduled_runs
+
+    while True:
+        try:
+            await asyncio.to_thread(dispatch_due_scheduled_runs)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("scheduled-run poller tick failed")
+        await asyncio.sleep(60)
 
 
 app = create_app()

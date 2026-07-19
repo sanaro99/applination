@@ -1189,9 +1189,10 @@ class Tailor:
 
         Args:
             quality_tier: "standard" routes through the fast `tailoring` chain
-                (deepseek-chat by default). "premium" routes through
-                `tailoring_premium` (deepseek-v4-pro reasoning model) for
-                top-N ranked jobs. main.py decides which tier each job uses.
+                (deepseek-v4-flash by default). "premium" routes through
+                `tailoring_premium` (also v4-flash by default; can be set to the
+                deepseek-v4-pro reasoning model) for top-N ranked jobs. main.py
+                decides which tier each job uses.
 
         Populates self.last_tailor_metrics with per-step bullet-band counts,
         line_fitter stats, and total wall-clock seconds. main.py serializes

@@ -36,7 +36,7 @@ def get_provider(name: str, llm_cfg: dict, *, model_override: str | None = None)
     """Construct a provider by name.
 
     `model_override` lets a per-task config swap the default model for that
-    provider on a single call site (e.g., critique uses deepseek-chat while
+    provider on a single call site (e.g., critique uses deepseek-v4-flash while
     tailoring keeps deepseek-v4-pro).
     """
     name = name.lower().strip()
@@ -87,7 +87,7 @@ def get_provider(name: str, llm_cfg: dict, *, model_override: str | None = None)
         from .deepseek_provider import DeepSeekProvider
         return DeepSeekProvider(
             api_key=sub.get("api_key", ""),
-            model=_model("deepseek-chat"),
+            model=_model("deepseek-v4-flash"),
         )
 
     if name == "mistral":
@@ -210,7 +210,7 @@ def get_task_chains(llm_cfg: dict) -> dict[str, list[LLMProvider]]:
         primary = task_cfg.get("primary", global_primary)
         fallbacks = task_cfg.get("fallbacks", global_fallbacks) or []
         # `models: {provider_name: model_id}` lets a task pin a non-default model
-        # for one or more providers (e.g. use deepseek-chat for critique while
+        # for one or more providers (e.g. use deepseek-v4-flash for critique while
         # tailoring keeps the slower deepseek-v4-pro). Falls back to the
         # top-level llm.<provider>.model when unset.
         model_overrides = task_cfg.get("models", {}) or {}

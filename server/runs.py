@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -55,10 +55,70 @@ def _clear_stop(run_id: int) -> None:
         _stop_requests.pop(run_id, None)
 
 
+# Slider bounds for the per-run count override (5..30). Mirrors the frontend.
+_MIN_JOBS, _MAX_JOBS = 5, 30
+
+
+def _clamp_max_jobs(n: int) -> int:
+    return max(_MIN_JOBS, min(_MAX_JOBS, int(n)))
+
+
+def _active_run_exists() -> bool:
+    """True if a run is queued or running (a scheduled run is NOT active)."""
+    with session() as s:
+        row = s.exec(
+            select(Run).where(Run.status.in_([RunStatus.queued, RunStatus.running]))
+        ).first()
+    return row is not None
+
+
+def _start_worker_thread(run: Run) -> None:
+    """Spawn the pipeline thread for an already-persisted Run row."""
+    threading.Thread(
+        target=_worker,
+        args=(run.id, run.dry_run, run.no_pdf, run.no_cache, run.max_jobs),
+        daemon=True,
+    ).start()
+
+
+def dispatch_due_scheduled_runs() -> None:
+    """Fire any scheduled runs whose time has come, one at a time.
+
+    Called by the lifespan poller (~60s). Because scheduled runs live in the DB,
+    they survive a server restart — the poller re-picks them up. Skips dispatch
+    while another run is active so we never run two pipelines at once.
+    """
+    if _active_run_exists():
+        return
+    now = datetime.utcnow()
+    with session() as s:
+        due = s.exec(
+            select(Run)
+            .where(Run.status == RunStatus.scheduled, Run.scheduled_for <= now)
+            .order_by(Run.scheduled_for)
+        ).all()
+        due_ids = [r.id for r in due]
+    for run_id in due_ids:
+        if _active_run_exists():
+            break  # let the running one finish; retry the rest next tick
+        with session() as s:
+            run = s.get(Run, run_id)
+            if run is None or run.status != RunStatus.scheduled:
+                continue
+            run.status = RunStatus.queued  # claim it before the thread starts
+            s.add(run)
+            s.commit()
+            s.refresh(run)
+        log.info("dispatching scheduled run %d (was due %s)", run_id, run.scheduled_for)
+        _start_worker_thread(run)
+
+
 class StartRunBody(BaseModel):
     dry_run: bool = False
     no_pdf: bool = False
     no_cache: bool = False
+    max_jobs: int | None = None  # override search.max_jobs_per_day for this run
+    scheduled_for: datetime | None = None  # defer until this UTC time (else run now)
 
 
 class RunOut(BaseModel):
@@ -69,6 +129,8 @@ class RunOut(BaseModel):
     dry_run: bool
     no_pdf: bool
     no_cache: bool
+    max_jobs: int | None
+    scheduled_for: datetime | None
     jobs_found: int
     applications_created: int
     day_root: str | None
@@ -84,6 +146,8 @@ def _run_to_out(r: Run) -> RunOut:
         dry_run=r.dry_run,
         no_pdf=r.no_pdf,
         no_cache=r.no_cache,
+        max_jobs=r.max_jobs,
+        scheduled_for=r.scheduled_for,
         jobs_found=r.jobs_found,
         applications_created=r.applications_created,
         day_root=r.day_root,
@@ -112,7 +176,13 @@ def _build_excluded_keys() -> set[str]:
     return keys
 
 
-def _worker(run_id: int, dry_run: bool, no_pdf: bool, no_cache: bool) -> None:
+def _worker(
+    run_id: int,
+    dry_run: bool,
+    no_pdf: bool,
+    no_cache: bool,
+    max_jobs: int | None = None,
+) -> None:
     """Background thread: execute the pipeline and stream events."""
     from src.main import setup_logging
     from src.pipeline import run_pipeline
@@ -140,6 +210,8 @@ def _worker(run_id: int, dry_run: bool, no_pdf: bool, no_cache: bool) -> None:
 
     try:
         cfg = load_config()
+        if max_jobs is not None:
+            cfg["search"]["max_jobs_per_day"] = _clamp_max_jobs(max_jobs)
         summary = run_pipeline(
             cfg,
             dry_run=dry_run,
@@ -271,24 +343,39 @@ def _link_ranked(s, run_id: int, evt: dict, app_id: int | None) -> None:
 def start_run(body: StartRunBody | None = None) -> RunOut:
     # Body is optional: an empty POST starts a normal (non-dry) run with defaults.
     body = body or StartRunBody()
+    max_jobs = _clamp_max_jobs(body.max_jobs) if body.max_jobs is not None else None
+
+    # Schedule for later if a future time was given (else run immediately).
+    now = datetime.utcnow()
+    sched = body.scheduled_for
+    if sched is not None and sched.tzinfo is not None:
+        sched = sched.astimezone(timezone.utc).replace(tzinfo=None)
+    is_scheduled = sched is not None and sched > now
+
+    if not is_scheduled and _active_run_exists():
+        raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
+
     with session() as s:
         run = Run(
             dry_run=body.dry_run,
             no_pdf=body.no_pdf,
             no_cache=body.no_cache,
-            status=RunStatus.queued,
+            max_jobs=max_jobs,
+            scheduled_for=sched if is_scheduled else None,
+            status=RunStatus.scheduled if is_scheduled else RunStatus.queued,
         )
         s.add(run)
         s.commit()
         s.refresh(run)
-        run_id = run.id  # type: ignore[assignment]
         out = _run_to_out(run)
+        # Detached copy so the worker thread can read fields after the session closes.
+        thread_run = Run(**run.model_dump())
 
-    threading.Thread(
-        target=_worker,
-        args=(run_id, body.dry_run, body.no_pdf, body.no_cache),
-        daemon=True,
-    ).start()
+    if is_scheduled:
+        log.info("run %d scheduled for %s UTC (max_jobs=%s)", out.id, sched, max_jobs)
+        return out
+
+    _start_worker_thread(thread_run)
     return out
 
 
@@ -311,6 +398,13 @@ def stop_run(run_id: int, body: StopRunBody | None = None) -> RunOut:
         r = s.get(Run, run_id)
         if r is None:
             raise HTTPException(404, "run not found")
+        # A scheduled run has no worker thread yet — cancel it directly.
+        if r.status == RunStatus.scheduled:
+            r.status = RunStatus.cancelled
+            r.finished_at = datetime.utcnow()
+            s.add(r)
+            s.commit()
+            return _run_to_out(r)
         if r.status not in (RunStatus.running, RunStatus.queued):
             raise HTTPException(
                 409, f"run #{run_id} is not active (status={r.status.value})"

@@ -20,6 +20,7 @@ engine = create_engine(
 
 
 class RunStatus(str, Enum):
+    scheduled = "scheduled"  # deferred to a future time; picked up by the poller
     queued = "queued"
     running = "running"
     done = "done"
@@ -44,6 +45,8 @@ class Run(SQLModel, table=True):
     dry_run: bool = False
     no_pdf: bool = False
     no_cache: bool = False
+    max_jobs: int | None = None  # per-run override of search.max_jobs_per_day
+    scheduled_for: datetime | None = None  # when status==scheduled, UTC time to fire
     log_path: str | None = None
     jobs_found: int = 0
     applications_created: int = 0
@@ -150,6 +153,10 @@ class SavedAnswer(SQLModel, table=True):
 # so we add new columns by hand. SQLite ADD COLUMN is cheap and idempotent here
 # because we guard on the current schema.
 _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    "run": [
+        ("max_jobs", "INTEGER"),
+        ("scheduled_for", "DATETIME"),
+    ],
     "application": [
         ("tags", "VARCHAR DEFAULT ''"),
         ("deadline", "DATETIME"),

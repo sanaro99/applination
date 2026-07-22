@@ -14,6 +14,7 @@ import type {
   LlmConfig,
   PipelineEvent,
   PostMessageResult,
+  PricingWindow,
   ProviderInfo,
   ProviderTestResult,
   RankedJob,
@@ -67,11 +68,15 @@ export const api = {
     dry_run?: boolean;
     no_pdf?: boolean;
     no_cache?: boolean;
+    max_jobs?: number;
+    scheduled_for?: string;
   }) =>
     http<Run>("/api/runs", {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  getPricingWindow: () => http<PricingWindow>("/api/pricing-window"),
 
   listRuns: () => http<Run[]>("/api/runs"),
   getRun: (id: number) => http<Run>(`/api/runs/${id}`),

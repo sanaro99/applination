@@ -176,3 +176,16 @@ reminders:
   digest_to: ""                 # recipient; defaults to user.email
   deadline_window_days: 7       # surface deadlines within this many days
   follow_up_days: 10            # nudge applications with no reply after N days
+
+# =====================================================================
+# DeepSeek peak-hour pricing awareness (used by the web run trigger).
+# DeepSeek V4 may bill a ~2x surcharge during Beijing business hours
+# (UNCONFIRMED by official docs). When avoid_peak is true, triggering a
+# run inside a peak window prompts to schedule it for after the window.
+# Times are UTC "HH:MM-HH:MM". Set avoid_peak: false to disable entirely.
+# =====================================================================
+pricing:
+  avoid_peak: true
+  peak_windows_utc:
+    - "01:00-04:00"   # Beijing 09:00-12:00
+    - "06:00-10:00"   # Beijing 14:00-18:00

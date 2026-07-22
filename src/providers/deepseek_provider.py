@@ -5,8 +5,11 @@ Get a key at https://platform.deepseek.com/api_keys.
 Set it in config.yaml under llm.deepseek.api_key, or as DEEPSEEK_API_KEY env var.
 
 Recommended models:
-  deepseek-chat      — DeepSeek-V3, strong reasoning + JSON, cost-effective
-  deepseek-reasoner  — DeepSeek-R1, chain-of-thought (thinking tags stripped automatically)
+  deepseek-v4-flash  — non-reasoning, fast + very cheap; default for all tasks
+  deepseek-v4-pro    — reasoning model, ~3x pricier; chain-of-thought (thinking tags stripped automatically)
+
+NOTE: the legacy names deepseek-chat / deepseek-reasoner are deprecated and retire
+2026-07-24 15:59 UTC (they map to v4-flash non-thinking / thinking). Use the v4-* names.
 """
 from __future__ import annotations
 import logging
@@ -101,7 +104,7 @@ def _with_retry(fn, *args, **kwargs):
 class DeepSeekProvider(LLMProvider):
     name = "deepseek"
 
-    def __init__(self, api_key: str, model: str = "deepseek-chat"):
+    def __init__(self, api_key: str, model: str = "deepseek-v4-flash"):
         try:
             from openai import OpenAI
         except ImportError:

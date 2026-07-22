@@ -161,3 +161,68 @@ def derive_profile(master: dict | None) -> dict:
         "preserve_fulltime": preserve_fulltime,
         "education_close": education_close,
     }
+
+
+# Skill/experience budgets for the compact resume view below. Kept small so
+# prompts that inject it stay inside the ~8K-token ceiling tailor.py works to.
+_SUMMARY_SKILL_CAP = 30
+_SUMMARY_ROLE_CAP = 3
+_SUMMARY_BULLET_CAP = 4
+
+
+def profile_summary_block(master: dict) -> str:
+    """A compact text view of the master resume: summary, skills, recent roles.
+
+    This is the factual spine any free-text generation needs in order to answer
+    "what have you worked with?" truthfully. Without it a model is asked to be
+    specific with no specifics available, and it invents them — which is why
+    this lives here in ``src/`` rather than in one caller: ``tailor.answer_questions``
+    and ``server/coach_context`` must ground on the SAME facts, or the Coach and
+    the generated application answers will contradict each other.
+    """
+    parts: list[str] = []
+
+    summaries = master.get("summary_options") or []
+    if summaries:
+        parts.append(f"Summary: {summaries[0]}")
+
+    core = master.get("core_skills") or []
+    skills_groups = master.get("skills") or {}
+    flat_skills: list[str] = list(core)
+    for group in skills_groups.values():
+        if isinstance(group, list):
+            flat_skills.extend(group)
+    # De-dupe preserving order, cap to keep it readable.
+    seen: set[str] = set()
+    deduped = [s for s in flat_skills if not (s in seen or seen.add(s))]
+    if deduped:
+        parts.append("Key skills: " + ", ".join(deduped[:_SUMMARY_SKILL_CAP]))
+
+    experience = master.get("experience") or []
+    for role in experience[:_SUMMARY_ROLE_CAP]:
+        company = role.get("company", "")
+        title = role.get("role", "")
+        dates = f"{role.get('start_date', '')}–{role.get('end_date', '')}".strip("–")
+        bullets = role.get("bullets_all") or []
+        bullet_text = "\n".join(f"  - {b}" for b in bullets[:_SUMMARY_BULLET_CAP])
+        parts.append(f"{title} at {company} ({dates}):\n{bullet_text}")
+
+    projects = master.get("projects") or []
+    for proj in projects[:2]:
+        if not isinstance(proj, dict):
+            continue
+        pname = proj.get("name", "")
+        pbullets = proj.get("bullets_all") or proj.get("bullets") or []
+        pb = "\n".join(f"  - {b}" for b in pbullets[:2])
+        if pname:
+            parts.append(f"Project — {pname}:\n{pb}" if pb else f"Project — {pname}")
+
+    education = master.get("education") or []
+    if education:
+        ed = education[0]
+        parts.append(
+            f"Education: {ed.get('degree', '')}, {ed.get('school', '')} "
+            f"(GPA {ed.get('gpa', '')})"
+        )
+
+    return "\n\n".join(p for p in parts if p)

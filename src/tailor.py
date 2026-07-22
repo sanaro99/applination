@@ -15,6 +15,7 @@ import re
 from typing import Any
 
 from .providers import LLMProvider
+from .profile import profile_summary_block
 from .providers.factory import is_quota_error, try_chain
 from .reference_loader import (
     BIO_CAP,
@@ -22,6 +23,28 @@ from .reference_loader import (
     STORY_BODY_CAP,
     STORY_CANDIDATE_CAP,
 )
+
+# Structured-output contract for answer_questions. Providers that support
+# strict schemas (DeepSeek/Mistral/Gemini/Claude) enforce the shape, so a
+# malformed or short list fails loudly instead of silently yielding
+# "(generation failed)" placeholders for the trailing questions.
+_ANSWERS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "answers": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "answer": {"type": "string"},
+                },
+                "required": ["question", "answer"],
+            },
+        },
+    },
+    "required": ["answers"],
+}
 
 LOG = logging.getLogger(__name__)
 
@@ -1399,8 +1422,11 @@ class Tailor:
             f"BINDING: You MUST anchor the STORY paragraph in the single "
             f"best-fitting story from the Story material above (the candidate's "
             f"real work). Do not invent projects, stories, or experiences not "
-            f"present in the Story material. If no story fits this role cleanly, "
-            f"lead with the transferable skill the strongest story showed "
+            f"present in the Story material. Every concrete detail you cite (each "
+            f"metric, percentage, scale figure, technology, or outcome) must appear "
+            f"in the Story material; if a number is not there, describe the result "
+            f"qualitatively rather than inventing one. If no story fits this role "
+            f"cleanly, lead with the transferable skill the strongest story showed "
             f"(judgment, system design, debugging instincts) rather than forcing a "
             f"company-specific hook. NEVER claim experience the candidate doesn't "
             f"have, and NEVER name technologies not mentioned in the story material.\n\n"
@@ -1641,50 +1667,111 @@ class Tailor:
         bio: str,
         stories: list[dict],
         specific_instructions: str = "",
+        *,
+        master: dict | None = None,
+        profile: dict | None = None,
     ) -> list[dict]:
         """Return list of {"question": str, "answer": str}.
 
         Each answer is 100-200 words, first person, grounded in the candidate's
         stories. Called for the manual application flow when the job posting
         includes additional application questions.
+
+        Args:
+            master: the master resume dict. Without it the model is asked to be
+                specific about experience it cannot see, and it fabricates —
+                this is the single largest driver of hallucinated answers, so
+                callers should always pass it.
+            profile: derived identity (see src/profile.derive_profile), used to
+                stop the model re-levelling or re-titling the candidate's roles
+                to fit the posting, the same way the cover letter does.
         """
         if not questions:
             return []
 
-        story_block = "\n\n".join(
-            f"STORY: {s.get('title', '')}\n"
-            f"One-liner: {s.get('one_liner', '')}\n"
-            f"{(s.get('body') or '')[:STORY_BODY_CAP]}"
-            for s in stories[:3]
-        ) or "(no stories available)"
+        # Story 1 gets its full body (it is usually the one an answer anchors
+        # in); the rest are excerpted. Mirrors write_cover_letter's budget.
+        story_parts = []
+        for i, s in enumerate(stories[:4], 1):
+            body = (s.get("body") or "").strip()
+            body = body if i == 1 else body[:STORY_BODY_CAP]
+            story_parts.append(
+                f"[Story {i}] {s.get('title', '')}\n"
+                f"One-liner: {s.get('one_liner', '')}\n"
+                f"{body}"
+            )
+        story_block = "\n\n".join(story_parts) or "(no stories available)"
+
+        resume_block = profile_summary_block(master or {}) or "(no resume data available)"
+
+        positioning_block = ""
+        if profile:
+            titles = ", ".join(profile.get("identity_titles") or []) or "their real title"
+            seniority = profile.get("seniority", "professional")
+            positioning_block = (
+                f"POSITIONING: the candidate's real identity is {titles} "
+                f"({seniority}). Refer to their roles exactly as they are — never "
+                f"rename, re-title, or re-level them to fit this posting. A "
+                f"full-time role is NEVER an 'internship'.\n\n"
+            )
 
         q_block = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(questions))
 
         system = (
-            "You write concise, specific answers to job application questions. "
-            "Each answer is 100-200 words, written in first person, grounded in "
-            "real experience from the candidate's stories. Never be generic. "
+            "You write concise, specific answers to job application questions "
+            "in the candidate's first-person voice.\n\n"
+
+            # Grounding comes first and is stated as overriding, matching the
+            # BINDING language in write_cover_letter and the Coach prompts.
+            "GROUNDING (this overrides every other instruction): Only use the "
+            "candidate's REAL experience supplied below — the resume profile, the "
+            "story material, and the bio voice. Never invent employers, projects, "
+            "job titles, dates, metrics, degrees, or outcomes. Never claim "
+            "experience with a technology that is not named in the resume profile "
+            "or the story material, even when the job description asks for it "
+            "directly.\n\n"
+
+            "WHEN THE MATERIAL DOES NOT COVER THE QUESTION: say so honestly and "
+            "pivot to the closest real, transferable experience — 'I haven't "
+            "worked with X directly; the nearest thing I've done is Y' is a GOOD "
+            "answer. Inventing a plausible X is a FAILED answer. Never pad an "
+            "answer to reach a word count; a truthful 60-word answer beats a "
+            "fabricated 150-word one.\n\n"
+
+            "Each answer is 100-200 words of plain prose, first person, anchored "
+            "in a specific real project or role rather than generic claims. "
             "No em dashes (—). No 'passionate', 'thrilled', or 'excited to apply'. "
-            "No bullet points. Plain prose only."
+            "No bullet points, no markdown, no preamble."
         )
 
         user_prompt = (
-            f"CANDIDATE VOICE:\n{bio[:800]}\n\n"
-            f"STORY MATERIAL:\n{story_block}\n\n"
+            f"CANDIDATE VOICE (absorb the tone, do not reproduce this section):\n"
+            f"{(bio or '')[:BIO_CAP]}\n\n"
+            f"RESUME PROFILE (the candidate's real roles, skills and metrics — "
+            f"the factual record you must stay inside):\n{resume_block}\n\n"
+            f"STORY MATERIAL (the only experiences you may narrate in detail):\n"
+            f"{story_block}\n\n"
+            f"{positioning_block}"
             f"JOB: {job.get('company', '')} — {job.get('title', '')}\n"
             f"JD EXCERPT: {(job.get('description') or '')[:1200]}\n\n"
             + (f"SPECIFIC INSTRUCTIONS: {specific_instructions}\n\n" if specific_instructions else "")
-            + f"QUESTIONS:\n{q_block}\n\n"
-            "Return a JSON object with key \"answers\": a list where each element "
-            "has \"question\" (the exact question text) and \"answer\" (100-200 words). "
-            "Ground each answer in one of the stories above. Do not use em dashes."
+            + f"QUESTIONS (answer all {len(questions)}, in order):\n{q_block}\n\n"
+            "Return a JSON object with key \"answers\": a list of exactly "
+            f"{len(questions)} elements, each with \"question\" (the exact question "
+            "text) and \"answer\".\n\n"
+            "BINDING: every concrete claim in every answer — each employer, "
+            "project, technology, number and outcome — must trace to the RESUME "
+            "PROFILE or STORY MATERIAL above. If you cannot trace it, do not "
+            "write it. Do not use em dashes."
         )
 
         aq_chain = self._get_chain("answer_questions")
         try:
             result = try_chain(
                 aq_chain,
-                lambda p: p.json_call(system, user_prompt, max_tokens=2000),
+                lambda p: p.json_call(
+                    system, user_prompt, max_tokens=2000, schema=_ANSWERS_SCHEMA,
+                ),
                 task_name="answer_questions",
             )
             raw_answers = result.get("answers", [])

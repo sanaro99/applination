@@ -336,7 +336,10 @@ def run_pipeline(
                 critique_letter=should_critique,
                 quality_tier=quality_tier,
             )
-            folder_name = j.safe_folder_name()
+            # Use the ACTUAL folder process_job wrote to (may be suffixed
+            # _2/_3 for a same-day re-run) so the emitted paths + persisted
+            # Application row point at this run's files, never a prior run's.
+            folder_name = result.get("folder_name") or j.safe_folder_name()
             emit({
                 "type": "job_completed",
                 "idx": i,

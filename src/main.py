@@ -267,6 +267,25 @@ def rank_and_filter(jobs: list[Job], cfg: dict, tailor: Tailor,
 
 
 # ---------------------------------------------------------------------
+def _unique_job_folder(day_root: Path, base_name: str) -> Path:
+    """Pick a non-colliding output folder for one generation.
+
+    The first generation of a company+role on a given day uses ``base_name``
+    unchanged. A second generation the same day (a deliberate re-run, e.g.
+    comparing a resume before/after a prompt change) gets ``base_name_2``,
+    then ``_3``, etc. Isolating each run keeps its resume/cover files distinct
+    so a newer run's download never resolves to an older run's leftover
+    ``resume.vN`` files sharing the same folder.
+    """
+    folder = day_root / base_name
+    if not folder.exists():
+        return folder
+    n = 2
+    while (day_root / f"{base_name}_{n}").exists():
+        n += 1
+    return day_root / f"{base_name}_{n}"
+
+
 def process_job(
     job: Job,
     master: dict,
@@ -283,7 +302,7 @@ def process_job(
     critique_letter: bool = False,
     quality_tier: str = "standard",
 ) -> dict:
-    folder = day_root / job.safe_folder_name()
+    folder = _unique_job_folder(day_root, job.safe_folder_name())
     folder.mkdir(parents=True, exist_ok=True)
 
     # Calibrate the bullet line-fit bands to the actual render font BEFORE
@@ -318,7 +337,7 @@ def process_job(
         )
     except Exception as e:
         log.exception("tailoring failed for %s / %s: %s", job.company, job.title, e)
-        return {"error": str(e)}
+        return {"error": str(e), "folder_name": folder.name}
 
     # Save the structured JSON alongside the docx (needed by tweak.py)
     (folder / "resume.json").write_text(
@@ -402,6 +421,10 @@ def process_job(
                 bio,
                 stories,
                 specific_instructions=getattr(job, "specific_instructions", ""),
+                # Without master/profile the model has no factual record to
+                # answer from and fabricates experience to fill the gap.
+                master=master,
+                profile=derive_profile(master),
             )
             if answers:
                 lines = [f"## {a['question']}\n\n{a['answer']}\n" for a in answers]
@@ -419,6 +442,7 @@ def process_job(
             cover_pdf = docx_to_pdf(cover_docx)
 
     return {
+        "folder_name": folder.name,
         "resume_file": str((resume_pdf or resume_docx).relative_to(day_root.parent)),
         "cover_file": str((cover_pdf or cover_docx).relative_to(day_root.parent))
                        if cover_docx.exists() else "",

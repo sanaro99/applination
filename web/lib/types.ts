@@ -1,4 +1,5 @@
 export type RunStatus =
+  | "scheduled"
   | "queued"
   | "running"
   | "done"
@@ -21,10 +22,19 @@ export interface Run {
   dry_run: boolean;
   no_pdf: boolean;
   no_cache: boolean;
+  max_jobs: number | null;
+  scheduled_for: string | null;
   jobs_found: number;
   applications_created: number;
   day_root: string | null;
   error: string | null;
+}
+
+export interface PricingWindow {
+  avoid_peak: boolean;
+  peak: boolean;
+  next_non_peak_utc: string;
+  windows: string[];
 }
 
 export interface Application {

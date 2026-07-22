@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import yaml
 
+from src.profile import profile_summary_block
 from src.reference_loader import BIO_CAP, STORY_BODY_CAP, load_stories
 
 if TYPE_CHECKING:  # avoid a hard import cycle / DB import at module load
@@ -68,45 +69,9 @@ def pick_stories(
     return match_stories(question or "", "", "", stories, top_k=3)
 
 
-def _profile_summary_block(master: dict) -> str:
-    """A compact text view of the master resume: a summary, key skills, and
-    the two most recent roles. Kept small to preserve token budget."""
-    parts: list[str] = []
-
-    summaries = master.get("summary_options") or []
-    if summaries:
-        parts.append(f"Summary: {summaries[0]}")
-
-    core = master.get("core_skills") or []
-    skills_groups = master.get("skills") or {}
-    flat_skills: list[str] = list(core)
-    for group in skills_groups.values():
-        if isinstance(group, list):
-            flat_skills.extend(group)
-    # De-dupe preserving order, cap to keep it readable.
-    seen: set[str] = set()
-    deduped = [s for s in flat_skills if not (s in seen or seen.add(s))]
-    if deduped:
-        parts.append("Key skills: " + ", ".join(deduped[:30]))
-
-    experience = master.get("experience") or []
-    for role in experience[:2]:
-        company = role.get("company", "")
-        title = role.get("role", "")
-        dates = f"{role.get('start_date', '')}–{role.get('end_date', '')}".strip("–")
-        bullets = role.get("bullets_all") or []
-        bullet_text = "\n".join(f"  - {b}" for b in bullets[:3])
-        parts.append(f"{title} at {company} ({dates}):\n{bullet_text}")
-
-    education = master.get("education") or []
-    if education:
-        ed = education[0]
-        parts.append(
-            f"Education: {ed.get('degree', '')}, {ed.get('school', '')} "
-            f"(GPA {ed.get('gpa', '')})"
-        )
-
-    return "\n\n".join(p for p in parts if p)
+# The compact master-resume view now lives in src/profile.py so that
+# tailor.answer_questions and the Coach ground on identical facts.
+_profile_summary_block = profile_summary_block
 
 
 def _story_block(stories: list[dict]) -> str:

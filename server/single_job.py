@@ -172,14 +172,18 @@ def _worker(run_id: int, payload: GenerateBody) -> None:
                 all_stories, all_examples, all_guidelines,
                 day_root, tailor, out_cfg, pipeline_log,
             )
-            folder = day_root / job.safe_folder_name()
+            # Use the ACTUAL folder process_job wrote to (suffixed _2/_3 for a
+            # same-day re-generation) so this row's downloads never resolve to
+            # a prior generation's leftover files in a shared folder.
+            folder_name = result.get("folder_name") or job.safe_folder_name()
+            folder = day_root / folder_name
             emit({
                 "type": "job_completed",
                 "idx": 1, "total": 1,
                 "company": job.company, "title": job.title,
                 "score": payload.match_score,
                 "folder": str(folder.as_posix()),
-                "folder_rel": f"{day}/{job.safe_folder_name()}",
+                "folder_rel": f"{day}/{folder_name}",
                 "resume_file": result.get("resume_file", ""),
                 "cover_file": result.get("cover_file", ""),
                 "answers_file": result.get("answers_file", ""),
@@ -201,7 +205,7 @@ def _worker(run_id: int, payload: GenerateBody) -> None:
                         match_reason=payload.match_reason,
                         description=job.description or "",
                         folder_path=str(folder),
-                        folder_rel=f"{day}/{job.safe_folder_name()}",
+                        folder_rel=f"{day}/{folder_name}",
                         resume_file=result.get("resume_file", ""),
                         cover_file=result.get("cover_file", ""),
                         answers_file=result.get("answers_file", ""),

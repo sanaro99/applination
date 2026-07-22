@@ -91,10 +91,15 @@ llm:
   fallbacks: ["mistral", "openrouter"]
 
   # Per-task provider chains. Omit a task block to inherit the global chain above.
+  # `thinking: false` turns off chain-of-thought for a task (DeepSeek v4 only;
+  # ignored by other providers). Recommended for simple, structured tasks like
+  # ranking + critique — v4 reasons by default, which adds latency + tokens and
+  # can truncate the answer, without improving a bounded scoring/grading call.
   tasks:
     ranking:
       primary: "gemini"
       fallbacks: ["mistral", "openrouter"]
+      thinking: false
     tailoring:
       primary: "gemini"
       fallbacks: ["mistral", "openrouter"]
@@ -107,6 +112,7 @@ llm:
     critique:
       primary: "mistral"
       fallbacks: ["gemini"]
+      thinking: false
     answer_questions:
       primary: "mistral"
       fallbacks: ["gemini"]

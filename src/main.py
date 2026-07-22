@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from dataclasses import asdict
@@ -40,17 +41,60 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # ---------------------------------------------------------------------
 def setup_logging():
+    """Attach INFO file + stdout logging to the root logger, idempotently.
+
+    Uses explicit handlers rather than logging.basicConfig(): basicConfig is a
+    no-op once the root logger already has handlers, which is ALWAYS the case
+    under uvicorn (the web server). That silently left the day's FileHandler
+    constructed-but-unattached, so run_<date>.log files were created empty and
+    nothing was ever written when a run was triggered from the web app.
+
+    Idempotent because the server calls this once per run: it de-dupes the
+    stdout handler and keeps exactly one day-file handler, swapping to a new
+    file (and closing the old one) when the date rolls over on a long-lived
+    process.
+    """
     logs_dir = ROOT / "logs"
     logs_dir.mkdir(exist_ok=True)
     log_file = logs_dir / f"run_{date.today().isoformat()}.log"
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s :: %(message)s",
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout),
-        ],
+    want_path = os.path.abspath(str(log_file))
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s :: %(message)s")
+
+    # Drop any stale day-file handler (yesterday's file) and detect whether the
+    # current day's handler is already attached.
+    have_today_file = False
+    for h in list(root.handlers):
+        if isinstance(h, logging.FileHandler):
+            base = getattr(h, "baseFilename", "") or ""
+            if os.path.dirname(base) != os.path.abspath(str(logs_dir)):
+                continue  # not one of ours — leave it alone
+            if base == want_path:
+                have_today_file = True
+            else:
+                root.removeHandler(h)
+                h.close()
+
+    if not have_today_file:
+        fh = logging.FileHandler(log_file, encoding="utf-8")
+        fh.setLevel(logging.INFO)
+        fh.setFormatter(fmt)
+        root.addHandler(fh)
+
+    have_stdout = any(
+        isinstance(h, logging.StreamHandler)
+        and not isinstance(h, logging.FileHandler)
+        and getattr(h, "stream", None) is sys.stdout
+        for h in root.handlers
     )
+    if not have_stdout:
+        sh = logging.StreamHandler(sys.stdout)
+        sh.setLevel(logging.INFO)
+        sh.setFormatter(fmt)
+        root.addHandler(sh)
+
     return logging.getLogger("internship_bot")
 
 

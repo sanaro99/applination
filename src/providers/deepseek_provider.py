@@ -30,7 +30,15 @@ _RETRY_DELAYS = [5, 15]
 # model finishes thinking — so they need much more max_tokens headroom than a
 # vanilla chat model. Detection is name-based: anything matching one of these
 # substrings gets the reasoning treatment.
-_REASONING_MODEL_HINTS = ("pro", "reasoner", "-r1", "thinking", "v4-pro")
+#
+# NOTE: v4-flash is a reasoning model too — verified empirically, every call
+# returns reasoning_content (1.5-4K chars of CoT). It was previously (wrongly)
+# treated as a plain chat model, so it got no token headroom; short-budget
+# calls (e.g. critique at max_tokens=500, cover-letter attempt 1 at 1600) had
+# their entire budget eaten by CoT and returned empty/truncated content, which
+# surfaced as recurring "JSON parse failed" retries. Match "v4-flash" (not the
+# bare "flash", which would misclassify e.g. gemini-2.5-flash).
+_REASONING_MODEL_HINTS = ("pro", "reasoner", "-r1", "thinking", "v4-pro", "v4-flash")
 # Multiplier applied to max_tokens when calling a reasoning model. CoT budgets
 # of 2-5K tokens are normal, so 6x gives the model room to think AND emit JSON.
 _REASONING_TOKEN_MULTIPLIER = 6
@@ -104,7 +112,13 @@ def _with_retry(fn, *args, **kwargs):
 class DeepSeekProvider(LLMProvider):
     name = "deepseek"
 
-    def __init__(self, api_key: str, model: str = "deepseek-v4-flash"):
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "deepseek-v4-flash",
+        *,
+        disable_thinking: bool = False,
+    ):
         try:
             from openai import OpenAI
         except ImportError:
@@ -128,10 +142,33 @@ class DeepSeekProvider(LLMProvider):
             max_retries=1,
         )
         self.model = model
-        LOG.info("DeepSeek provider initialised: model=%s", model)
+        # When thinking is disabled we pass DeepSeek's non-thinking toggle on
+        # every call (extra_body per the OpenAI-compatible API). This is worth
+        # doing for simple, structured tasks (ranking, critique): v4 models
+        # default to thinking, and the CoT adds latency + tokens + truncation
+        # risk without improving a bounded scoring/grading judgement.
+        self.disable_thinking = disable_thinking
+        self._extra: dict = (
+            {"extra_body": {"thinking": {"type": "disabled"}}}
+            if disable_thinking else {}
+        )
+        LOG.info(
+            "DeepSeek provider initialised: model=%s thinking=%s",
+            model, "off" if disable_thinking else "on",
+        )
+
+    def _budget(self, requested: int) -> int:
+        """Token budget for one call. With thinking off there is no CoT to make
+        room for, so the raw request stands; otherwise reserve reasoning headroom."""
+        return requested if self.disable_thinking else _budget_for(self.model, requested)
+
+    def _reasoning_active(self) -> bool:
+        """True when this call will actually emit reasoning_content (so empty
+        `content` is attributable to CoT consuming the budget)."""
+        return _is_reasoning_model(self.model) and not self.disable_thinking
 
     def text_call(self, system: str, user: str, max_tokens: int = 1000) -> str:
-        budget = _budget_for(self.model, max_tokens)
+        budget = self._budget(max_tokens)
         def _call():
             resp = self.client.chat.completions.create(
                 model=self.model,
@@ -141,10 +178,11 @@ class DeepSeekProvider(LLMProvider):
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
+                **self._extra,
             )
             _log_cache_usage(resp, "text_call")
             content = (resp.choices[0].message.content or "").strip()
-            if not content and _is_reasoning_model(self.model):
+            if not content and self._reasoning_active():
                 # The model spent its budget on CoT and never produced a final
                 # answer. Surface this loudly so the chain falls over to the
                 # next provider instead of silently returning empty text.
@@ -163,7 +201,7 @@ class DeepSeekProvider(LLMProvider):
         *,
         schema: dict | None = None,
     ) -> dict:
-        budget = _budget_for(self.model, max_tokens)
+        budget = self._budget(max_tokens)
 
         # DeepSeek's OpenAI-compatible endpoint does NOT currently support the
         # strict `json_schema` response_format ("This response_format type is
@@ -193,10 +231,11 @@ class DeepSeekProvider(LLMProvider):
                     {"role": "system", "content": sys_prompt},
                     {"role": "user", "content": user},
                 ],
+                **self._extra,
             )
             _log_cache_usage(resp, "json_call")
             content = (resp.choices[0].message.content or "").strip()
-            if not content and _is_reasoning_model(self.model):
+            if not content and self._reasoning_active():
                 raise RuntimeError(
                     f"DeepSeek reasoning model '{self.model}' returned empty JSON content "
                     f"(budget={budget} likely consumed by reasoning_content)"

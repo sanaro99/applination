@@ -42,6 +42,11 @@ Thumbs.db
 
 testsprite_tests/tmp/
 
+# Self-hosted WebLLM model + wasm for in-browser inbox classification.
+# Downloaded locally (see docs) because some networks block huggingface.co,
+# where WebLLM otherwise fetches ~1GB of weights at runtime. Never committed.
+/web/public/models/
+
 # Stray build/debug artifacts
 /_dump.html
 /_layout.js

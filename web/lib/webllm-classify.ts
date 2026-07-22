@@ -1,4 +1,4 @@
-import type { MLCEngine, InitProgressReport } from "@mlc-ai/web-llm";
+import type { MLCEngine, InitProgressReport, AppConfig } from "@mlc-ai/web-llm";
 
 /**
  * In-browser email classification for inbox sync — ports the same
@@ -29,6 +29,32 @@ export interface ClassifyResult {
 }
 
 const MODEL_ID = "Llama-3.2-1B-Instruct-q4f16_1-MLC";
+
+// We self-host the model weights + wasm and serve them same-origin from
+// Next's public/ dir (see web/public/models/, gitignored). WebLLM's default
+// config fetches ~1GB from huggingface.co, which some networks block outright
+// ("Failed to fetch" on CreateMLCEngine). Serving from our own origin makes
+// inbox classification work regardless of HF reachability, and offline.
+// To (re)populate the files, run: python scripts/fetch_webllm_model.py
+// The `resolve/main/` suffix matches WebLLM's cleanModelUrl() expectation
+// (it appends that to any model URL lacking a /resolve/<branch>/ segment), so
+// files are served from web/public/models/<id>/resolve/main/.
+const MODEL_BASE = "/models/Llama-3.2-1B-Instruct-q4f16_1-MLC/resolve/main/";
+const MODEL_LIB = "/models/libs/Llama-3.2-1B-Instruct-q4f16_1_cs1k-webgpu.wasm";
+
+/** AppConfig pointing WebLLM at the self-hosted, same-origin model + wasm. */
+function localAppConfig(): AppConfig {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return {
+    model_list: [
+      {
+        model: origin + MODEL_BASE,
+        model_id: MODEL_ID,
+        model_lib: origin + MODEL_LIB,
+      },
+    ],
+  };
+}
 
 const RESPONSE_SCHEMA = JSON.stringify({
   type: "object",
@@ -82,6 +108,7 @@ export function getEngine(onProgress?: (r: InitProgressReport) => void): Promise
   if (!enginePromise) {
     enginePromise = import("@mlc-ai/web-llm").then(({ CreateMLCEngine }) =>
       CreateMLCEngine(MODEL_ID, {
+        appConfig: localAppConfig(),
         initProgressCallback: onProgress,
       }),
     );

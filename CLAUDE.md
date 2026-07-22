@@ -34,6 +34,12 @@ python -m src.tweak resume.docx --interactive
 .\scripts\dev.ps1                         # starts both: API :8000, web :3000
 python -m uvicorn server.app:app --reload --port 8000   # API only
 cd web && npm run dev                                    # web only
+
+# Inbox-sync WebLLM model (self-hosted, gitignored) — run once per clone.
+# The in-browser classifier loads a ~700MB model + wasm from web/public/models/
+# instead of huggingface.co (which some networks block). Without these files the
+# "Sync inbox" button fails with "Could not load the in-browser model".
+python scripts/fetch_webllm_model.py
 ```
 
 ## Commits & version control

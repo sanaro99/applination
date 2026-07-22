@@ -133,7 +133,7 @@ class DeepSeekProvider(LLMProvider):
             resp = self.client.chat.completions.create(
                 model=self.model,
                 max_tokens=budget,
-                temperature=0.35,
+                temperature=0.2,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
@@ -165,9 +165,10 @@ class DeepSeekProvider(LLMProvider):
         # DeepSeek's OpenAI-compatible endpoint does NOT currently support the
         # strict `json_schema` response_format ("This response_format type is
         # unavailable now" -> 400). Only `json_object` is available. Use it
-        # directly (temperature 0.2) so every JSON call stays on the structured,
-        # low-variance path instead of 400-ing and falling back to base
-        # text_call (temperature 0.35) — wasteful and noisier. The schema is
+        # directly (temperature 0 — fully deterministic, minimal fabrication for
+        # structured tailoring/ranking) so every JSON call stays on the
+        # structured, low-variance path instead of 400-ing and falling back to
+        # base text_call (temperature 0.2) — wasteful and noisier. The schema is
         # embedded in the prompt as a contract hint; value validation is
         # enforced in code downstream.
         sys_prompt = system
@@ -183,7 +184,7 @@ class DeepSeekProvider(LLMProvider):
             resp = self.client.chat.completions.create(
                 model=self.model,
                 max_tokens=budget,
-                temperature=0.2,
+                temperature=0,
                 response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": sys_prompt},

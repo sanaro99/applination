@@ -32,12 +32,21 @@ _TASK_NAMES = (
 )
 
 
-def get_provider(name: str, llm_cfg: dict, *, model_override: str | None = None) -> LLMProvider:
+def get_provider(
+    name: str,
+    llm_cfg: dict,
+    *,
+    model_override: str | None = None,
+    disable_thinking: bool = False,
+) -> LLMProvider:
     """Construct a provider by name.
 
     `model_override` lets a per-task config swap the default model for that
     provider on a single call site (e.g., critique uses deepseek-v4-flash while
     tailoring keeps deepseek-v4-pro).
+
+    `disable_thinking` turns off chain-of-thought for providers that support a
+    non-thinking mode (currently DeepSeek v4). Ignored by providers without one.
     """
     name = name.lower().strip()
     sub = llm_cfg.get(name, {}) or {}
@@ -88,6 +97,7 @@ def get_provider(name: str, llm_cfg: dict, *, model_override: str | None = None)
         return DeepSeekProvider(
             api_key=sub.get("api_key", ""),
             model=_model("deepseek-v4-flash"),
+            disable_thinking=disable_thinking,
         )
 
     if name == "mistral":
@@ -214,6 +224,10 @@ def get_task_chains(llm_cfg: dict) -> dict[str, list[LLMProvider]]:
         # tailoring keeps the slower deepseek-v4-pro). Falls back to the
         # top-level llm.<provider>.model when unset.
         model_overrides = task_cfg.get("models", {}) or {}
+        # `thinking: false` disables chain-of-thought for this task's providers
+        # (DeepSeek v4 supports a non-thinking mode). Defaults to on. Best for
+        # simple, structured tasks where CoT adds cost/latency without quality.
+        disable_thinking = task_cfg.get("thinking", True) is False
 
         chain: list[LLMProvider] = []
         for name in [primary, *fallbacks]:
@@ -221,6 +235,7 @@ def get_task_chains(llm_cfg: dict) -> dict[str, list[LLMProvider]]:
                 chain.append(get_provider(
                     name, llm_cfg,
                     model_override=model_overrides.get(name),
+                    disable_thinking=disable_thinking,
                 ))
             except Exception as e:
                 LOG.warning("Task '%s' provider '%s' unavailable: %s", task, name, e)

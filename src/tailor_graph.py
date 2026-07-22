@@ -248,8 +248,13 @@ def _run_tailor(state: dict, provider: LLMProvider) -> None:
 
         "==== HARD GROUNDING RULE ====\n"
         "Every claim must trace back to something in the MASTER. Rephrase, reorder, "
-        "re-emphasize freely — but do NOT invent companies, titles, dates, metrics, "
-        "technologies, or projects that are not in the MASTER.\n\n"
+        "re-emphasize freely, but do NOT invent companies, titles, dates, metrics, "
+        "technologies, or projects that are not in the MASTER. Do NOT infer "
+        "plausible specifics either: a tool the candidate 'probably' used, a likely "
+        "team size, a round-number metric. If the MASTER does not state it, it does "
+        "not exist. When a JD keyword has no truthful basis in the MASTER, OMIT it "
+        "rather than stretch to cover it. A shorter true resume beats a padded "
+        "invented one.\n\n"
 
         "==== SUMMARY: rewrite, do NOT echo ====\n"
         "Compose a NEW 2-3 sentence summary (DO NOT copy any summary_option verbatim):\n"
@@ -319,8 +324,9 @@ def _run_tailor(state: dict, provider: LLMProvider) -> None:
         "in one role. Use: Engineered, Architected, Designed, Built, Shipped, Scaled, "
         "Reduced, Optimized, Led, Owned, Automated, Migrated, Deployed, Refactored.\n"
         "  METRICS: keep all concrete metrics from master (95%, 50K docs, $10B+, "
-        "200+ microservices). If no metric exists, add scope (team size, service count, "
-        "data volume).\n"
+        "200+ microservices). If a bullet has no metric, add scope (team size, "
+        "service count, data volume) ONLY when the MASTER states it. Never invent a "
+        "number to fill the gap; a bullet with no metric is fine.\n"
         "  JD KEYWORDS: mirror 1-2 JD hard-skill keywords per bullet WHERE TRUTHFUL.\n\n"
 
         "==== PROJECTS ====\n"

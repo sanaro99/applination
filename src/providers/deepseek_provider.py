@@ -5,11 +5,13 @@ Get a key at https://platform.deepseek.com/api_keys.
 Set it in config.yaml under llm.deepseek.api_key, or as DEEPSEEK_API_KEY env var.
 
 Recommended models:
-  deepseek-v4-flash  — non-reasoning, fast + very cheap; default for all tasks
+  deepseek-v4-flash  — fast + very cheap; default for all tasks. Dual-mode: reasons
+                       (emits reasoning_content) by default, like v4-pro; disable
+                       chain-of-thought per-task via config `thinking: false`.
   deepseek-v4-pro    — reasoning model, ~3x pricier; chain-of-thought (thinking tags stripped automatically)
 
-NOTE: the legacy names deepseek-chat / deepseek-reasoner are deprecated and retire
-2026-07-24 15:59 UTC (they map to v4-flash non-thinking / thinking). Use the v4-* names.
+NOTE: the legacy names deepseek-chat / deepseek-reasoner are deprecated and retired
+2026-07-24 15:59 UTC (they mapped to v4-flash non-thinking / thinking). Use the v4-* names.
 """
 from __future__ import annotations
 import logging
@@ -42,10 +44,11 @@ _REASONING_MODEL_HINTS = ("pro", "reasoner", "-r1", "thinking", "v4-pro", "v4-fl
 # Multiplier applied to max_tokens when calling a reasoning model. CoT budgets
 # of 2-5K tokens are normal, so 6x gives the model room to think AND emit JSON.
 _REASONING_TOKEN_MULTIPLIER = 6
-# DeepSeek v4-pro's API caps total output at 16000 tokens. Empirically, when
-# we request the full cap, reasoning fills 12-14K and content stays empty.
-# Setting cap to 12000 leaves ~7-8K for reasoning + ~4K for output, which
-# is enough budget AND keeps a sane bound on the per-call latency.
+# DeepSeek's official max output is 384K tokens, far more than any call here
+# needs. We cap the reasoning budget at 12000 for latency/cost, not because of
+# an API limit: empirically, reasoning fills 12-14K and content stays empty
+# once we get past this range, so 12000 leaves ~7-8K for reasoning + ~4K for
+# output — enough headroom AND a sane bound on per-call latency.
 _REASONING_MAX_CAP = 12000
 
 

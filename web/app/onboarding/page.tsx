@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 
 const PROVIDERS = [
   { id: "gemini", label: "Google Gemini", model: "gemini-2.5-flash", hint: "Free key at aistudio.google.com/apikey", needsKey: true },
-  { id: "deepseek", label: "DeepSeek", model: "deepseek-chat", hint: "platform.deepseek.com", needsKey: true },
+  { id: "deepseek", label: "DeepSeek", model: "deepseek-v4-flash", hint: "platform.deepseek.com", needsKey: true },
   { id: "mistral", label: "Mistral", model: "mistral-small-latest", hint: "console.mistral.ai", needsKey: true },
   { id: "openrouter", label: "OpenRouter", model: "tencent/hy3-preview:free", hint: "Free models at openrouter.ai/keys", needsKey: true },
   { id: "claude", label: "Anthropic Claude", model: "claude-haiku-4-5-20251001", hint: "console.anthropic.com", needsKey: true },

@@ -135,7 +135,7 @@ llm:
   deepseek:
     api_key: ""                  # or set DEEPSEEK_API_KEY env var — platform.deepseek.com
     # deepseek-v4-flash — fast + very cheap, default. deepseek-v4-pro — reasoning, ~3x cost.
-    # (legacy deepseek-chat / deepseek-reasoner retire 2026-07-24 15:59 UTC — use v4-* names)
+    # (legacy deepseek-chat / deepseek-reasoner retired 2026-07-24 15:59 UTC — use v4-* names)
     model: "deepseek-v4-flash"
   mistral:
     api_key: ""                  # or set MISTRAL_API_KEY env var — console.mistral.ai

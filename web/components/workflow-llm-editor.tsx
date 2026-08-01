@@ -40,7 +40,7 @@ const GROUPS = ["Pipeline", "Prepwork & editing"];
 
 // Curated model suggestions per provider (a free-text field covers the rest).
 const CURATED_MODELS: Record<string, string[]> = {
-  deepseek: ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"],
+  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
   mistral: ["mistral-small-latest", "mistral-medium-latest", "open-mixtral-8x22b"],
   gemini: ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-pro"],
   claude: ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-8"],

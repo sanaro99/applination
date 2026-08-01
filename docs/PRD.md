@@ -439,7 +439,7 @@ The tailoring engine enforces strict one-page limits. Key rules:
 - **LinkedIn scraping blocked by design.** LinkedIn aggressively blocks automated browsers. Job postings from LinkedIn must be pasted manually via the single-job wizard.
 - **No real-time token usage tracking.** The provider abstraction layer does not expose token counts, so there is no per-run cost estimate in the UI. Cost reference: Claude Haiku ~$0.10–0.30/run (30 jobs); Gemini Flash / Ollama effectively free.
 - **Coach is send-and-wait, not streaming.** The Prepwork chat endpoints return the complete assistant response synchronously; there is no streaming UI for Coach replies.
-- **DeepSeek API limitation.** DeepSeek's API does not support `json_schema` response format (returns 400). Only `json_object` is used with schema embedded in the prompt. The reasoning variant (`deepseek-reasoner`) emits chain-of-thought to a separate field — the non-reasoning `deepseek-chat` is used for standard tailoring, with the reasoning model reserved for `tailoring_premium`.
+- **DeepSeek API limitation.** DeepSeek's API does not support `json_schema` response format (returns 400). Only `json_object` is used with schema embedded in the prompt. Legacy names `deepseek-chat`/`deepseek-reasoner` retired 2026-07-24; the current models are `deepseek-v4-flash` (default for all tasks) and `deepseek-v4-pro` (reserved for `tailoring_premium`, ~3x pricier). Both are dual-mode reasoning models that emit chain-of-thought to a separate `reasoning_content` field by default — disable per-task via `llm.tasks.<task>.thinking: false` for bounded structured tasks (ranking, critique) where CoT only adds latency.
 
 ---
 

@@ -1231,6 +1231,7 @@ class Tailor:
             stories=stories,
             guidelines=guidelines,
             metrics_sink=metrics,
+            relinefit_chain=self._get_chain("relinefit"),
         )
         self.last_tailor_metrics = metrics
         return result

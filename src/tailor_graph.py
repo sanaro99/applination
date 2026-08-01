@@ -277,6 +277,20 @@ def _run_tailor(state: dict, provider: LLMProvider) -> None:
         "the JD demands a domain the master does not cover, lead with the candidate's "
         "strongest real, transferable experience instead of fabricating domain "
         "expertise.\n"
+        "  - TENURE HONESTY: a duration like 'N+ years' describes the candidate's "
+        "OVERALL experience, and MUST attach only to the BROAD scope of what they did "
+        "across that whole span, never to a single specialized or recent activity. A "
+        "role usually spans several kinds of work (e.g. reliability/support AND a "
+        "later AI build); the years count covers ALL of it, not just the JD-relevant "
+        "slice. FORBIDDEN: '4+ years building LLM agents' / '4+ years building "
+        "production AI systems' when AI/LLM work is only one part of the tenure. "
+        "ALLOWED: bind the years to the broad role ('4+ years in software engineering "
+        "and reliability') and mention the specialized/recent work as a SEPARATE "
+        "clause without its own duration ('...including recent LLM agent work' or "
+        "'Built an LLM-powered platform...'). If the master does not show how long a "
+        "specific activity lasted, state that activity WITHOUT any years figure. Do "
+        "not front-load a specialty adjective onto the years either ('4+ years of "
+        "AI-focused engineering' is fine; '4+ years of building LLM agents' is not).\n"
         "  - Name ONE quantified flagship outcome from the MASTER.\n"
         + edu_close_rule +
         f"  - Length: 220-{c['summary_max_chars']} chars. Aim for upper end.\n\n"
@@ -697,6 +711,7 @@ def run_tailor_graph(
     stories: list | None = None,
     guidelines: list | None = None,
     metrics_sink: dict | None = None,
+    relinefit_chain: list[LLMProvider] | None = None,
 ) -> dict:
     """Self-correcting resume tailoring pipeline.
 
@@ -705,6 +720,9 @@ def run_tailor_graph(
 
     tailor_chain:   Providers to use for tailor / keyword_fix / revise steps.
     critique_chain: Providers to use for the critique step (can be cheaper models).
+    relinefit_chain: Providers for the Tier-2 line-fit rescue. Wants a strong
+        model but thinking OFF (a bounded mechanical rewrite where CoT eats the
+        budget and returns empty). Defaults to tailor_chain when not supplied.
 
     Each step is attempted against its chain from index 0 on every call — there
     is no persistent state between jobs, so a provider that failed on one job is
@@ -773,9 +791,11 @@ def run_tailor_graph(
     #
     # Tier 2 (LLM rescue, only for stragglers): if line_fitter couldn't
     # resolve some bullets, escalate to an LLM call. Routed through the
-    # tailor_chain (deepseek primary), NOT the critique_chain: rewriting a long
-    # bullet down to a dense single line is a hard generation task — the weaker
-    # critique model (mistral) does it unreliably, leaving forbidden bullets.
+    # relinefit_chain (strong model, e.g. deepseek, but thinking OFF), NOT the
+    # critique_chain: rewriting a long bullet down to a dense single line is a
+    # hard generation task — the weaker critique model (mistral) does it
+    # unreliably — yet CoT only wastes budget on this bounded mechanical rewrite.
+    # Falls back to tailor_chain when no dedicated chain was supplied.
     # Skipped entirely when nothing was flagged.
     if state.get("tailored_json"):
         fitted, fit_stats = fit_bullets_to_bands(
@@ -788,7 +808,7 @@ def run_tailor_graph(
         _log_bullet_bands(state, "line_fitter")
         if fit_stats.get("flagged_for_llm"):
             if _step_with_chain(
-                tailor_chain,
+                relinefit_chain or tailor_chain,
                 lambda p: _run_relinefit_rescue(state, p),
                 any_error=True,
                 label="relinefit_rescue",

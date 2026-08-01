@@ -20,16 +20,46 @@ LOG = logging.getLogger(__name__)
 # call level (not just at init time) — triggers per-call fallback.
 _QUOTA_SIGNALS = ("429", "quota", "resource_exhausted", "503", "unavailable", "504", "timeout", "timed out")
 
+# Providers we've already logged as unavailable this process. A partially
+# configured chain (e.g. `claude` left in the global fallbacks with no API key)
+# would otherwise emit one WARNING per task chain built — ~13 identical lines
+# every run. Dedupe to one WARNING per provider; repeats drop to DEBUG.
+_warned_unavailable: set[str] = set()
+
+
+def _warn_unavailable(name: str, exc: Exception) -> None:
+    """Warn once per unavailable provider per process; DEBUG thereafter."""
+    if name in _warned_unavailable:
+        LOG.debug("Provider '%s' unavailable (already reported): %s", name, exc)
+        return
+    _warned_unavailable.add(name)
+    LOG.warning(
+        "Provider '%s' unavailable — excluded from provider chains this run: %s",
+        name, exc,
+    )
+
 # Recognized task names for per-task provider configuration.
 # `tailoring_premium` is the optional reasoning-model chain used for the
 # top-N ranked jobs; standard `tailoring` is the fast/cheap default.
 _TASK_NAMES = (
     "ranking", "tailoring", "tailoring_premium", "cover_letter",
     "critique", "answer_questions",
+    # `relinefit` is the Tier-2 LLM rescue that rewrites bullets to hit exact
+    # character-count line budgets. It wants a STRONG model (inherits the global
+    # primary, usually deepseek) but NOT chain-of-thought — CoT burns the budget
+    # on a bounded mechanical rewrite and returns empty content. Defaults to
+    # thinking OFF (see _THINKING_OFF_BY_DEFAULT).
+    "relinefit",
     # Prepwork + content-studio tasks. Inherit the global primary/fallbacks
     # until configured under llm.tasks.<name>.
     "coach", "interview", "essay", "content_studio",
 )
+
+# Tasks whose chain-of-thought hurts more than it helps: bounded, mechanical
+# rewrites where DeepSeek v4 reasoning models spend their whole token budget on
+# CoT and return empty content. These default to thinking OFF; a user can still
+# force it on per task via `llm.tasks.<task>.thinking: true`.
+_THINKING_OFF_BY_DEFAULT = frozenset({"relinefit"})
 
 
 def get_provider(
@@ -146,7 +176,7 @@ def get_provider_chain(llm_cfg: dict) -> list[LLMProvider]:
             p = get_provider(name, llm_cfg)
             chain.append(p)
         except Exception as e:
-            LOG.warning("Provider '%s' unavailable (excluded from chain): %s", name, e)
+            _warn_unavailable(name, e)
 
     if not chain:
         raise RuntimeError("No LLM providers available. Check API keys in config.yaml.")
@@ -225,9 +255,12 @@ def get_task_chains(llm_cfg: dict) -> dict[str, list[LLMProvider]]:
         # top-level llm.<provider>.model when unset.
         model_overrides = task_cfg.get("models", {}) or {}
         # `thinking: false` disables chain-of-thought for this task's providers
-        # (DeepSeek v4 supports a non-thinking mode). Defaults to on. Best for
-        # simple, structured tasks where CoT adds cost/latency without quality.
-        disable_thinking = task_cfg.get("thinking", True) is False
+        # (DeepSeek v4 supports a non-thinking mode). Best for simple, structured
+        # tasks where CoT adds cost/latency without quality. Defaults to on for
+        # most tasks; tasks in _THINKING_OFF_BY_DEFAULT default to off (a user
+        # can still re-enable them with `thinking: true`).
+        thinking_default = task not in _THINKING_OFF_BY_DEFAULT
+        disable_thinking = task_cfg.get("thinking", thinking_default) is False
 
         chain: list[LLMProvider] = []
         for name in [primary, *fallbacks]:
@@ -238,7 +271,7 @@ def get_task_chains(llm_cfg: dict) -> dict[str, list[LLMProvider]]:
                     disable_thinking=disable_thinking,
                 ))
             except Exception as e:
-                LOG.warning("Task '%s' provider '%s' unavailable: %s", task, name, e)
+                _warn_unavailable(name, e)
 
         if not chain:
             raise RuntimeError(

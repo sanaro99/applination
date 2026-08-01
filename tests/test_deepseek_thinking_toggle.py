@@ -32,3 +32,21 @@ def test_task_thinking_false_propagates_to_deepseek_chain():
     chains = get_task_chains(cfg)
     assert chains["ranking"][0].disable_thinking is True   # explicitly off
     assert chains["tailoring"][0].disable_thinking is False  # default on
+
+
+def test_relinefit_defaults_to_thinking_off_but_is_overridable():
+    # relinefit is a bounded mechanical bullet rewrite: CoT eats the budget and
+    # returns empty content, so it must default to thinking OFF even though the
+    # tailoring chain it shares a model with keeps thinking ON.
+    base = {
+        "primary": "deepseek",
+        "fallbacks": [],
+        "deepseek": {"api_key": "x", "model": "deepseek-v4-flash"},
+    }
+    chains = get_task_chains({**base, "tasks": {}})
+    assert chains["relinefit"][0].disable_thinking is True   # off by default
+    assert chains["tailoring"][0].disable_thinking is False  # unchanged
+
+    # A user can still force CoT back on for relinefit.
+    chains = get_task_chains({**base, "tasks": {"relinefit": {"thinking": True}}})
+    assert chains["relinefit"][0].disable_thinking is False

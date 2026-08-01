@@ -6,14 +6,18 @@ import logging
 import os
 from datetime import date
 
-from src.main import ROOT, setup_logging
+import src.main as main
+from src.main import setup_logging
 
 
-def _today_log_path():
-    return ROOT / "logs" / f"run_{date.today().isoformat()}.log"
+def test_file_handler_attaches_and_writes_when_root_already_has_handlers(tmp_path, monkeypatch):
+    # Redirect the log directory into an isolated temp dir. setup_logging()
+    # derives its path from src.main.ROOT at call time, so patching ROOT keeps
+    # the test from writing its marker into the REAL logs/run_<today>.log (which
+    # otherwise pollutes the day's production run log with test records).
+    monkeypatch.setattr(main, "ROOT", tmp_path)
+    log_path = tmp_path / "logs" / f"run_{date.today().isoformat()}.log"
 
-
-def test_file_handler_attaches_and_writes_when_root_already_has_handlers():
     root = logging.getLogger()
     saved_handlers = root.handlers[:]
     saved_level = root.level
@@ -33,7 +37,7 @@ def test_file_handler_attaches_and_writes_when_root_already_has_handlers():
         logging.getLogger("src.providers.base").info(marker)
         for h in file_handlers:
             h.flush()
-        assert marker in _today_log_path().read_text(encoding="utf-8")
+        assert marker in log_path.read_text(encoding="utf-8")
 
         # Idempotent: a second call (server calls this per run) must not add a
         # duplicate file handler.

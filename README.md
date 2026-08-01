@@ -167,7 +167,7 @@ All 7 providers are supported; any can be primary or fallback. Configure in `con
 |---|---|---|
 | **Claude** (Anthropic) | `ANTHROPIC_API_KEY` | Haiku ~$0.10–0.30/run; Sonnet ~$1–3/run |
 | **Gemini** (Google) | `GOOGLE_API_KEY` | Flash is effectively free |
-| **DeepSeek** | `DEEPSEEK_API_KEY` | `deepseek-chat` for standard; `deepseek-v4-pro` for premium tier |
+| **DeepSeek** | `DEEPSEEK_API_KEY` | `deepseek-v4-flash` for standard; `deepseek-v4-pro` for premium tier |
 | **Mistral** | `MISTRAL_API_KEY` | Good mid-tier option |
 | **OpenRouter** | `OPENROUTER_API_KEY` | Access to many models via one key |
 | **Ollama** (local) | none | Fully free; requires `ollama serve` |

@@ -1,0 +1,46 @@
+# Write to /mnt/apps-pool/traefik/applination.yml on the Seattle node
+# (System -> Shell, `sudo tee`). Traefik watches this directory and hot-reloads.
+#
+# One hostname, split by path prefix:
+#   /api/*, /files/*, /docs, /openapi.json  -> backend  (127.0.0.1:3002)
+#   everything else                          -> frontend (127.0.0.1:3001)
+#
+# Same-origin means no CORS preflight and no second subdomain to certify.
+# Router priority matters: the api router must outrank the catch-all web
+# router, so give it the higher number explicitly rather than relying on
+# Traefik's rule-length heuristic.
+
+http:
+  routers:
+    applination-api:
+      rule: "Host(`applination.sanchitarora.me`) && (PathPrefix(`/api`) || PathPrefix(`/files`) || PathPrefix(`/docs`) || Path(`/openapi.json`))"
+      priority: 100
+      entryPoints:
+        - websecure
+      service: applination-api
+      tls:
+        certResolver: letsencrypt
+
+    applination-web:
+      rule: "Host(`applination.sanchitarora.me`)"
+      priority: 10
+      entryPoints:
+        - websecure
+      service: applination-web
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    applination-api:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:3002"
+        # The run dashboard streams progress over SSE. Traefik does not buffer
+        # responses, but it will time out an idle stream unless told otherwise.
+        responseForwarding:
+          flushInterval: "100ms"
+
+    applination-web:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:3001"

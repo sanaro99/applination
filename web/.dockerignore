@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+build
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+Dockerfile
+.dockerignore
+README.md
+CLAUDE.md
+AGENTS.md
+
+# ~1GB of self-hosted WebLLM weights, downloaded locally per docs. Never
+# baked into the image — GHCR would choke and the layer is useless anyway.
+public/models

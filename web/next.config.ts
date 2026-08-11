@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Emit .next/standalone so the Docker image ships a self-contained
+  // server.js plus only the node_modules it actually imports.
+  output: "standalone",
+
   // The in-browser inbox classifier (WebLLM) loads a self-hosted wasm + model
   // shards from /public/models. Next's gzip was re-encoding the .wasm (and the
   // binary shards) but stripping Content-Encoding, so the browser handed the

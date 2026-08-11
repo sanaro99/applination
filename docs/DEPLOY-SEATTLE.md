@@ -58,7 +58,9 @@ empty, the backend crashes at startup with a `KeyError` because
 From your Windows machine, with the NAS reachable over Tailscale:
 
 ```powershell
-$NAS = "truenas_admin@sanchit-cloud-seattle.leopard-symmetric.ts.net"
+# Your NAS over Tailscale: <admin-user>@<machine>.<your-tailnet>.ts.net
+# Find it with `tailscale status` on the NAS, or in the Tailscale admin console.
+$NAS = "$env:NAS_HOST"
 cd D:\gitgit\internship_bot
 
 # Staging area you can write to without sudo

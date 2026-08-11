@@ -1,0 +1,43 @@
+# Applination — Sanchit-Cloud Seattle
+#
+# Paste into TrueNAS: Apps -> Discover -> ⋮ (top right) -> Install via YAML,
+# app name "applination".
+#
+# Host ports: 3001 web, 3002 api. Both bind loopback only — the sole public
+# path is Cloudflare Tunnel -> Traefik :443 -> here.
+#
+# PREREQUISITES (do these first, in order):
+#   1. /mnt/apps-pool/appconfig/applination.env exists (chmod 600)
+#   2. /mnt/apps-pool/appconfig/applination/{config.yaml,master_data,data,output}
+#      exist and hold your migrated data
+# Compose refuses to start if env_file or a bind source is missing.
+
+services:
+  applination-api:
+    image: ghcr.io/sanaro99/applination-api:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3002:8000"
+    env_file:
+      - /mnt/apps-pool/appconfig/applination.env
+    volumes:
+      # Personal state lives on ZFS, never in the image.
+      - /mnt/apps-pool/appconfig/applination/config.yaml:/app/config.yaml
+      - /mnt/apps-pool/appconfig/applination/master_data:/app/master_data
+      - /mnt/apps-pool/appconfig/applination/data:/app/data
+      - /mnt/apps-pool/appconfig/applination/output:/app/output
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  applination-web:
+    image: ghcr.io/sanaro99/applination-web:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      NODE_ENV: production
+      TZ: America/Los_Angeles
+    depends_on:
+      - applination-api
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"

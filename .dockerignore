@@ -1,0 +1,36 @@
+# Personal data and secrets — these live on the NAS as bind mounts, never in
+# the image (the image is public on GHCR).
+config.yaml
+config.yaml.*
+.env
+.env.*
+!.env.example
+private/
+data/
+output/
+logs/
+master_data/resume.yaml
+master_data/bio.md
+master_data/*.docx
+master_data/*.pdf
+master_data/stories/*.md
+master_data/cover_letters/examples/*
+.job_cache.json
+
+# The frontend has its own image and its own build context.
+web/
+
+# Dev cruft
+.git
+.github
+.venv
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.claude/
+.code-review-graph/
+testsprite_tests/
+tests/
+Dockerfile
+.dockerignore

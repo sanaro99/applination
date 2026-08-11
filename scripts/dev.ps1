@@ -23,8 +23,15 @@ $root = (Resolve-Path "$PSScriptRoot\..").Path
 $venvPython = Join-Path $root ".venv\Scripts\python.exe"
 $pythonExe = if (Test-Path $venvPython) { $venvPython } else { "python" }
 
+# Scope the reload watcher to backend source only. Without --reload-dir,
+# uvicorn watches the whole repo root (Path.cwd()), which includes
+# web/.next (rewritten continuously by the Next.js dev server), output/,
+# and data/ — none of which are in watchfiles' default ignore list. That
+# caused uvicorn to restart the entire FastAPI process on every frontend
+# navigation (Next writing to its own build cache), stalling in-flight API
+# calls and making every page nav feel sluggish.
 $api  = Start-Process -PassThru -NoNewWindow -WorkingDirectory $root `
-  -FilePath $pythonExe -ArgumentList @("-m","uvicorn","server.app:app","--reload","--port","8000")
+  -FilePath $pythonExe -ArgumentList @("-m","uvicorn","server.app:app","--reload","--reload-dir","server","--reload-dir","src","--port","8000")
 
 # Start-Process can't launch npm directly on Windows — npm is a .cmd shim, not a
 # Win32 exe ("%1 is not a valid Win32 application"). Resolve npm.cmd via PATH.

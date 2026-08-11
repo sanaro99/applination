@@ -13,7 +13,7 @@ npm run start    # serve production build on :3000
 npm run lint     # ESLint
 ```
 
-Run alongside the FastAPI backend (`python -m uvicorn server.app:app --reload --port 8000`), or use `.\scripts\dev.ps1` from the project root to start both at once.
+Run alongside the FastAPI backend (`python -m uvicorn server.app:app --reload --reload-dir server --reload-dir src --port 8000`), or use `.\scripts\dev.ps1` from the project root to start both at once.
 
 ## Environment
 

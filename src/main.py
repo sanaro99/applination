@@ -503,18 +503,42 @@ def main():
                     help="Skip PDF conversion (only write .docx).")
     ap.add_argument("--no-cache", action="store_true",
                     help="Ignore job cache and re-process all jobs from scratch.")
-    ap.add_argument("--config", default=str(ROOT / "config.yaml"))
+    ap.add_argument(
+        "--user", default=None,
+        help="Account to run as: an email or a numeric id. Defaults to the "
+             "owner. Config, master data and output all come from that "
+             "account's directory.",
+    )
+    ap.add_argument(
+        "--config", default=None,
+        help="Override the config file (debugging). Master data and output "
+             "still come from --user's directory.",
+    )
     args = ap.parse_args()
 
     log = setup_logging()
-    log.info("=== internship_bot run started ===")
 
-    cfg = load_yaml(Path(args.config))
+    # Imported here, not at module scope: src/ must stay importable without a
+    # database, and this is the top of the stack where depending on server/ is
+    # fine.
+    from server.cli import UserNotFound, context_for
+
+    try:
+        user, cfg, paths = context_for(args.user)
+    except UserNotFound as e:
+        ap.error(str(e))
+        return
+
+    if args.config:
+        cfg = load_yaml(Path(args.config))
+
+    log.info("=== internship_bot run started (user %s) ===", user.email)
 
     # Delegate to the importable orchestrator; identical filesystem output.
     from .pipeline import run_pipeline
     run_pipeline(
         cfg,
+        paths=paths,
         dry_run=args.dry_run,
         no_pdf=args.no_pdf,
         no_cache=args.no_cache,

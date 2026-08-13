@@ -9,8 +9,9 @@
 # PREREQUISITES (do these first, in order):
 #   1. /mnt/apps-pool/appconfig/applination.env exists (chmod 600) and sets
 #      POSTGRES_PASSWORD and DATABASE_URL (see applination.env.example)
-#   2. /mnt/apps-pool/appconfig/applination/{config.yaml,master_data,data,output}
-#      exist and hold your migrated data
+#   2. /mnt/apps-pool/appconfig/applination/data exists and holds your migrated
+#      per-user tree (data/users/<id>/{config.yaml,master_data,output}) — see
+#      scripts/migrate_to_multiuser.py and Step 7 of docs/DEPLOY-SEATTLE.md
 #   3. /mnt/apps-pool/appconfig/applination/pgdata exists (empty is fine —
 #      Postgres initialises it on first boot)
 # Compose refuses to start if env_file or a bind source is missing.
@@ -57,10 +58,13 @@ services:
         condition: service_healthy
     volumes:
       # Personal state lives on ZFS, never in the image.
-      - /mnt/apps-pool/appconfig/applination/config.yaml:/app/config.yaml
-      - /mnt/apps-pool/appconfig/applination/master_data:/app/master_data
+      #
+      # One mount, not four. Since PR 3 every user's config.yaml, master_data
+      # and output live under data/users/<id>/, so the separate config.yaml,
+      # master_data and output mounts have nothing left to bind — and leaving
+      # them would shadow the repo's committed master_data/guidelines and
+      # master_data/templates, which are read globally for every user.
       - /mnt/apps-pool/appconfig/applination/data:/app/data
-      - /mnt/apps-pool/appconfig/applination/output:/app/output
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 

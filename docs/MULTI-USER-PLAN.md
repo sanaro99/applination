@@ -9,7 +9,7 @@ Status at a glance:
 | PR | Scope | State |
 |---|---|---|
 | 1 | Postgres + Alembic baseline | **Merged** (#26, 2026-08-13) |
-| 2 | Users, auth, tenant columns | Not started |
+| 2 | Users, auth, tenant columns | **Merged** (#28) |
 | 3 | Per-user filesystem, remaining traps | Not started |
 
 ---
@@ -204,7 +204,8 @@ unannotated bare `select()` against a tenant model.
 
 ### Acceptance criteria
 
-`server/tests/test_authz.py` is the bar. Users A and B with real data. For
+`tests/test_authz.py` is the bar (this repo keeps all tests in `tests/`; there
+is no `server/tests/`). Users A and B with real data. For
 **every** tenant resource — runs, applications, ranked jobs, chat sessions, chat
 messages, saved answers, settings, config, master data:
 
@@ -215,6 +216,46 @@ messages, saved answers, settings, config, master data:
 - Creating a child under B's parent (a message in B's chat session) → 404
 
 Plus the route-enumeration test and the scope-lint test.
+
+### What PR 2 did differently from this plan
+
+- **`User` is table `appuser`.** `user` is reserved in Postgres, and
+  `SELECT * FROM user` does not error — it silently returns the session
+  username, which is a nasty thing to hit while debugging in psql.
+- **Config, master data, and everything that spends a provider key are
+  owner-only for now** (`auth.require_owner`, 403 for anyone else). The plan's
+  acceptance list included config and master data as tenant resources, but they
+  do not become per-user until PR 3 — so there is no "user B's config" to
+  isolate yet, and with open signup an ungated `/api/config` would hand the
+  owner's API keys to any account that registers. PR 3 relaxes these.
+  `/api/onboarding/status` stays reachable by everyone (the gate polls it on
+  every page) but tells non-owners nothing about the owner's setup.
+- **The Gmail OAuth callback stayed authenticated.** It looked like it had to be
+  public, but Google's redirect is a top-level GET navigation and SameSite=Lax
+  sends cookies on those — so the pending OAuth state is looked up under the
+  right user instead of being trusted from the query string.
+- **`GET /api/calendar.ics` now requires a session**, which means external
+  calendar apps can no longer subscribe to it — they send no cookies. The
+  alternative was leaving every user's applications at a guessable URL. A signed
+  per-user feed token belongs with PR 3.
+- **The migration does not create an owner on an empty database.** Only an
+  install with existing rows gets one; on a fresh database the first signup
+  becomes the owner, which avoids shipping a locked-out account nobody can use.
+- **`setting`'s PK rebuild reads the rows out, drops the table and recreates
+  it**, rather than renaming the old table aside and copying across. The rename
+  approach does not survive a downgrade/upgrade round-trip: the renamed table
+  keeps its primary-key constraint name, and in Postgres constraint names share
+  a namespace with tables, so recreating `setting` collides. This was caught by
+  round-tripping twice against a real Postgres, not by the SQLite tests.
+- **Cutover ordering changed.** `scripts/sqlite_to_postgres.py` copies rows that
+  have no `user_id`, so it cannot run against a schema already at `head`
+  (NOT NULL). The runbook now steps back to the baseline revision, copies, then
+  upgrades — which is exactly the backfill path the migration was written for.
+  See Steps 5b/6b in `docs/DEPLOY-SEATTLE.md`.
+- **`web/.env.local` had `NEXT_PUBLIC_API_BASE=http://127.0.0.1:8000` set**,
+  which would have overridden the new `""` default and broken auth in dev
+  precisely as this document predicted. It is gitignored, so it is a per-clone
+  fix, not a repo one.
 
 ---
 
@@ -334,8 +375,9 @@ The old `data/app.db` is never deleted and remains the rollback path.
 
 ## Operational secrets
 
-PR 2 introduces **`APPLINATION_SECRET_KEY`**, the Fernet key encrypting every
-user's LLM API keys and Gmail token. If it is lost, all stored secrets become
+PR 2 introduced **`APPLINATION_SECRET_KEY`**, the Fernet key encrypting every
+user's LLM API keys and Gmail token (`server/crypto.py`; the table exists and
+the helpers work, but nothing writes to it until PR 3). If it is lost, all stored secrets become
 undecryptable and every user must re-enter their keys.
 
 Generate once (`openssl rand -base64 32`), put it in `applination.env` on the

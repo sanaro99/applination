@@ -15,18 +15,22 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import select
 
+from .auth import require_owner, require_user
 from .db import (
     Application,
     ChatMessage,
     ChatSession,
     SavedAnswer,
+    User,
     session,
 )
 from .deps import load_config
+from .limits import LLM_LIMIT, limiter
+from .scoping import find_owned, get_owned, owned
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 log = logging.getLogger("server.chat")
@@ -112,13 +116,26 @@ def _app_label(app: Application | None) -> str | None:
     return f"{app.company} — {app.title}".strip(" —")
 
 
-def _session_out(s, sess: ChatSession) -> SessionOut:
+def _session_out(s, sess: ChatSession, user: User | int) -> SessionOut:
     count = len(
         s.exec(
-            select(ChatMessage.id).where(ChatMessage.session_id == sess.id)
+            owned(
+                select(ChatMessage.id).where(
+                    ChatMessage.session_id == sess.id
+                ),
+                ChatMessage,
+                user,
+            )
         ).all()
     )
-    app = s.get(Application, sess.application_id) if sess.application_id else None
+    # find_owned, not s.get: a session grounded to another user's application
+    # would otherwise leak that application's company and title through the
+    # label. It renders as ungrounded instead.
+    app = (
+        find_owned(s, Application, sess.application_id, user)
+        if sess.application_id
+        else None
+    )
     return SessionOut(
         id=sess.id,
         title=sess.title,
@@ -148,14 +165,22 @@ def _saved_out(ans: SavedAnswer) -> SavedAnswerOut:
 # Sessions
 # --------------------------------------------------------------------------- #
 @router.post("/sessions", response_model=SessionOut)
-def create_session(body: SessionCreate) -> SessionOut:
+def create_session(
+    body: SessionCreate, user: User = Depends(require_user)
+) -> SessionOut:
     with session() as s:
         if body.application_id is not None:
-            if s.get(Application, body.application_id) is None:
-                raise HTTPException(404, "application not found")
+            # Re-verify the parent: without this a session could be created
+            # under the caller's own user_id while pointing at someone else's
+            # application, which reads as consistent and still leaks.
+            get_owned(
+                s, Application, body.application_id, user,
+                detail="application not found",
+            )
         mode = body.mode if body.mode in ("chat", "interview") else "chat"
         default_title = _DEFAULT_TITLES[mode]
         sess = ChatSession(
+            user_id=user.id,
             title=(body.title or default_title).strip() or default_title,
             application_id=body.application_id,
             mode=mode,
@@ -163,31 +188,37 @@ def create_session(body: SessionCreate) -> SessionOut:
         s.add(sess)
         s.commit()
         s.refresh(sess)
-        return _session_out(s, sess)
+        return _session_out(s, sess, user)
 
 
 @router.get("/sessions", response_model=list[SessionOut])
-def list_sessions(mode: str | None = None) -> list[SessionOut]:
+def list_sessions(
+    mode: str | None = None, user: User = Depends(require_user)
+) -> list[SessionOut]:
     with session() as s:
-        stmt = select(ChatSession).order_by(ChatSession.updated_at.desc())
+        stmt = owned(select(ChatSession), ChatSession, user).order_by(
+            ChatSession.updated_at.desc()
+        )
         if mode is not None:
             stmt = stmt.where(ChatSession.mode == mode)
-        return [_session_out(s, sess) for sess in s.exec(stmt).all()]
+        return [_session_out(s, sess, user) for sess in s.exec(stmt).all()]
 
 
 @router.get("/sessions/{sid}", response_model=SessionDetailOut)
-def get_session(sid: int) -> SessionDetailOut:
+def get_session(
+    sid: int, user: User = Depends(require_user)
+) -> SessionDetailOut:
     with session() as s:
-        sess = s.get(ChatSession, sid)
-        if sess is None:
-            raise HTTPException(404, "session not found")
+        sess = get_owned(s, ChatSession, sid, user, detail="session not found")
         msgs = s.exec(
-            select(ChatMessage)
-            .where(ChatMessage.session_id == sid)
-            .order_by(ChatMessage.created_at)
+            owned(
+                select(ChatMessage).where(ChatMessage.session_id == sid),
+                ChatMessage,
+                user,
+            ).order_by(ChatMessage.created_at)
         ).all()
         return SessionDetailOut(
-            session=_session_out(s, sess),
+            session=_session_out(s, sess, user),
             messages=[
                 MessageOut(id=m.id, role=m.role, content=m.content,
                            created_at=m.created_at)
@@ -197,14 +228,14 @@ def get_session(sid: int) -> SessionDetailOut:
 
 
 @router.patch("/sessions/{sid}", response_model=SessionOut)
-def update_session(sid: int, body: SessionUpdate) -> SessionOut:
+def update_session(
+    sid: int, body: SessionUpdate, user: User = Depends(require_user)
+) -> SessionOut:
     fields = body.model_fields_set
     if not fields:
         raise HTTPException(400, "nothing to update")
     with session() as s:
-        sess = s.get(ChatSession, sid)
-        if sess is None:
-            raise HTTPException(404, "session not found")
+        sess = get_owned(s, ChatSession, sid, user, detail="session not found")
         if "title" in fields:
             title = (body.title or "").strip()
             if not title:
@@ -213,24 +244,28 @@ def update_session(sid: int, body: SessionUpdate) -> SessionOut:
         if "application_id" in fields:
             # Explicit null clears grounding; a value re-grounds the chat.
             if body.application_id is not None:
-                if s.get(Application, body.application_id) is None:
-                    raise HTTPException(404, "application not found")
+                get_owned(
+                    s, Application, body.application_id, user,
+                    detail="application not found",
+                )
             sess.application_id = body.application_id
         sess.updated_at = datetime.utcnow()
         s.add(sess)
         s.commit()
         s.refresh(sess)
-        return _session_out(s, sess)
+        return _session_out(s, sess, user)
 
 
 @router.delete("/sessions/{sid}")
-def delete_session(sid: int) -> dict:
+def delete_session(sid: int, user: User = Depends(require_user)) -> dict:
     with session() as s:
-        sess = s.get(ChatSession, sid)
-        if sess is None:
-            raise HTTPException(404, "session not found")
+        sess = get_owned(s, ChatSession, sid, user, detail="session not found")
         msgs = s.exec(
-            select(ChatMessage).where(ChatMessage.session_id == sid)
+            owned(
+                select(ChatMessage).where(ChatMessage.session_id == sid),
+                ChatMessage,
+                user,
+            )
         ).all()
         for m in msgs:
             s.delete(m)
@@ -280,24 +315,32 @@ def _run_chain(sys_prompt: str, user_prompt: str, *, task: str) -> str:
 # Core: post a message, get an assistant reply
 # --------------------------------------------------------------------------- #
 @router.post("/sessions/{sid}/messages", response_model=PostMessageOut)
-def post_message(sid: int, body: PostMessageBody) -> PostMessageOut:
+@limiter.limit(LLM_LIMIT)
+def post_message(
+    request: Request,
+    sid: int,
+    body: PostMessageBody,
+    # Owner-only until PR 3: the reply is grounded in the one global
+    # master_data/ profile and paid for with the global provider keys.
+    user: User = Depends(require_owner),
+) -> PostMessageOut:
     content = body.content.strip()
     if not content:
         raise HTTPException(400, "message is required")
 
     # 1. Load context + persist the user message (short DB session).
     with session() as s:
-        sess = s.get(ChatSession, sid)
-        if sess is None:
-            raise HTTPException(404, "session not found")
+        sess = get_owned(s, ChatSession, sid, user, detail="session not found")
         app = (
-            s.get(Application, sess.application_id)
+            find_owned(s, Application, sess.application_id, user)
             if sess.application_id else None
         )
         history = s.exec(
-            select(ChatMessage)
-            .where(ChatMessage.session_id == sid)
-            .order_by(ChatMessage.created_at)
+            owned(
+                select(ChatMessage).where(ChatMessage.session_id == sid),
+                ChatMessage,
+                user,
+            ).order_by(ChatMessage.created_at)
         ).all()
         # Detach the data we need before the session closes.
         app_data = (
@@ -308,7 +351,9 @@ def post_message(sid: int, body: PostMessageBody) -> PostMessageOut:
         mode = sess.mode
         is_first = sess.title in _DEFAULT_TITLES.values() and not history
 
-        user_msg = ChatMessage(session_id=sid, role="user", content=content)
+        user_msg = ChatMessage(
+            session_id=sid, user_id=user.id, role="user", content=content
+        )
         s.add(user_msg)
         s.commit()
         s.refresh(user_msg)
@@ -344,10 +389,11 @@ def post_message(sid: int, body: PostMessageBody) -> PostMessageOut:
     # 3. Persist the assistant message + bump session (short DB session).
     with session() as s:
         asst_msg = ChatMessage(
-            session_id=sid, role="assistant", content=reply, meta=meta,
+            session_id=sid, user_id=user.id, role="assistant",
+            content=reply, meta=meta,
         )
         s.add(asst_msg)
-        sess = s.get(ChatSession, sid)
+        sess = find_owned(s, ChatSession, sid, user)
         if sess is not None:
             sess.updated_at = datetime.utcnow()
             # Auto-title chats from the first question; interview titles stay
@@ -386,22 +432,29 @@ class _MsgView:
 # Mock interview kickoff (first question, no preceding answer)
 # --------------------------------------------------------------------------- #
 @router.post("/sessions/{sid}/kickoff", response_model=MessageOut)
-def kickoff(sid: int) -> MessageOut:
+@limiter.limit(LLM_LIMIT)
+def kickoff(
+    request: Request,
+    sid: int,
+    user: User = Depends(require_owner),  # owner-only: see post_message
+) -> MessageOut:
     """Generate the opening interviewer question for an interview session that
     has no messages yet. Idempotent: 400 if the session already has messages."""
     with session() as s:
-        sess = s.get(ChatSession, sid)
-        if sess is None:
-            raise HTTPException(404, "session not found")
+        sess = get_owned(s, ChatSession, sid, user, detail="session not found")
         if sess.mode != "interview":
             raise HTTPException(400, "kickoff is only for interview sessions")
         existing = s.exec(
-            select(ChatMessage.id).where(ChatMessage.session_id == sid)
+            owned(
+                select(ChatMessage.id).where(ChatMessage.session_id == sid),
+                ChatMessage,
+                user,
+            )
         ).first()
         if existing is not None:
             raise HTTPException(400, "interview already started")
         app = (
-            s.get(Application, sess.application_id)
+            find_owned(s, Application, sess.application_id, user)
             if sess.application_id else None
         )
         app_data = (
@@ -427,9 +480,11 @@ def kickoff(sid: int) -> MessageOut:
     reply = _run_chain(sys_prompt, user_prompt, task="interview")
 
     with session() as s:
-        msg = ChatMessage(session_id=sid, role="assistant", content=reply)
+        msg = ChatMessage(
+            session_id=sid, user_id=user.id, role="assistant", content=reply
+        )
         s.add(msg)
-        sess = s.get(ChatSession, sid)
+        sess = find_owned(s, ChatSession, sid, user)
         if sess is not None:
             sess.updated_at = datetime.utcnow()
             s.add(sess)
@@ -452,7 +507,12 @@ class EssayBody(BaseModel):
 
 
 @router.post("/essay")
-def draft_essay(body: EssayBody) -> dict:
+@limiter.limit(LLM_LIMIT)
+def draft_essay(
+    request: Request,
+    body: EssayBody,
+    user: User = Depends(require_owner),  # owner-only: see post_message
+) -> dict:
     prompt = body.prompt.strip()
     if not prompt:
         raise HTTPException(400, "prompt is required")
@@ -460,9 +520,10 @@ def draft_essay(body: EssayBody) -> dict:
     app_data = None
     if body.application_id is not None:
         with session() as s:
-            app = s.get(Application, body.application_id)
-            if app is None:
-                raise HTTPException(404, "application not found")
+            app = get_owned(
+                s, Application, body.application_id, user,
+                detail="application not found",
+            )
             app_data = _AppView(
                 app.company, app.title, app.location, app.description
             )
@@ -493,15 +554,27 @@ def draft_essay(body: EssayBody) -> dict:
 # Answer bank
 # --------------------------------------------------------------------------- #
 @router.post("/answers", response_model=SavedAnswerOut)
-def save_answer(body: SaveAnswerBody) -> SavedAnswerOut:
+def save_answer(
+    body: SaveAnswerBody, user: User = Depends(require_user)
+) -> SavedAnswerOut:
     content = body.content.strip()
     if not content:
         raise HTTPException(400, "content is required")
     with session() as s:
         if body.application_id is not None:
-            if s.get(Application, body.application_id) is None:
-                raise HTTPException(404, "application not found")
+            get_owned(
+                s, Application, body.application_id, user,
+                detail="application not found",
+            )
+        if body.source_message_id is not None:
+            # The bank stores the message it came from; without this check a
+            # saved answer could cite another user's chat message by id.
+            get_owned(
+                s, ChatMessage, body.source_message_id, user,
+                detail="message not found",
+            )
         ans = SavedAnswer(
+            user_id=user.id,
             title=(body.title or "").strip()[:120],
             prompt=(body.prompt or "").strip(),
             content=content,
@@ -516,36 +589,45 @@ def save_answer(body: SaveAnswerBody) -> SavedAnswerOut:
 
 
 @router.get("/answers", response_model=list[SavedAnswerOut])
-def list_answers(application_id: int | None = None) -> list[SavedAnswerOut]:
+def list_answers(
+    application_id: int | None = None, user: User = Depends(require_user)
+) -> list[SavedAnswerOut]:
     with session() as s:
-        stmt = select(SavedAnswer).order_by(SavedAnswer.created_at.desc())
+        stmt = owned(select(SavedAnswer), SavedAnswer, user).order_by(
+            SavedAnswer.created_at.desc()
+        )
         if application_id is not None:
             stmt = stmt.where(SavedAnswer.application_id == application_id)
         return [_saved_out(a) for a in s.exec(stmt).all()]
 
 
 @router.delete("/answers/{aid}")
-def delete_answer(aid: int) -> dict:
+def delete_answer(aid: int, user: User = Depends(require_user)) -> dict:
     with session() as s:
-        ans = s.get(SavedAnswer, aid)
-        if ans is None:
-            raise HTTPException(404, "saved answer not found")
+        ans = get_owned(
+            s, SavedAnswer, aid, user, detail="saved answer not found"
+        )
         s.delete(ans)
         s.commit()
     return {"ok": True}
 
 
 @router.post("/answers/{aid}/attach")
-def attach_answer(aid: int, body: AttachAnswerBody) -> dict:
+def attach_answer(
+    aid: int, body: AttachAnswerBody, user: User = Depends(require_user)
+) -> dict:
     """Append a saved answer to an Application's answers.md (reuses the
     pipeline's answers convention) and link it to that application."""
     with session() as s:
-        ans = s.get(SavedAnswer, aid)
-        if ans is None:
-            raise HTTPException(404, "saved answer not found")
-        app = s.get(Application, body.application_id)
-        if app is None:
-            raise HTTPException(404, "application not found")
+        ans = get_owned(
+            s, SavedAnswer, aid, user, detail="saved answer not found"
+        )
+        # This writes to the application's folder on disk, so an unscoped
+        # lookup here would let one user append text into another's answers.md.
+        app = get_owned(
+            s, Application, body.application_id, user,
+            detail="application not found",
+        )
         folder = Path(app.folder_path)
         if not folder.exists():
             raise HTTPException(404, f"application folder missing: {folder}")

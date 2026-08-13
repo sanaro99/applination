@@ -7,21 +7,24 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 from sqlmodel import select
 
+from .auth import require_owner, require_user
 from .db import (
     Application,
     ApplicationStatus,
     RankedJob,
     Run,
     RunStatus,
+    User,
     session,
 )
 from .deps import load_config
 from .events import bus, sse_format
+from .scoping import get_owned, owned
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 log = logging.getLogger("server.runs")
@@ -64,8 +67,13 @@ def _clamp_max_jobs(n: int) -> int:
 
 
 def _active_run_exists() -> bool:
-    """True if a run is queued or running (a scheduled run is NOT active)."""
+    """True if any user has a run queued or running (scheduled is NOT active)."""
     with session() as s:
+        # noscope: deliberately global. One pipeline occupies the whole worker,
+        # so the concurrency guard has to see across users. PR 3 replaces this
+        # with a per-user cap of 1 plus a global MAX_CONCURRENT_RUNS and
+        # round-robin dispatch; until then a single global slot is the honest
+        # behaviour, and runs are owner-only anyway.
         row = s.exec(
             select(Run).where(Run.status.in_([RunStatus.queued, RunStatus.running]))
         ).first()
@@ -76,7 +84,14 @@ def _start_worker_thread(run: Run) -> None:
     """Spawn the pipeline thread for an already-persisted Run row."""
     threading.Thread(
         target=_worker,
-        args=(run.id, run.dry_run, run.no_pdf, run.no_cache, run.max_jobs),
+        args=(
+            run.id,
+            run.user_id,
+            run.dry_run,
+            run.no_pdf,
+            run.no_cache,
+            run.max_jobs,
+        ),
         daemon=True,
     ).start()
 
@@ -92,6 +107,10 @@ def dispatch_due_scheduled_runs() -> None:
         return
     now = datetime.utcnow()
     with session() as s:
+        # noscope: the scheduler runs outside any request and must dispatch
+        # every user's due runs, so there is no caller to scope to. Ownership
+        # still travels with the row — the worker reads run.user_id and writes
+        # the resulting applications under it.
         due = s.exec(
             select(Run)
             .where(Run.status == RunStatus.scheduled, Run.scheduled_for <= now)
@@ -102,6 +121,7 @@ def dispatch_due_scheduled_runs() -> None:
         if _active_run_exists():
             break  # let the running one finish; retry the rest next tick
         with session() as s:
+            # noscope: re-reading a row this function already selected globally.
             run = s.get(Run, run_id)
             if run is None or run.status != RunStatus.scheduled:
                 continue
@@ -155,10 +175,14 @@ def _run_to_out(r: Run) -> RunOut:
     )
 
 
-def _build_excluded_keys() -> set[str]:
+def _build_excluded_keys(user_id: int) -> set[str]:
     """Identities (company|title) to keep out of this run: anything we already
     generated an application for, plus jobs the user dismissed in triage. Keeps
     the pipeline from re-tailoring or re-surfacing work that's already done.
+
+    Scoped to one user: another user having applied to a job says nothing about
+    whether this one should see it, and an unscoped version would leak the
+    existence of other users' applications by silently suppressing jobs.
 
     Computed from company/title via the shared helper so it works for rows
     predating the stored ``dedupe_key`` column."""
@@ -166,11 +190,21 @@ def _build_excluded_keys() -> set[str]:
     keys: set[str] = set()
     with session() as s:
         for company, title in s.exec(
-            select(Application.company, Application.title)
+            owned(
+                select(Application.company, Application.title),
+                Application,
+                user_id,
+            )
         ).all():
             keys.add(_dk(company, title))
         for company, title in s.exec(
-            select(RankedJob.company, RankedJob.title).where(RankedJob.dismissed)
+            owned(
+                select(RankedJob.company, RankedJob.title).where(
+                    RankedJob.dismissed
+                ),
+                RankedJob,
+                user_id,
+            )
         ).all():
             keys.add(_dk(company, title))
     return keys
@@ -178,12 +212,18 @@ def _build_excluded_keys() -> set[str]:
 
 def _worker(
     run_id: int,
+    user_id: int,
     dry_run: bool,
     no_pdf: bool,
     no_cache: bool,
     max_jobs: int | None = None,
 ) -> None:
-    """Background thread: execute the pipeline and stream events."""
+    """Background thread: execute the pipeline and stream events.
+
+    ``user_id`` is passed down explicitly rather than re-read from the Run row:
+    everything this thread writes is stamped with it, so it must be the owner of
+    the run that was dispatched, not whoever happens to be making requests.
+    """
     from src.main import setup_logging
     from src.pipeline import run_pipeline
 
@@ -193,11 +233,12 @@ def _worker(
         bus.publish_threadsafe(run_id, evt)
         etype = evt.get("type")
         if etype == "rank_pool":
-            _persist_ranked_pool(run_id, evt)
+            _persist_ranked_pool(run_id, user_id, evt)
         elif etype == "job_completed" and not evt.get("error"):
-            _persist_application(run_id, evt)
+            _persist_application(run_id, user_id, evt)
 
     with session() as s:
+        # noscope: background thread acting on the run it was dispatched for.
         run = s.get(Run, run_id)
         if run is None:
             return
@@ -220,9 +261,10 @@ def _worker(
             on_event=on_event,
             log=pipeline_log,
             should_stop=_stop_check(run_id),
-            excluded_keys=_build_excluded_keys(),
+            excluded_keys=_build_excluded_keys(user_id),
         )
         with session() as s:
+            # noscope: background thread finalising its own dispatched run.
             run = s.get(Run, run_id)
             if run:
                 run.status = (
@@ -237,6 +279,7 @@ def _worker(
     except Exception as e:
         log.exception("pipeline failed: %s", e)
         with session() as s:
+            # noscope: background thread recording failure of its own run.
             run = s.get(Run, run_id)
             if run:
                 run.status = RunStatus.error
@@ -249,13 +292,17 @@ def _worker(
         _clear_stop(run_id)
 
 
-def _persist_ranked_pool(run_id: int, evt: dict) -> None:
+def _persist_ranked_pool(run_id: int, user_id: int, evt: dict) -> None:
     """Store the full scored job pool for a run (idempotent per run)."""
     from src.scrapers import dedupe_key as _dk
     jobs = evt.get("jobs") or []
     with session() as s:
         existing = s.exec(
-            select(RankedJob).where(RankedJob.run_id == run_id)
+            owned(
+                select(RankedJob).where(RankedJob.run_id == run_id),
+                RankedJob,
+                user_id,
+            )
         ).all()
         for r in existing:
             s.delete(r)
@@ -264,6 +311,7 @@ def _persist_ranked_pool(run_id: int, evt: dict) -> None:
             title = j.get("title", "")
             s.add(RankedJob(
                 run_id=run_id,
+                user_id=user_id,
                 company=company,
                 title=title,
                 location=j.get("location", ""),
@@ -279,7 +327,7 @@ def _persist_ranked_pool(run_id: int, evt: dict) -> None:
         s.commit()
 
 
-def _persist_application(run_id: int, evt: dict) -> None:
+def _persist_application(run_id: int, user_id: int, evt: dict) -> None:
     folder = evt.get("folder") or ""
     if not folder:
         return
@@ -296,6 +344,7 @@ def _persist_application(run_id: int, evt: dict) -> None:
     with session() as s:
         app = Application(
             run_id=run_id,
+            user_id=user_id,
             company=company,
             title=title,
             location=evt.get("location", ""),
@@ -316,17 +365,24 @@ def _persist_application(run_id: int, evt: dict) -> None:
         s.commit()
         s.refresh(app)
         # Link the matching ranked-pool row so the triage view shows it generated.
-        _link_ranked(s, run_id, evt, app.id)
+        _link_ranked(s, run_id, user_id, evt, app.id)
 
 
-def _link_ranked(s, run_id: int, evt: dict, app_id: int | None) -> None:
+def _link_ranked(
+    s, run_id: int, user_id: int, evt: dict, app_id: int | None
+) -> None:
     if app_id is None:
         return
     url = (evt.get("url") or "").strip()
     company = evt.get("company", "")
     title = evt.get("title", "")
-    q = select(RankedJob).where(
-        RankedJob.run_id == run_id, RankedJob.application_id == None  # noqa: E711
+    q = owned(
+        select(RankedJob).where(
+            RankedJob.run_id == run_id,
+            RankedJob.application_id == None,  # noqa: E711
+        ),
+        RankedJob,
+        user_id,
     )
     if url:
         q = q.where(RankedJob.url == url)
@@ -340,7 +396,14 @@ def _link_ranked(s, run_id: int, evt: dict, app_id: int | None) -> None:
 
 
 @router.post("", response_model=RunOut)
-def start_run(body: StartRunBody | None = None) -> RunOut:
+def start_run(
+    body: StartRunBody | None = None,
+    # Owner-only until PR 3: a run reads the single global config.yaml and
+    # master_data/ and writes into the single global output/. Started by anyone
+    # else it would spend the owner's API keys on the owner's resume — the
+    # database scoping below is correct but would be protecting the wrong thing.
+    user: User = Depends(require_owner),
+) -> RunOut:
     # Body is optional: an empty POST starts a normal (non-dry) run with defaults.
     body = body or StartRunBody()
     max_jobs = _clamp_max_jobs(body.max_jobs) if body.max_jobs is not None else None
@@ -357,6 +420,7 @@ def start_run(body: StartRunBody | None = None) -> RunOut:
 
     with session() as s:
         run = Run(
+            user_id=user.id,
             dry_run=body.dry_run,
             no_pdf=body.no_pdf,
             no_cache=body.no_cache,
@@ -384,7 +448,11 @@ class StopRunBody(BaseModel):
 
 
 @router.post("/{run_id}/stop", response_model=RunOut)
-def stop_run(run_id: int, body: StopRunBody | None = None) -> RunOut:
+def stop_run(
+    run_id: int,
+    body: StopRunBody | None = None,
+    user: User = Depends(require_user),
+) -> RunOut:
     """Request cancellation of an in-flight run.
 
     `graceful=true` finishes the job currently being tailored and still writes
@@ -395,9 +463,7 @@ def stop_run(run_id: int, body: StopRunBody | None = None) -> RunOut:
     """
     graceful = body.graceful if body is not None else True
     with session() as s:
-        r = s.get(Run, run_id)
-        if r is None:
-            raise HTTPException(404, "run not found")
+        r = get_owned(s, Run, run_id, user, detail="run not found")
         # A scheduled run has no worker thread yet — cancel it directly.
         if r.status == RunStatus.scheduled:
             r.status = RunStatus.cancelled
@@ -415,34 +481,36 @@ def stop_run(run_id: int, body: StopRunBody | None = None) -> RunOut:
     # Surface a non-terminal event so live subscribers can show "stopping…".
     bus.publish_threadsafe(run_id, {"type": "stopping", "graceful": graceful})
     with session() as s:
-        r = s.get(Run, run_id)
+        r = get_owned(s, Run, run_id, user, detail="run not found")
         return _run_to_out(r)
 
 
 @router.get("", response_model=list[RunOut])
-def list_runs(limit: int = 50) -> list[RunOut]:
+def list_runs(
+    limit: int = 50, user: User = Depends(require_user)
+) -> list[RunOut]:
     with session() as s:
-        rows = s.exec(select(Run).order_by(Run.started_at.desc()).limit(limit)).all()
+        rows = s.exec(
+            owned(select(Run), Run, user)
+            .order_by(Run.started_at.desc())
+            .limit(limit)
+        ).all()
         return [_run_to_out(r) for r in rows]
 
 
 @router.get("/{run_id}", response_model=RunOut)
-def get_run(run_id: int) -> RunOut:
+def get_run(run_id: int, user: User = Depends(require_user)) -> RunOut:
     with session() as s:
-        r = s.get(Run, run_id)
-        if r is None:
-            raise HTTPException(404, "run not found")
+        r = get_owned(s, Run, run_id, user, detail="run not found")
         return _run_to_out(r)
 
 
 @router.get("/{run_id}/log")
-def run_log(run_id: int) -> dict:
+def run_log(run_id: int, user: User = Depends(require_user)) -> dict:
     """Return the run's log file contents (tail if oversized)."""
     from .deps import ROOT
     with session() as s:
-        r = s.get(Run, run_id)
-        if r is None:
-            raise HTTPException(404, "run not found")
+        r = get_owned(s, Run, run_id, user, detail="run not found")
     if not r.log_path:
         return {"text": "", "path": ""}
     log_path = Path(r.log_path)
@@ -460,7 +528,13 @@ def run_log(run_id: int) -> dict:
 
 
 @router.get("/{run_id}/stream")
-async def stream_run(run_id: int):
+async def stream_run(run_id: int, user: User = Depends(require_user)):
+    # Ownership is checked before subscribing, not just on the Run row it came
+    # from: the event bus is keyed by run_id alone, so an unscoped subscribe
+    # would stream another user's job titles, companies and scores live.
+    with session() as s:
+        get_owned(s, Run, run_id, user, detail="run not found")
+
     async def gen():
         async for evt in bus.subscribe(run_id):
             yield {"data": sse_format(evt).removeprefix("data: ").rstrip("\n\n")}

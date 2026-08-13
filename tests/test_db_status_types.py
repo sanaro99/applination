@@ -14,7 +14,7 @@ from sqlalchemy.schema import CreateTable
 from sqlmodel import SQLModel, select
 
 import server.db as db
-from server.db import Application, ApplicationStatus, Run, RunStatus
+from server.db import Application, ApplicationStatus, Run, RunStatus, User
 
 from .conftest import migrate
 
@@ -59,10 +59,16 @@ def test_status_round_trips_as_enum_not_str(tmp_path, monkeypatch):
     migrate(engine)
     monkeypatch.setattr(db, "engine", engine)
 
+    # Rows need an owner now that user_id is NOT NULL.
     with db.session() as s:
-        s.add(Run(status=RunStatus.running))
+        owner = User(email="owner@example.com", password_hash="x", is_owner=True)
+        s.add(owner)
+        s.commit()
+        s.refresh(owner)
+        s.add(Run(user_id=owner.id, status=RunStatus.running))
         s.add(
             Application(
+                user_id=owner.id,
                 company="Acme",
                 title="SWE",
                 folder_path=str(tmp_path),

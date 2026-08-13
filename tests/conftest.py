@@ -1,11 +1,17 @@
 """Shared test fixtures."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
-from sqlalchemy import Engine
+# Must be set before server.limits is imported: slowapi's Limiter reads the flag
+# once, at construction. The authz suite makes many rapid calls as one user and
+# would otherwise trip the per-user limit and 429 where it expects a 404.
+os.environ.setdefault("APPLINATION_DISABLE_RATE_LIMITS", "1")
+
+from alembic import command  # noqa: E402
+from alembic.config import Config  # noqa: E402
+from sqlalchemy import Engine  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -31,3 +37,46 @@ def migrate(engine: Engine) -> None:
         engine.url.render_as_string(hide_password=False).replace("%", "%%"),
     )
     command.upgrade(cfg, "head")
+
+
+# --------------------------------------------------------------------------- #
+# Auth helpers
+#
+# Every endpoint requires a session now, so tests need a logged-in client. Two
+# TestClients over the same app keep separate cookie jars, which is what makes
+# the cross-tenant assertions in test_authz.py possible.
+# --------------------------------------------------------------------------- #
+PASSWORD = "correct-horse-battery-staple"
+
+
+def make_engine(tmp_path: Path, name: str = "test.db"):
+    """A migrated, isolated SQLite engine."""
+    from sqlalchemy import create_engine
+
+    engine = create_engine(
+        f"sqlite:///{(tmp_path / name).as_posix()}",
+        connect_args={"check_same_thread": False},
+    )
+    migrate(engine)
+    return engine
+
+
+def register(client, email: str, password: str = PASSWORD) -> dict:
+    """Sign up and stay logged in on this client. Returns the user payload.
+
+    The first account created against a fresh database becomes the owner (see
+    auth.signup), so call order decides who is owner.
+    """
+    r = client.post(
+        "/api/auth/signup", json={"email": email, "password": password}
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def login(client, email: str, password: str = PASSWORD) -> dict:
+    r = client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert r.status_code == 200, r.text
+    return r.json()

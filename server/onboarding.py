@@ -11,16 +11,31 @@ from __future__ import annotations
 import logging
 import os
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlmodel import select
 
 from .config_api import BIO_PATH, RESUME_PATH, STORIES_DIR
-from .db import Setting, session
+from .db import Setting, User, session
+from .auth import require_owner, require_user
 from .deps import load_config, update_config
 from .studio import _call, _resolve_chain
 
-router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
+# Owner-only, wholesale. Every endpoint here reads or writes the single global
+# config.yaml, which is not per-user until PR 3. Signup is open, so
+# without this any account could overwrite the owner's contact details, provider keys and search settings.
+#
+# Applied at the router rather than per-endpoint so a new endpoint added to this
+# file is owner-gated by default rather than by remembering.
+router = APIRouter(
+    prefix="/api/onboarding", tags=["onboarding"],
+    dependencies=[Depends(require_owner)],
+)
+
+# /status is the one exception: OnboardingGate polls it on every page load for
+# every user, so owner-gating it would 403 non-owners out of the whole app. It
+# lives on its own router with only require_user.
+status_router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 log = logging.getLogger("server.onboarding")
 
 # Provider -> env var that can supply its key (mirrors the providers layer).
@@ -36,19 +51,23 @@ _PROVIDER_ENV = {
 _PLACEHOLDER_NAMES = {"", "your name"}
 
 
-def _get_setting(key: str) -> str | None:
+def _get_setting(user_id: int, key: str) -> str | None:
     with session() as s:
-        row = s.get(Setting, key)
+        # noscope: Setting's primary key IS (user_id, key) — scoped by
+        # construction. The onboarding flag is per-user; sharing one row would
+        # mean the second user to register lands mid-wizard.
+        row = s.get(Setting, (user_id, key))
         return row.value if row else None
 
 
-def _set_setting(key: str, value: str) -> None:
+def _set_setting(user_id: int, key: str, value: str) -> None:
     with session() as s:
-        row = s.get(Setting, key)
+        # noscope: composite primary key (user_id, key).
+        row = s.get(Setting, (user_id, key))
         if row:
             row.value = value
         else:
-            row = Setting(key=key, value=value)
+            row = Setting(user_id=user_id, key=key, value=value)
         s.add(row)
         s.commit()
 
@@ -72,7 +91,7 @@ def _count_stories() -> int:
     return sum(1 for p in STORIES_DIR.glob("*.md") if not p.name.startswith("_"))
 
 
-def _compute_status() -> dict:
+def _compute_status(user_id: int) -> dict:
     cfg = load_config() or {}
     user = cfg.get("user") or {}
     llm = cfg.get("llm") or {}
@@ -85,7 +104,7 @@ def _compute_status() -> dict:
     bio_ok = BIO_PATH.exists()
     stories = _count_stories()
 
-    marked = _get_setting("onboarded") == "1"
+    marked = _get_setting(user_id, "onboarded") == "1"
     can_run = contact_ok and provider_ok and resume_ok
     return {
         "onboarded": marked or can_run,
@@ -101,22 +120,42 @@ def _compute_status() -> dict:
     }
 
 
-@router.get("/status")
-def status() -> dict:
-    return _compute_status()
+@status_router.get("/status")
+def status(user: User = Depends(require_user)) -> dict:
+    """Setup state for the onboarding gate.
+
+    Non-owners get a fixed "nothing to do" answer rather than the real one.
+    Onboarding configures the single global install, which only the owner can
+    do until PR 3 — and the real payload would otherwise report the owner's
+    setup progress to every account that signs up.
+    """
+    if not user.is_owner:
+        return {
+            "onboarded": True,
+            "marked_complete": True,
+            "can_run": False,
+            "steps": {
+                "provider": False,
+                "contact": False,
+                "resume": False,
+                "bio": False,
+                "stories": 0,
+            },
+        }
+    return _compute_status(user.id)
 
 
 @router.post("/complete")
-def complete() -> dict:
-    _set_setting("onboarded", "1")
-    return {"ok": True, **_compute_status()}
+def complete(user: User = Depends(require_owner)) -> dict:
+    _set_setting(user.id, "onboarded", "1")
+    return {"ok": True, **_compute_status(user.id)}
 
 
 @router.post("/reset")
-def reset() -> dict:
+def reset(user: User = Depends(require_owner)) -> dict:
     """Re-open onboarding (does not delete any data)."""
-    _set_setting("onboarded", "0")
-    return {"ok": True, **_compute_status()}
+    _set_setting(user.id, "onboarded", "0")
+    return {"ok": True, **_compute_status(user.id)}
 
 
 # --- Structured config writers (preserve comments via ruamel) ----------------
@@ -132,7 +171,7 @@ class UserBody(BaseModel):
 
 
 @router.put("/user")
-def set_user(body: UserBody) -> dict:
+def set_user(body: UserBody, user: User = Depends(require_owner)) -> dict:
     def mut(data: dict) -> None:
         user = data.get("user")
         if user is None:
@@ -141,7 +180,7 @@ def set_user(body: UserBody) -> dict:
         for k, v in body.model_dump().items():
             user[k] = v
     update_config(mut)
-    return {"ok": True, **_compute_status()}
+    return {"ok": True, **_compute_status(user.id)}
 
 
 class ProviderBody(BaseModel):
@@ -153,7 +192,9 @@ class ProviderBody(BaseModel):
 
 
 @router.put("/provider")
-def set_provider(body: ProviderBody) -> dict:
+def set_provider(
+    body: ProviderBody, user: User = Depends(require_owner)
+) -> dict:
     name = body.provider.strip().lower()
     if not name:
         raise HTTPException(400, "provider is required")
@@ -176,7 +217,7 @@ def set_provider(body: ProviderBody) -> dict:
         if body.make_primary:
             llm["primary"] = name
     update_config(mut)
-    return {"ok": True, **_compute_status()}
+    return {"ok": True, **_compute_status(user.id)}
 
 
 class SearchBody(BaseModel):
@@ -189,7 +230,9 @@ class SearchBody(BaseModel):
 
 
 @router.put("/search")
-def set_search(body: SearchBody) -> dict:
+def set_search(
+    body: SearchBody, user: User = Depends(require_owner)
+) -> dict:
     def mut(data: dict) -> None:
         search = data.get("search")
         if search is None:
@@ -204,7 +247,7 @@ def set_search(body: SearchBody) -> dict:
         if body.min_match_score is not None:
             search["min_match_score"] = body.min_match_score
     update_config(mut)
-    return {"ok": True, **_compute_status()}
+    return {"ok": True, **_compute_status(user.id)}
 
 
 # --- Resume import -----------------------------------------------------------

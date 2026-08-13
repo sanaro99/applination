@@ -83,8 +83,53 @@ class ApplicationStatus(str, Enum):
     archived = "archived"
 
 
+class User(SQLModel, table=True):
+    """An account. ``is_owner`` marks the single user backfilled from the
+    pre-multi-user install; it gates the endpoints that still read the one
+    global config.yaml / master_data (see PR 3, which makes those per-user)."""
+    # NOT "user": that is a reserved word in Postgres, and `SELECT * FROM user`
+    # does not error — it silently returns the session username. SQLAlchemy
+    # quotes correctly either way, but anyone debugging in psql or pgAdmin would
+    # get a confusing wrong answer rather than a clear failure.
+    __tablename__ = "appuser"
+
+    id: int | None = Field(default=None, primary_key=True)
+    # Stored lowercased — see auth.normalize_email. Uniqueness is enforced by
+    # the DB, not just by the signup check, so a race cannot create a duplicate.
+    email: str = Field(unique=True, index=True)
+    password_hash: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    is_owner: bool = False
+    disabled: bool = False
+
+
+class UserSession(SQLModel, table=True):
+    """A logged-in session. Server-side and opaque: the cookie carries a random
+    token, and only its SHA-256 lives here, so a database leak does not hand out
+    live sessions. Being a row rather than a JWT is what makes logout and
+    password-change able to actually revoke."""
+    token_hash: str = Field(primary_key=True)
+    user_id: int = Field(foreign_key="appuser.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    expires_at: datetime
+    last_seen_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class UserSecret(SQLModel, table=True):
+    """A user's LLM API keys and Gmail OAuth token, Fernet-encrypted under the
+    server-held APPLINATION_SECRET_KEY. Never written to YAML.
+
+    PR 2 only creates the table and the crypto helpers; the readers that merge
+    these into a per-user config are PR 3's job."""
+    user_id: int = Field(foreign_key="appuser.id", primary_key=True)
+    name: str = Field(primary_key=True)  # e.g. "llm.deepseek.api_key"
+    ciphertext: str
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Run(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="appuser.id", index=True)
     started_at: datetime = Field(default_factory=datetime.utcnow)
     finished_at: datetime | None = None
     status: RunStatus = Field(
@@ -104,6 +149,10 @@ class Run(SQLModel, table=True):
 
 class Application(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    # Denormalized rather than reached through run_id: a direct predicate is
+    # much harder to get wrong than a join, and run_id is nullable anyway
+    # (single-job generations have no run).
+    user_id: int = Field(foreign_key="appuser.id", index=True)
     run_id: int | None = Field(default=None, foreign_key="run.id", index=True)
     company: str
     title: str
@@ -136,6 +185,7 @@ class RankedJob(SQLModel, table=True):
     """A job that was scored by the ranker on a run, whether or not it was
     auto-selected for generation. Powers the triage / 'rescue' view."""
     id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="appuser.id", index=True)
     run_id: int = Field(foreign_key="run.id", index=True)
     company: str
     title: str
@@ -154,7 +204,14 @@ class RankedJob(SQLModel, table=True):
 
 
 class Setting(SQLModel, table=True):
-    """Tiny key/value store for app-level flags (e.g. onboarding completion)."""
+    """Tiny per-user key/value store (onboarding flag, Gmail OAuth token, the
+    inbox's processed-message ids).
+
+    The primary key is ``(user_id, key)``, not ``key`` alone. With a bare ``key``
+    every user would share one namespace, so the second user to connect Gmail
+    would overwrite the first user's OAuth token — a credential leak, not just a
+    collision."""
+    user_id: int = Field(foreign_key="appuser.id", primary_key=True)
     key: str = Field(primary_key=True)
     value: str = ""
 
@@ -163,6 +220,7 @@ class ChatSession(SQLModel, table=True):
     """A Coach conversation. Optionally grounded to an Application so the
     assistant can prep the candidate for one specific job."""
     id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="appuser.id", index=True)
     title: str = "New chat"
     mode: str = "chat"  # "chat" | "interview"
     application_id: int | None = Field(
@@ -174,6 +232,7 @@ class ChatSession(SQLModel, table=True):
 
 class ChatMessage(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="appuser.id", index=True)
     session_id: int = Field(foreign_key="chatsession.id", index=True)
     role: str  # "user" | "assistant"
     content: str
@@ -185,6 +244,7 @@ class SavedAnswer(SQLModel, table=True):
     """A good Coach reply saved to a reusable bank, optionally attached to an
     Application's answers.md."""
     id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="appuser.id", index=True)
     title: str = ""
     prompt: str = ""  # the question this answers (optional)
     content: str
@@ -196,6 +256,22 @@ class SavedAnswer(SQLModel, table=True):
         default=None, foreign_key="application.id", index=True
     )
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# Every table carrying tenant data. `server/scoping.py` filters on these, and
+# `tests/test_scope_lint.py` fails the build on a bare select() against one, so
+# adding a tenant table here is what wires it into both guards. A model absent
+# from this tuple is silently unprotected — which is why the lint test also
+# cross-checks it against every SQLModel table that has a `user_id` column.
+TENANT_MODELS: tuple[type[SQLModel], ...] = (
+    Run,
+    Application,
+    RankedJob,
+    Setting,
+    ChatSession,
+    ChatMessage,
+    SavedAnswer,
+)
 
 
 def init_db() -> None:

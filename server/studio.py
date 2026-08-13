@@ -9,13 +9,23 @@ from __future__ import annotations
 import logging
 
 import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .config_api import STORIES_DIR
+from .auth import require_owner
 from .deps import load_config
 
-router = APIRouter(prefix="/api/master-data", tags=["studio"])
+# Owner-only, wholesale. Every endpoint here reads or writes the single global
+# master_data/ profile, using the global provider keys, which is not per-user until PR 3. Signup is open, so
+# without this any account could read and rewrite the owner's profile at the owner's expense.
+#
+# Applied at the router rather than per-endpoint so a new endpoint added to this
+# file is owner-gated by default rather than by remembering.
+router = APIRouter(
+    prefix="/api/master-data", tags=["studio"],
+    dependencies=[Depends(require_owner)],
+)
 log = logging.getLogger("server.studio")
 
 _KINDS = {"story", "bio", "resume"}

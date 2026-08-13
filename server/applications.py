@@ -6,13 +6,15 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlmodel import select
 
-from .db import Application, ApplicationStatus, session
+from .auth import require_user
+from .db import Application, ApplicationStatus, User, session
 from .deps import load_config
+from .scoping import get_owned, owned
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 
@@ -130,9 +132,10 @@ def list_apps(
     run_id: int | None = None,
     status: ApplicationStatus | None = None,
     limit: int = 500,
+    user: User = Depends(require_user),
 ) -> list[AppOut]:
     with session() as s:
-        q = select(Application)
+        q = owned(select(Application), Application, user)
         if run_id is not None:
             q = q.where(Application.run_id == run_id)
         if status is not None:
@@ -142,11 +145,9 @@ def list_apps(
 
 
 @router.get("/{app_id}", response_model=AppOut)
-def get_app(app_id: int) -> AppOut:
+def get_app(app_id: int, user: User = Depends(require_user)) -> AppOut:
     with session() as s:
-        a = s.get(Application, app_id)
-        if a is None:
-            raise HTTPException(404, "application not found")
+        a = get_owned(s, Application, app_id, user, detail="application not found")
         return _to_out(a)
 
 
@@ -156,6 +157,7 @@ def download_doc(
     doc: str = "resume",
     fmt: str = "pdf",
     version: int | None = None,
+    user: User = Depends(require_user),
 ) -> FileResponse:
     """Stream a document with a friendly, ATS-ready filename.
 
@@ -172,9 +174,7 @@ def download_doc(
     if fmt not in _DOC_MEDIA:
         raise HTTPException(400, "fmt must be 'pdf' or 'docx'")
     with session() as s:
-        a = s.get(Application, app_id)
-        if a is None:
-            raise HTTPException(404, "application not found")
+        a = get_owned(s, Application, app_id, user, detail="application not found")
         company, folder_path = a.company, a.folder_path
 
     folder = Path(folder_path)
@@ -208,14 +208,14 @@ class PatchBody(BaseModel):
 
 
 @router.patch("/{app_id}", response_model=AppOut)
-def patch_app(app_id: int, body: PatchBody) -> AppOut:
+def patch_app(
+    app_id: int, body: PatchBody, user: User = Depends(require_user)
+) -> AppOut:
     # Use the set of explicitly-provided fields so callers can clear a value
     # (send null) vs. leave it untouched (omit the key).
     provided = body.model_fields_set
     with session() as s:
-        a = s.get(Application, app_id)
-        if a is None:
-            raise HTTPException(404, "application not found")
+        a = get_owned(s, Application, app_id, user, detail="application not found")
         if body.status is not None:
             a.status = body.status
             if body.status == ApplicationStatus.applied and a.applied_at is None:
@@ -241,13 +241,22 @@ class BulkBody(BaseModel):
 
 
 @router.post("/bulk", response_model=list[AppOut])
-def bulk_update(body: BulkBody) -> list[AppOut]:
+def bulk_update(
+    body: BulkBody, user: User = Depends(require_user)
+) -> list[AppOut]:
     if not body.ids:
         raise HTTPException(400, "no application ids provided")
     updated: list[AppOut] = []
     with session() as s:
+        # Ids the caller does not own simply do not match, so a bulk update
+        # spanning both users silently touches only their own rows — the same
+        # outcome as the single-row 404, without leaking which ids were real.
         rows = s.exec(
-            select(Application).where(Application.id.in_(body.ids))  # type: ignore[attr-defined]
+            owned(
+                select(Application).where(Application.id.in_(body.ids)),  # type: ignore[attr-defined]
+                Application,
+                user,
+            )
         ).all()
         for a in rows:
             if body.status is not None:
@@ -269,11 +278,13 @@ def bulk_update(body: BulkBody) -> list[AppOut]:
 
 
 @router.post("/export")
-def export_csv(body: BulkBody | None = None) -> Response:
+def export_csv(
+    body: BulkBody | None = None, user: User = Depends(require_user)
+) -> Response:
     """Export selected (or all) applications as a CSV download."""
     ids = body.ids if body else []
     with session() as s:
-        q = select(Application)
+        q = owned(select(Application), Application, user)
         if ids:
             q = q.where(Application.id.in_(ids))  # type: ignore[attr-defined]
         q = q.order_by(Application.created_at.desc())

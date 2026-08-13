@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect
 
 import server.db as db
-from .conftest import migrate
+from .conftest import migrate, register
 import src.providers as providers
 
 
@@ -23,6 +23,13 @@ class _FakeProvider:
 
     def text_call(self, system: str, user: str, max_tokens: int = 1000) -> str:
         return self._reply
+
+
+def _me(client) -> int:
+    """The logged-in user's id. Rows seeded straight into the DB need one now
+    that user_id is NOT NULL, and it has to match the client's session or the
+    endpoint under test will (correctly) 404."""
+    return client.get("/api/auth/me").json()["id"]
 
 
 @pytest.fixture()
@@ -43,6 +50,11 @@ def client(tmp_path, monkeypatch):
     from server.app import app
 
     with TestClient(app) as c:  # triggers startup → init_db() on test_engine
+    # Every endpoint requires a session now, and these exercise the
+    # owner-gated surface (global config / master data / LLM calls), so the
+    # first account created — which auth.signup makes the owner — is logged in
+    # for the whole fixture.
+        register(c, "owner@example.com")
         yield c
 
 
@@ -139,7 +151,10 @@ def test_session_mode_and_grounding(client, tmp_path):
     folder = tmp_path / "app1"
     folder.mkdir()
     with db.session() as s:
-        app_row = db.Application(company="Acme", title="SWE", folder_path=str(folder))
+        app_row = db.Application(
+            user_id=_me(client), company="Acme", title="SWE",
+            folder_path=str(folder),
+        )
         s.add(app_row)
         s.commit()
         s.refresh(app_row)
@@ -231,7 +246,8 @@ def test_answer_bank_save_list_attach(client, tmp_path):
     folder.mkdir(parents=True)
     with db.session() as s:
         app_row = db.Application(
-            company="UBS", title="Engineer", folder_path=str(folder),
+            user_id=_me(client), company="UBS", title="Engineer",
+            folder_path=str(folder),
         )
         s.add(app_row)
         s.commit()

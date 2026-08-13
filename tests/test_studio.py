@@ -12,7 +12,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 import server.db as db
-from .conftest import migrate
+from .conftest import migrate, register
 import server.deps as deps
 import server.config_api as config_api
 import server.studio as studio
@@ -62,6 +62,10 @@ def client(tmp_path, monkeypatch):
     from server.app import app
 
     with TestClient(app) as c:
+        # These endpoints are owner-gated (global config + master data + LLM
+        # calls), so the fixture logs in the first account, which auth.signup
+        # makes the owner.
+        register(c, "owner@example.com")
         yield c
 
 

@@ -308,8 +308,24 @@ container runs `alembic upgrade head` on start and creates the schema.
 ```bash
 sudo docker compose -p applination exec applination-db \
   psql -U applination -d applination -c "\dt"
-# expect: alembic_version, application, chatmessage, chatsession,
-#         rankedjob, run, savedanswer, setting
+# expect: alembic_version, application, appuser, chatmessage, chatsession,
+#         rankedjob, run, savedanswer, setting, usersecret, usersession
+```
+
+**5b. Step the schema back to the baseline revision before copying.**
+
+The multi-user revision (`7f3c1a9d2b84`) makes `user_id` NOT NULL on every
+table, and the SQLite database predates that column — so copying into a
+schema that is already at `head` fails on the NOT NULL constraint. Copy at
+the baseline instead and then upgrade: the upgrade's backfill is exactly the
+mechanism for adopting pre-multi-user data, and it is the path that has been
+tested against a real Postgres.
+
+The schema is still empty at this point, so stepping back costs nothing:
+
+```bash
+sudo docker compose -p applination exec applination-api \
+  alembic downgrade 314cc8e80422
 ```
 
 **6. Copy the data in.** Dry run first — it writes nothing:
@@ -322,6 +338,27 @@ sudo docker compose -p applination exec applination-api \
 Check the reported per-table counts against what you expect, then run it for
 real by dropping `--dry-run`. The script refuses to touch a non-empty target,
 so it cannot double-copy by accident.
+
+**6b. Upgrade back to head to adopt the copied rows:**
+
+```bash
+sudo docker compose -p applination exec applination-api \
+  alembic upgrade head
+```
+
+This creates the owner account (email seeded from `config.yaml`'s `user:`
+block), stamps every copied row with it, and rebuilds `setting`'s primary key
+as `(user_id, key)`. It prints the owner's id and email, and the account has
+**no usable password** until you set one:
+
+```bash
+sudo docker compose -p applination exec -it applination-api \
+  python scripts/set_password.py <that-email>
+```
+
+Nobody can sign in until this is done. Note that signup is open, so whoever
+registers first on a genuinely empty database becomes the owner instead —
+which is why the password is set before the app is reachable.
 
 **7. Verify the counts match**, comparing against the SQLite source:
 
@@ -397,3 +434,8 @@ sudo docker compose -p applination exec applination-db \
 | API starts but every query 500s | `DATABASE_URL` password disagrees with `POSTGRES_PASSWORD`, or contains an unencoded `@ : / ?` |
 | Postgres won't start after a version bump | `pgdata` was initialised by an older major version; restore the snapshot and pin the previous image tag |
 | New run fails on a duplicate primary key | Sequences were not fast-forwarded — re-run the `setval` block at the end of `scripts/sqlite_to_postgres.py` |
+| Copy fails with `NOT NULL constraint failed: <table>.user_id` | The schema is at `head`; step back to `314cc8e80422`, copy, then `upgrade head` (Steps 5b–6b) |
+| Cannot sign in after the cutover; no password works | The adopted owner has an unusable hash by design — run `scripts/set_password.py <email>` |
+| Every request 401s right after login, but the API log shows no error | The browser is not sending the cookie. It is `SameSite=Lax`, so the UI and API must be same-origin — check Traefik still routes `/api` under the same hostname, and that `NEXT_PUBLIC_API_BASE` was not baked in |
+| `APPLINATION_SECRET_KEY is not set` on startup | Add it to `applination.env` and restart; without it stored API keys cannot be read |
+| Stored API keys stop working after a restore | `APPLINATION_SECRET_KEY` changed. There is no recovery — users must re-enter their keys |

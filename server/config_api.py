@@ -3,12 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from .auth import require_owner
 from .deps import CONFIG_PATH, ROOT
 
-router = APIRouter(prefix="/api", tags=["config"])
+# Owner-only, wholesale. Every endpoint here reads or writes the single global
+# config.yaml and master_data/, which is not per-user until PR 3. Signup is open, so
+# without this any account could read the owner's API keys and personal resume.
+#
+# Applied at the router rather than per-endpoint so a new endpoint added to this
+# file is owner-gated by default rather than by remembering.
+router = APIRouter(
+    prefix="/api", tags=["config"],
+    dependencies=[Depends(require_owner)],
+)
 
 MASTER_DIR = ROOT / "master_data"
 STORIES_DIR = MASTER_DIR / "stories"

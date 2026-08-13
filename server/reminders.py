@@ -11,13 +11,15 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlmodel import select
 
 from . import gmail_auth
-from .db import Application, ApplicationStatus, session
+from .auth import require_owner, require_user
+from .db import Application, ApplicationStatus, User, session
 from .deps import load_config
+from .scoping import owned
 
 router = APIRouter(tags=["reminders"])
 log = logging.getLogger("server.reminders")
@@ -34,7 +36,7 @@ def _reminders_cfg() -> dict:
     return (load_config().get("reminders") or {})
 
 
-def _gather():
+def _gather(user: User | int):
     """Collect digest/calendar data from the DB in one pass."""
     cfg = _reminders_cfg()
     window = int(cfg.get("deadline_window_days", 7) or 7)
@@ -43,7 +45,7 @@ def _gather():
     today = now.date()
 
     with session() as s:
-        apps = s.exec(select(Application)).all()
+        apps = s.exec(owned(select(Application), Application, user)).all()
 
     deadlines, interviews, follow_ups, new_matches = [], [], [], []
     counts: dict[str, int] = {}
@@ -95,10 +97,17 @@ def _gather():
 # calendar feed
 # --------------------------------------------------------------------------
 @router.get("/api/calendar.ics")
-def calendar_feed() -> Response:
+def calendar_feed(user: User = Depends(require_user)) -> Response:
+    """Live iCalendar feed of this user's deadlines and interviews.
+
+    Authenticated like everything else, which means an external calendar app
+    cannot subscribe to it — those send no cookies. The alternative was leaving
+    every user's applications readable at a guessable URL. A signed per-user
+    feed token belongs with the rest of the per-user work in PR 3.
+    """
     from src.calendar_feed import build_ics, CalEvent
 
-    deadlines, interviews, _follow, _new, _counts = _gather()
+    deadlines, interviews, _follow, _new, _counts = _gather(user)
     events: list[CalEvent] = []
     for d in deadlines:
         events.append(CalEvent(
@@ -129,16 +138,18 @@ def calendar_feed() -> Response:
 # --------------------------------------------------------------------------
 # digest
 # --------------------------------------------------------------------------
-def _build_digest_payload():
+def _build_digest_payload(user: User):
     from src.digest import DigestData, build_digest
 
-    deadlines, interviews, follow_ups, new_matches, counts = _gather()
+    deadlines, interviews, follow_ups, new_matches, counts = _gather(user)
     data = DigestData(
         deadlines=deadlines, interviews=interviews, follow_ups=follow_ups,
         new_matches=new_matches, counts=counts,
     )
-    user = (load_config().get("user") or {})
-    name = (user.get("full_name") or "").split(" ")[0]
+    # Renamed from `user`: that shadowed the User parameter this function now
+    # takes, which would have silently passed a config dict to _gather().
+    user_cfg = (load_config().get("user") or {})
+    name = (user_cfg.get("full_name") or "").split(" ")[0]
     subject, html, text = build_digest(data, name=name)
     return data, subject, html, text
 
@@ -151,8 +162,8 @@ class DigestPreview(BaseModel):
 
 
 @router.get("/api/reminders/digest/preview", response_model=DigestPreview)
-def digest_preview() -> DigestPreview:
-    data, subject, html, text = _build_digest_payload()
+def digest_preview(user: User = Depends(require_owner)) -> DigestPreview:
+    data, subject, html, text = _build_digest_payload(user)
     return DigestPreview(subject=subject, html=html, text=text, empty=data.is_empty)
 
 
@@ -162,20 +173,20 @@ class DigestSendResult(BaseModel):
 
 
 @router.post("/api/reminders/digest/send", response_model=DigestSendResult)
-def digest_send() -> DigestSendResult:
+def digest_send(user: User = Depends(require_owner)) -> DigestSendResult:
     from src.gmail_api import send_via_gmail_api
 
     cfg = load_config()
     rem = cfg.get("reminders") or {}
-    creds = gmail_auth.get_credentials()
-    sender = gmail_auth.account_email() or ""
+    creds = gmail_auth.get_credentials(user.id)
+    sender = gmail_auth.account_email(user.id) or ""
     if creds is None or not sender:
         raise HTTPException(
             400,
             "Email sending needs Gmail connected — connect it from the Config page.",
         )
     to = str(rem.get("digest_to") or (cfg.get("user") or {}).get("email") or sender)
-    _data, subject, html, text = _build_digest_payload()
+    _data, subject, html, text = _build_digest_payload(user)
     try:
         send_via_gmail_api(creds, sender=sender, to=to, subject=subject, html=html, text=text)
     except Exception as e:
@@ -184,10 +195,12 @@ def digest_send() -> DigestSendResult:
 
 
 @router.get("/api/reminders/status")
-def reminders_status() -> dict:
+def reminders_status(user: User = Depends(require_user)) -> dict:
     rem = load_config().get("reminders") or {}
-    can_send = gmail_auth.is_connected()
-    deadlines, interviews, follow_ups, new_matches, _counts = _gather()
+    # Gmail is the owner's single connection until PR 3, so a non-owner simply
+    # cannot send — reported as False rather than 403ing the dashboard card.
+    can_send = user.is_owner and gmail_auth.is_connected(user.id)
+    deadlines, interviews, follow_ups, new_matches, _counts = _gather(user)
     return {
         "can_send_email": can_send,
         "digest_enabled": bool(rem.get("digest_enabled", False)),

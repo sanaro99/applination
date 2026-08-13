@@ -24,14 +24,16 @@ import secrets
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlmodel import select
 
 from . import gmail_auth
-from .db import Application, ApplicationStatus, Setting, session
+from .auth import require_owner
+from .db import Application, ApplicationStatus, Setting, User, session
 from .deps import load_config, update_config
+from .scoping import find_owned, owned
 
 router = APIRouter(prefix="/api/inbox", tags=["inbox"])
 log = logging.getLogger("server.inbox")
@@ -102,9 +104,12 @@ def _email_matches_app(msg, tokens: list[str], company_norm: str) -> bool:
     return bool(company_norm) and company_norm in (msg.body or "").lower()
 
 
-def _load_processed() -> set[str]:
+def _load_processed(user_id: int) -> set[str]:
     with session() as s:
-        row = s.get(Setting, _PROCESSED_KEY)
+        # noscope: Setting's primary key IS (user_id, key) — scoped by
+        # construction. The processed-id set must stay per-user or one user's
+        # sync would mark another's messages as already handled.
+        row = s.get(Setting, (user_id, _PROCESSED_KEY))
     if not row or not row.value:
         return set()
     try:
@@ -113,30 +118,33 @@ def _load_processed() -> set[str]:
         return set()
 
 
-def _save_processed(ids: set[str]) -> None:
+def _save_processed(user_id: int, ids: set[str]) -> None:
     capped = list(ids)[-_PROCESSED_CAP:]
     with session() as s:
-        row = s.get(Setting, _PROCESSED_KEY)
+        # noscope: composite primary key (user_id, key).
+        row = s.get(Setting, (user_id, _PROCESSED_KEY))
         if row is None:
-            row = Setting(key=_PROCESSED_KEY, value="")
+            row = Setting(user_id=user_id, key=_PROCESSED_KEY, value="")
         row.value = json.dumps(capped)
         s.add(row)
         s.commit()
 
 
-def _set_setting(key: str, value: str) -> None:
+def _set_setting(user_id: int, key: str, value: str) -> None:
     with session() as s:
-        row = s.get(Setting, key)
+        # noscope: composite primary key (user_id, key).
+        row = s.get(Setting, (user_id, key))
         if row is None:
-            row = Setting(key=key, value="")
+            row = Setting(user_id=user_id, key=key, value="")
         row.value = value
         s.add(row)
         s.commit()
 
 
-def _get_setting(key: str) -> str:
+def _get_setting(user_id: int, key: str) -> str:
     with session() as s:
-        row = s.get(Setting, key)
+        # noscope: composite primary key (user_id, key).
+        row = s.get(Setting, (user_id, key))
         return row.value if row else ""
 
 
@@ -155,15 +163,15 @@ class InboxStatus(BaseModel):
 
 
 @router.get("/status", response_model=InboxStatus)
-def inbox_status() -> InboxStatus:
+def inbox_status(user: User = Depends(require_owner)) -> InboxStatus:
     cfg = _inbox_cfg()
     has_client = bool(cfg.get("client_id")) and bool(cfg.get("client_secret"))
-    connected = gmail_auth.is_connected()
-    last = _get_setting(_LAST_SYNC_KEY)
+    connected = gmail_auth.is_connected(user.id)
+    last = _get_setting(user.id, _LAST_SYNC_KEY)
     return InboxStatus(
         configured=connected,
         enabled=bool(cfg.get("enabled", False)) and connected,
-        account_email=gmail_auth.account_email() or "",
+        account_email=gmail_auth.account_email(user.id) or "",
         has_client_credentials=has_client,
         redirect_uri=str(cfg.get("redirect_uri") or _DEFAULT_REDIRECT_URI),
         scan_days=int(cfg.get("scan_days", 30) or 30),
@@ -178,7 +186,9 @@ class OAuthCredentials(BaseModel):
 
 
 @router.put("/oauth/credentials")
-def set_oauth_credentials(body: OAuthCredentials) -> dict:
+def set_oauth_credentials(
+    body: OAuthCredentials, user: User = Depends(require_owner)
+) -> dict:
     def mut(data: dict) -> None:
         inbox = data.get("inbox")
         if inbox is None:
@@ -193,7 +203,7 @@ def set_oauth_credentials(body: OAuthCredentials) -> dict:
 
 
 @router.get("/oauth/authorize")
-def oauth_authorize() -> RedirectResponse:
+def oauth_authorize(user: User = Depends(require_owner)) -> RedirectResponse:
     from src.gmail_oauth import build_auth_url
 
     cfg = _inbox_cfg()
@@ -205,12 +215,25 @@ def oauth_authorize() -> RedirectResponse:
 
     state = secrets.token_urlsafe(24)
     url, code_verifier = build_auth_url(client_id, client_secret, redirect_uri, state)
-    _set_setting(_OAUTH_STATE_KEY, json.dumps({"state": state, "code_verifier": code_verifier}))
+    _set_setting(
+        user.id,
+        _OAUTH_STATE_KEY,
+        json.dumps({"state": state, "code_verifier": code_verifier}),
+    )
     return RedirectResponse(url)
 
 
 @router.get("/oauth/callback")
-def oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None) -> HTMLResponse:
+def oauth_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    # Authenticated, despite being a redirect target: Google's redirect is a
+    # top-level GET navigation, and SameSite=Lax sends the session cookie on
+    # exactly those. That lets the pending OAuth state be looked up under the
+    # right user instead of being trusted from the query string.
+    user: User = Depends(require_owner),
+) -> HTMLResponse:
     from src.gmail_oauth import exchange_code, credentials_to_token_json, get_account_email
 
     import html as _html
@@ -235,7 +258,7 @@ def oauth_callback(code: str | None = None, state: str | None = None, error: str
         return _page(f"Google sign-in failed: {error}. You can close this window.", False)
 
     try:
-        pending = json.loads(_get_setting(_OAUTH_STATE_KEY) or "{}")
+        pending = json.loads(_get_setting(user.id, _OAUTH_STATE_KEY) or "{}")
     except Exception:
         pending = {}
     expected_state = pending.get("state")
@@ -243,7 +266,7 @@ def oauth_callback(code: str | None = None, state: str | None = None, error: str
     if not code or not state or not code_verifier or state != expected_state:
         log.warning("inbox: oauth callback with invalid/expired state")
         return _page("Invalid or expired sign-in attempt. You can close this window and try again.", False)
-    _set_setting(_OAUTH_STATE_KEY, "")
+    _set_setting(user.id, _OAUTH_STATE_KEY, "")
 
     cfg = _inbox_cfg()
     client_id = str(cfg.get("client_id") or "")
@@ -252,7 +275,7 @@ def oauth_callback(code: str | None = None, state: str | None = None, error: str
     try:
         creds = exchange_code(client_id, client_secret, redirect_uri, code, code_verifier)
         email = get_account_email(creds)
-        gmail_auth.save_token(credentials_to_token_json(creds), email)
+        gmail_auth.save_token(user.id, credentials_to_token_json(creds), email)
     except Exception as e:
         log.warning("inbox: oauth exchange failed: %s", e)
         return _page(f"Could not complete Google sign-in: {e}", False)
@@ -261,16 +284,16 @@ def oauth_callback(code: str | None = None, state: str | None = None, error: str
 
 
 @router.post("/oauth/disconnect")
-def oauth_disconnect() -> dict:
-    gmail_auth.clear_token()
+def oauth_disconnect(user: User = Depends(require_owner)) -> dict:
+    gmail_auth.clear_token(user.id)
     return {"ok": True}
 
 
 @router.post("/test")
-def inbox_test() -> dict:
+def inbox_test(user: User = Depends(require_owner)) -> dict:
     from src.gmail_oauth import get_account_email
 
-    creds = gmail_auth.get_credentials()
+    creds = gmail_auth.get_credentials(user.id)
     if creds is None:
         raise HTTPException(400, "Gmail is not connected yet.")
     try:
@@ -311,13 +334,15 @@ class CandidatesResult(BaseModel):
 
 
 @router.get("/sync/candidates", response_model=CandidatesResult)
-def sync_candidates(days: int | None = None) -> CandidatesResult:
+def sync_candidates(
+    days: int | None = None, user: User = Depends(require_owner)
+) -> CandidatesResult:
     """Fetch + match only — no classification. The browser classifies each
     candidate (WebLLM) and submits results one at a time to ``/sync/apply``."""
     from src.gmail_api import GmailApiScanner
 
     cfg = _inbox_cfg()
-    creds = gmail_auth.get_credentials()
+    creds = gmail_auth.get_credentials(user.id)
     if creds is None:
         raise HTTPException(400, "Gmail is not connected. Connect it from the Config page.")
     days = days or int(cfg.get("scan_days", 30) or 30)
@@ -331,10 +356,16 @@ def sync_candidates(days: int | None = None) -> CandidatesResult:
 
     with session() as s:
         apps = s.exec(
-            select(Application).where(Application.status.in_(_ACTIVE_STATES))  # type: ignore[attr-defined]
+            owned(
+                select(Application).where(
+                    Application.status.in_(_ACTIVE_STATES)  # type: ignore[attr-defined]
+                ),
+                Application,
+                user,
+            )
         ).all()
 
-    processed = _load_processed()
+    processed = _load_processed(user.id)
     matched = 0
     candidates: list[SyncCandidate] = []
 
@@ -381,7 +412,9 @@ class ApplyResult(BaseModel):
 
 
 @router.post("/sync/apply", response_model=ApplyResult)
-def sync_apply(body: ApplyBody) -> ApplyResult:
+def sync_apply(
+    body: ApplyBody, user: User = Depends(require_owner)
+) -> ApplyResult:
     """Apply one browser-classified message. Validates/clamps the submitted
     classification before trusting it (never take client values as-is)."""
     from src.inbox import normalize_classification
@@ -399,12 +432,14 @@ def sync_apply(body: ApplyBody) -> ApplyResult:
             msg_date = None
     msg = SimpleNamespace(date=msg_date, from_email=body.from_email)
 
-    upd = _apply_result(body.application_id, msg, result, min_conf, auto_update)
+    upd = _apply_result(
+        body.application_id, user, msg, result, min_conf, auto_update
+    )
 
-    processed = _load_processed()
+    processed = _load_processed(user.id)
     processed.add(body.mid)
-    _save_processed(processed)
-    _set_setting(_LAST_SYNC_KEY, datetime.utcnow().isoformat())
+    _save_processed(user.id, processed)
+    _set_setting(user.id, _LAST_SYNC_KEY, datetime.utcnow().isoformat())
 
     skipped = (
         upd is None
@@ -415,7 +450,12 @@ def sync_apply(body: ApplyBody) -> ApplyResult:
 
 
 def _apply_result(
-    app_id: int | None, msg, result: dict, min_conf: float, auto_update: bool
+    app_id: int | None,
+    user: User,
+    msg,
+    result: dict,
+    min_conf: float,
+    auto_update: bool,
 ) -> SyncUpdate | None:
     """Apply a classification to one application; returns the update or None."""
     category = result["category"]
@@ -427,7 +467,10 @@ def _apply_result(
         return None
 
     with session() as s:
-        app = s.get(Application, app_id)
+        # The application id comes straight from the browser, so this is the
+        # boundary where a client could otherwise mutate another user's row:
+        # find_owned makes a foreign id indistinguishable from a missing one.
+        app = find_owned(s, Application, app_id, user)
         if app is None or app.status == ApplicationStatus.archived:
             return None
         old = app.status

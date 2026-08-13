@@ -3,12 +3,15 @@ from __future__ import annotations
 import logging
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import select
 
-from .db import Application, Run, session
+from .auth import require_owner, require_user
+from .db import Application, Run, User, session
 from .deps import load_config, update_llm_config
+from .limits import LLM_LIMIT, limiter
+from .scoping import get_owned, owned
 
 router = APIRouter(prefix="/api", tags=["ops"])
 log = logging.getLogger("server.ops")
@@ -29,7 +32,10 @@ class ProviderInfo(BaseModel):
 
 
 @router.get("/providers", response_model=list[ProviderInfo])
-def list_providers() -> list[ProviderInfo]:
+def list_providers(
+    # Owner-only: reports which of the global config's provider keys are set.
+    user: User = Depends(require_owner),
+) -> list[ProviderInfo]:
     llm = load_config().get("llm", {})
     primary = llm.get("primary")
     fallbacks = llm.get("fallbacks", []) or []
@@ -71,7 +77,13 @@ class TestResult(BaseModel):
 
 
 @router.post("/providers/test", response_model=TestResult)
-def test_provider(body: TestBody) -> TestResult:
+@limiter.limit(LLM_LIMIT)
+def test_provider(
+    request: Request,
+    body: TestBody,
+    # Owner-only + rate limited: makes a real (small) call on the owner's key.
+    user: User = Depends(require_owner),
+) -> TestResult:
     name = body.provider.strip().lower()
     if name not in KNOWN_PROVIDERS:
         raise HTTPException(400, f"unknown provider: {name}")
@@ -147,7 +159,7 @@ def _validate_provider(name: str) -> str:
 
 
 @router.get("/llm-config", response_model=LlmConfigOut, response_model_by_alias=True)
-def get_llm_config() -> LlmConfigOut:
+def get_llm_config(user: User = Depends(require_owner)) -> LlmConfigOut:
     llm = load_config().get("llm", {}) or {}
     tasks_cfg = llm.get("tasks", {}) or {}
     tasks: dict[str, TaskRouting] = {}
@@ -170,7 +182,9 @@ def get_llm_config() -> LlmConfigOut:
 
 
 @router.put("/llm-config")
-def put_llm_config(body: LlmConfigIn) -> dict:
+def put_llm_config(
+    body: LlmConfigIn, user: User = Depends(require_owner)
+) -> dict:
     valid_tasks = set(_task_names())
     # Validate before touching the file.
     if body.global_.primary:
@@ -255,13 +269,26 @@ def _summarize(run: Run, apps: list[Application]) -> RunSummary:
 
 
 @router.get("/compare", response_model=CompareOut)
-def compare_runs(a: int, b: int) -> CompareOut:
+def compare_runs(
+    a: int, b: int, user: User = Depends(require_user)
+) -> CompareOut:
     with session() as s:
-        ra, rb = s.get(Run, a), s.get(Run, b)
-        if ra is None or rb is None:
-            raise HTTPException(404, "one or both runs not found")
-        apps_a = s.exec(select(Application).where(Application.run_id == a)).all()
-        apps_b = s.exec(select(Application).where(Application.run_id == b)).all()
+        ra = get_owned(s, Run, a, user, detail="one or both runs not found")
+        rb = get_owned(s, Run, b, user, detail="one or both runs not found")
+        apps_a = s.exec(
+            owned(
+                select(Application).where(Application.run_id == a),
+                Application,
+                user,
+            )
+        ).all()
+        apps_b = s.exec(
+            owned(
+                select(Application).where(Application.run_id == b),
+                Application,
+                user,
+            )
+        ).all()
 
     sa, sb = _summarize(ra, apps_a), _summarize(rb, apps_b)
     set_a, set_b = set(sa.companies), set(sb.companies)

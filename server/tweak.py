@@ -5,11 +5,14 @@ import logging
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from .db import Application, session
+from .auth import require_owner, require_user
+from .db import Application, User, session
 from .deps import load_config
+from .limits import LLM_LIMIT, limiter
+from .scoping import get_owned
 
 router = APIRouter(prefix="/api/applications", tags=["tweak"])
 log = logging.getLogger("server.tweak")
@@ -70,32 +73,40 @@ def _list_versions(folder: Path) -> list[dict]:
 
 
 @router.get("/{app_id}/resume-versions", response_model=VersionsOut)
-def list_versions(app_id: int) -> VersionsOut:
+def list_versions(
+    app_id: int, user: User = Depends(require_user)
+) -> VersionsOut:
     with session() as s:
-        a = s.get(Application, app_id)
-        if a is None:
-            raise HTTPException(404, "application not found")
+        a = get_owned(
+            s, Application, app_id, user, detail="application not found"
+        )
     return VersionsOut(versions=_list_versions(Path(a.folder_path)))
 
 
 @router.get("/{app_id}/cover-letter", response_model=CoverLetterOut)
-def get_cover_letter(app_id: int) -> CoverLetterOut:
+def get_cover_letter(
+    app_id: int, user: User = Depends(require_user)
+) -> CoverLetterOut:
     with session() as s:
-        a = s.get(Application, app_id)
-        if a is None:
-            raise HTTPException(404, "application not found")
+        a = get_owned(
+            s, Application, app_id, user, detail="application not found"
+        )
     p = Path(a.folder_path) / "cover_letter.txt"
     text = p.read_text(encoding="utf-8") if p.exists() else ""
     return CoverLetterOut(text=text, has_text=p.exists())
 
 
 @router.put("/{app_id}/cover-letter", response_model=CoverLetterSaveOut)
-def put_cover_letter(app_id: int, body: CoverLetterBody) -> CoverLetterSaveOut:
+def put_cover_letter(
+    app_id: int, body: CoverLetterBody, user: User = Depends(require_user)
+) -> CoverLetterSaveOut:
     """Persist an edited cover-letter body and re-render docx (+pdf)."""
     with session() as s:
-        a = s.get(Application, app_id)
-        if a is None:
-            raise HTTPException(404, "application not found")
+        # Writes files into the application's folder, so the ownership check is
+        # what keeps one user from overwriting another's cover letter.
+        a = get_owned(
+            s, Application, app_id, user, detail="application not found"
+        )
         company, title, location = a.company, a.title, a.location
 
     folder = Path(a.folder_path)
@@ -137,14 +148,21 @@ def put_cover_letter(app_id: int, body: CoverLetterBody) -> CoverLetterSaveOut:
 
 
 @router.post("/{app_id}/tweak", response_model=TweakOut)
-def tweak(app_id: int, body: TweakBody) -> TweakOut:
+@limiter.limit(LLM_LIMIT)
+def tweak(
+    request: Request,
+    app_id: int,
+    body: TweakBody,
+    # Owner-only until PR 3: re-tailors with the global provider keys.
+    user: User = Depends(require_owner),
+) -> TweakOut:
     if not body.instruction.strip():
         raise HTTPException(400, "instruction is required")
 
     with session() as s:
-        a = s.get(Application, app_id)
-        if a is None:
-            raise HTTPException(404, "application not found")
+        a = get_owned(
+            s, Application, app_id, user, detail="application not found"
+        )
 
     folder = Path(a.folder_path)
     if not folder.exists():

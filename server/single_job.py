@@ -11,20 +11,24 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import select
 
+from .auth import require_owner
 from .db import (
     Application,
     ApplicationStatus,
     RankedJob,
     Run,
     RunStatus,
+    User,
     session,
 )
 from .deps import load_config
 from .events import bus
+from .limits import LLM_LIMIT, limiter
+from .scoping import find_owned
 
 router = APIRouter(prefix="/api/single-job", tags=["single-job"])
 log = logging.getLogger("server.single_job")
@@ -46,7 +50,13 @@ class ExtractedJob(BaseModel):
 
 
 @router.post("/extract", response_model=ExtractedJob)
-def extract(body: ExtractBody) -> ExtractedJob:
+@limiter.limit(LLM_LIMIT)
+def extract(
+    request: Request,
+    body: ExtractBody,
+    # Owner-only until PR 3: uses the global config's provider keys.
+    user: User = Depends(require_owner),
+) -> ExtractedJob:
     if not body.url.strip():
         raise HTTPException(400, "url is required")
     if "linkedin.com" in body.url.lower():
@@ -84,7 +94,7 @@ class GenerateBody(BaseModel):
     ranked_id: int | None = None
 
 
-def _worker(run_id: int, payload: GenerateBody) -> None:
+def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
     """Background thread: process a single job and stream events."""
     from src.main import setup_logging, process_job
     from src.pipeline import _EventLogHandler
@@ -114,6 +124,7 @@ def _worker(run_id: int, payload: GenerateBody) -> None:
 
     try:
         with session() as s:
+            # noscope: background thread acting on the run it was spawned for.
             run = s.get(Run, run_id)
             if run is None:
                 return
@@ -196,6 +207,7 @@ def _worker(run_id: int, payload: GenerateBody) -> None:
                 with session() as s:
                     app = Application(
                         run_id=run_id,
+                        user_id=user_id,
                         company=job.company,
                         title=job.title,
                         location=job.location,
@@ -216,13 +228,14 @@ def _worker(run_id: int, payload: GenerateBody) -> None:
                     s.refresh(app)
                     # Link the originating ranked-pool row, if this was a rescue.
                     if payload.ranked_id is not None:
-                        rj = s.get(RankedJob, payload.ranked_id)
+                        rj = find_owned(s, RankedJob, payload.ranked_id, user_id)
                         if rj is not None:
                             rj.application_id = app.id
                             s.add(rj)
                             s.commit()
 
             with session() as s:
+                # noscope: background thread finalising its own run.
                 run = s.get(Run, run_id)
                 if run:
                     run.status = RunStatus.done
@@ -242,6 +255,7 @@ def _worker(run_id: int, payload: GenerateBody) -> None:
         except Exception as e:
             log.exception("single-job failed: %s", e)
             with session() as s:
+                # noscope: background thread recording failure of its own run.
                 run = s.get(Run, run_id)
                 if run:
                     run.status = RunStatus.error
@@ -258,27 +272,43 @@ class GenerateOut(BaseModel):
     run_id: int
 
 
-def start_generation(body: GenerateBody) -> int:
+def start_generation(body: GenerateBody, user_id: int) -> int:
     """Create a Run and spawn the generation worker. Returns the run id.
 
     Shared by the manual single-job flow and the ranked-job 'rescue' flow.
+    ``user_id`` stamps the Run and everything the worker writes under it.
     """
     with session() as s:
-        run = Run(status=RunStatus.queued, dry_run=False, no_pdf=False, no_cache=False)
+        run = Run(
+            user_id=user_id,
+            status=RunStatus.queued,
+            dry_run=False,
+            no_pdf=False,
+            no_cache=False,
+        )
         s.add(run)
         s.commit()
         s.refresh(run)
         run_id: int = run.id  # type: ignore[assignment]
 
-    threading.Thread(target=_worker, args=(run_id, body), daemon=True).start()
+    threading.Thread(
+        target=_worker, args=(run_id, user_id, body), daemon=True
+    ).start()
     return run_id
 
 
 @router.post("/generate", response_model=GenerateOut)
-def generate(body: GenerateBody) -> GenerateOut:
+@limiter.limit(LLM_LIMIT)
+def generate(
+    request: Request,
+    body: GenerateBody,
+    # Owner-only until PR 3: tailors the global master resume with the global
+    # provider keys. See runs.start_run.
+    user: User = Depends(require_owner),
+) -> GenerateOut:
     if not body.company.strip() or not body.title.strip():
         raise HTTPException(400, "company and title are required")
     if not body.description.strip():
         raise HTTPException(400, "description is required")
 
-    return GenerateOut(run_id=start_generation(body))
+    return GenerateOut(run_id=start_generation(body, user.id))

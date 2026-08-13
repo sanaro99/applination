@@ -7,11 +7,13 @@ application on demand.
 from __future__ import annotations
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import select
 
-from .db import RankedJob, session
+from .auth import require_owner, require_user
+from .db import RankedJob, Run, User, session
+from .scoping import get_owned, owned
 from .single_job import GenerateBody, start_generation
 
 router = APIRouter(tags=["ranked"])
@@ -56,9 +58,17 @@ def _to_out(r: RankedJob) -> RankedOut:
 def list_ranked(
     run_id: int,
     only: str = Query("all", pattern="^(all|selected|rejected|generated|dismissed)$"),
+    user: User = Depends(require_user),
 ) -> list[RankedOut]:
     with session() as s:
-        q = select(RankedJob).where(RankedJob.run_id == run_id)
+        # Scoped on RankedJob directly rather than by checking the parent Run:
+        # the rows carry their own user_id, so this cannot be defeated by a
+        # ranked row that somehow points at another user's run.
+        q = owned(
+            select(RankedJob).where(RankedJob.run_id == run_id),
+            RankedJob,
+            user,
+        )
         rows = s.exec(q).all()
     rows.sort(key=lambda r: r.match_score, reverse=True)
     if only == "selected":
@@ -77,13 +87,15 @@ class DismissBody(BaseModel):
 
 
 @router.post("/api/ranked/{ranked_id}/dismiss", response_model=RankedOut)
-def dismiss_ranked(ranked_id: int, body: DismissBody) -> RankedOut:
+def dismiss_ranked(
+    ranked_id: int, body: DismissBody, user: User = Depends(require_user)
+) -> RankedOut:
     """Mark a ranked job 'not interested' (or undo). Dismissed jobs are kept out
     of future runs' selection and triage pool via the cross-run dedup set."""
     with session() as s:
-        r = s.get(RankedJob, ranked_id)
-        if r is None:
-            raise HTTPException(404, "ranked job not found")
+        r = get_owned(
+            s, RankedJob, ranked_id, user, detail="ranked job not found"
+        )
         r.dismissed = body.dismissed
         s.add(r)
         s.commit()
@@ -96,11 +108,16 @@ class RescueOut(BaseModel):
 
 
 @router.post("/api/ranked/{ranked_id}/generate", response_model=RescueOut)
-def generate_ranked(ranked_id: int) -> RescueOut:
+def generate_ranked(
+    ranked_id: int,
+    # Owner-only until PR 3: generating tailors the one global master resume
+    # with the owner's API keys. See runs.start_run.
+    user: User = Depends(require_owner),
+) -> RescueOut:
     with session() as s:
-        r = s.get(RankedJob, ranked_id)
-        if r is None:
-            raise HTTPException(404, "ranked job not found")
+        r = get_owned(
+            s, RankedJob, ranked_id, user, detail="ranked job not found"
+        )
         if r.application_id is not None:
             raise HTTPException(409, "this job was already generated")
         if not (r.description or "").strip():
@@ -120,4 +137,4 @@ def generate_ranked(ranked_id: int) -> RescueOut:
             ranked_id=r.id,
         )
 
-    return RescueOut(run_id=start_generation(body))
+    return RescueOut(run_id=start_generation(body, user.id))

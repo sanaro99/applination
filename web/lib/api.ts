@@ -26,8 +26,12 @@ import type {
   StatsResponse,
 } from "./types";
 
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
+// Empty by default so every request is same-origin. Dev used to point straight
+// at http://127.0.0.1:8000, which is a different origin from localhost:3000 —
+// and a SameSite=Lax session cookie is not sent cross-origin, so auth would
+// silently never work. next.config.ts rewrites /api and /files to the API
+// instead. Production is already same-origin behind Traefik.
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
 export type OnboardingStatus = {
   onboarded: boolean;
@@ -42,9 +46,38 @@ export type OnboardingStatus = {
   };
 };
 
+/** Thrown on any non-2xx so callers can branch on the status code. */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly detail: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/**
+ * Where to send someone whose session has expired. Set by AuthGate so this
+ * module does not have to import the router (it is called from plain functions,
+ * not components).
+ */
+let onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(fn: (() => void) | null) {
+  onUnauthorized = fn;
+}
+
+/** Paths where a 401 is the answer, not a session problem. */
+const AUTH_PATHS = ["/api/auth/login", "/api/auth/signup", "/api/auth/me"];
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
+    // Send the session cookie. Without this the API sees every request as
+    // anonymous and 401s it.
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
@@ -56,13 +89,45 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       detail = await res.text();
     } catch {}
-    throw new Error(`${res.status} ${res.statusText}: ${detail}`);
+    if (res.status === 401 && !AUTH_PATHS.some((p) => path.startsWith(p))) {
+      onUnauthorized?.();
+    }
+    throw new ApiError(
+      res.status,
+      detail,
+      `${res.status} ${res.statusText}: ${detail}`,
+    );
   }
   return res.json() as Promise<T>;
 }
 
+export type CurrentUser = {
+  id: number;
+  email: string;
+  is_owner: boolean;
+  created_at: string;
+};
+
 export const api = {
   health: () => http<{ ok: boolean }>("/api/health"),
+
+  me: () => http<CurrentUser>("/api/auth/me"),
+  login: (email: string, password: string) =>
+    http<CurrentUser>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  signup: (email: string, password: string) =>
+    http<CurrentUser>("/api/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  logout: () => http<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+  changePassword: (current_password: string, new_password: string) =>
+    http<{ ok: boolean }>("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password, new_password }),
+    }),
 
   startRun: (body: {
     dry_run?: boolean;
@@ -118,8 +183,11 @@ export const api = {
       body: JSON.stringify({ ids, ...body }),
     }),
   exportApplicationsCsv: async (ids: number[] = []) => {
+    // Does not go through http() because it returns a blob, so it needs its
+    // own credentials: "include".
     const res = await fetch(`${API_BASE}/api/applications/export`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids }),
       cache: "no-store",
@@ -309,8 +377,10 @@ export const api = {
   importResumeFile: async (file: File) => {
     const form = new FormData();
     form.append("file", file);
+    // Multipart upload, so it bypasses http() and needs credentials of its own.
     const res = await fetch(`${API_BASE}/api/onboarding/resume-import`, {
       method: "POST",
+      credentials: "include",
       body: form,
       cache: "no-store",
     });
@@ -481,7 +551,11 @@ export function subscribeRun(
   onEvent: (e: PipelineEvent) => void,
   onError?: (err: Event) => void,
 ): () => void {
-  const source = new EventSource(`${API_BASE}/api/runs/${runId}/stream`);
+  // withCredentials is what makes EventSource send the session cookie; without
+  // it the SSE stream 401s while every other request on the page succeeds.
+  const source = new EventSource(`${API_BASE}/api/runs/${runId}/stream`, {
+    withCredentials: true,
+  });
   source.onmessage = (evt) => {
     try {
       const parsed = JSON.parse(evt.data) as PipelineEvent;

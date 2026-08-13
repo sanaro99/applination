@@ -3,11 +3,13 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlmodel import select
 
-from .db import Application, ApplicationStatus, Run, RunStatus, session
+from .auth import require_user
+from .db import Application, ApplicationStatus, Run, RunStatus, User, session
+from .scoping import owned
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
@@ -25,10 +27,10 @@ class StatsOut(BaseModel):
 
 
 @router.get("", response_model=StatsOut)
-def stats() -> StatsOut:
+def stats(user: User = Depends(require_user)) -> StatsOut:
     with session() as s:
-        apps = s.exec(select(Application)).all()
-        runs = s.exec(select(Run)).all()
+        apps = s.exec(owned(select(Application), Application, user)).all()
+        runs = s.exec(owned(select(Run), Run, user)).all()
 
     total = len(apps)
     avg_score = (

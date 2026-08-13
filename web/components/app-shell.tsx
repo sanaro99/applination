@@ -35,7 +35,9 @@ import { useLatestRuns } from "@/lib/use-latest-runs";
 import { useUI, readStoredSidebarCollapsed } from "@/lib/store";
 import { CommandPalette } from "@/components/command-palette";
 import { RunActivityWatcher } from "@/components/run-activity-watcher";
+import { AuthGate } from "@/components/auth-gate";
 import { OnboardingGate } from "@/components/onboarding-gate";
+import { UserMenu } from "@/components/user-menu";
 
 interface NavItem {
   href: string;
@@ -300,10 +302,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     useUI();
   const pathname = usePathname();
 
+  // Login and signup render bare. Deliberately without OnboardingGate: there
+  // is no session there, so its status query would 401 and bounce the user in
+  // a loop between /login and /onboarding.
+  if (pathname === "/login" || pathname === "/signup") {
+    return (
+      <>
+        <AuthGate />
+        {children}
+      </>
+    );
+  }
+
   // The onboarding wizard renders full-screen (no sidebar/header chrome).
   if (pathname.startsWith("/onboarding")) {
     return (
       <>
+        <AuthGate />
         <OnboardingGate />
         {children}
       </>
@@ -366,6 +381,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </kbd>
             </Button>
             <ThemeToggle />
+            <UserMenu />
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
@@ -374,6 +390,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <CommandPalette />
       <RunActivityWatcher />
+      <AuthGate />
       <OnboardingGate />
     </div>
   );

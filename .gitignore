@@ -23,7 +23,14 @@
 /output/
 /data/app.db
 /data/*.db
+/data/*.dump
 .job_cache.json
+
+# Deploy staging tarballs (docs/DEPLOY-SEATTLE.md Step 1 suggests creating
+# these). They contain the full master_data and output trees — never commit
+# them; this repository is public.
+/*.tgz
+/*.tar.gz
 
 # --- Python ----------------------------------------------------------
 .venv/

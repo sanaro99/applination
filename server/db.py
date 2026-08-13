@@ -1,22 +1,68 @@
-"""SQLite persistence via SQLModel."""
+"""Postgres persistence via SQLModel.
+
+Schema is owned by Alembic (``server/migrations``), not by ``create_all``.
+Adding or changing a model here means generating a revision:
+
+    alembic revision --autogenerate -m "what changed"
+    alembic upgrade head
+"""
 from __future__ import annotations
+import os
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
-from sqlalchemy import inspect, text
+from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel, create_engine, Session
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
-DB_PATH = DATA_DIR / "app.db"
 
-engine = create_engine(
-    f"sqlite:///{DB_PATH.as_posix()}",
-    echo=False,
-    connect_args={"check_same_thread": False},
+# Local dev default matches scripts/dev.ps1. Production sets DATABASE_URL via
+# the compose env_file.
+DEFAULT_DATABASE_URL = (
+    "postgresql+psycopg://applination:applination@127.0.0.1:5432/applination"
 )
+
+
+def database_url() -> str:
+    return os.environ.get("DATABASE_URL") or DEFAULT_DATABASE_URL
+
+
+# pool_pre_ping because a pipeline run lives in a long-running daemon thread and
+# can hold a connection idle long enough for Postgres (or anything NAT'd in
+# between) to drop it; without this the next statement raises instead of
+# transparently reconnecting.
+engine = create_engine(
+    database_url(),
+    echo=False,
+    pool_pre_ping=True,
+)
+
+
+# Both status enums are persisted as VARCHAR, not as native Postgres ENUM
+# types. A native enum would need an ALTER TYPE (and a migration) every time a
+# status is added, and Postgres cannot drop a value from one at all. VARCHAR
+# also matches how these columns already exist in the SQLite database we are
+# migrating from, so the data copies across untouched.
+#
+# native_enum=False gets that VARCHAR while still handing Python an enum member
+# back on read. Mapping the column to a bare String instead would return plain
+# strings, silently breaking every `status.value` reader in the routers.
+def _status_column(enum_cls: type[Enum]) -> SAEnum:
+    return SAEnum(
+        enum_cls,
+        native_enum=False,          # VARCHAR, not CREATE TYPE
+        create_constraint=False,    # no CHECK — new statuses stay migration-free
+        # Without an explicit length SQLAlchemy sizes the column to the longest
+        # current member, so a longer status added later would need a migration
+        # — the same trap as a native enum, just quieter. 32 is ample headroom.
+        length=32,
+        # Persist the member's value ("applied"), not its name. They happen to
+        # match today; being explicit keeps that from becoming load-bearing.
+        values_callable=lambda e: [m.value for m in e],
+    )
 
 
 class RunStatus(str, Enum):
@@ -41,7 +87,9 @@ class Run(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     started_at: datetime = Field(default_factory=datetime.utcnow)
     finished_at: datetime | None = None
-    status: RunStatus = Field(default=RunStatus.queued)
+    status: RunStatus = Field(
+        default=RunStatus.queued, sa_type=_status_column(RunStatus)
+    )
     dry_run: bool = False
     no_pdf: bool = False
     no_cache: bool = False
@@ -70,7 +118,10 @@ class Application(SQLModel, table=True):
     resume_file: str = ""
     cover_file: str = ""
     answers_file: str = ""
-    status: ApplicationStatus = Field(default=ApplicationStatus.generated)
+    status: ApplicationStatus = Field(
+        default=ApplicationStatus.generated,
+        sa_type=_status_column(ApplicationStatus),
+    )
     description: str = ""  # job description; used by Coach for context
     notes: str = ""
     tags: str = ""  # comma-separated; exposed as a list by the API
@@ -103,8 +154,7 @@ class RankedJob(SQLModel, table=True):
 
 
 class Setting(SQLModel, table=True):
-    """Tiny key/value store for app-level flags (e.g. onboarding completion).
-    create_all() builds this automatically — no migration entry needed."""
+    """Tiny key/value store for app-level flags (e.g. onboarding completion)."""
     key: str = Field(primary_key=True)
     value: str = ""
 
@@ -148,49 +198,22 @@ class SavedAnswer(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-# Columns added to existing tables after their initial release. SQLModel's
-# create_all() only creates missing tables — it never ALTERs an existing one —
-# so we add new columns by hand. SQLite ADD COLUMN is cheap and idempotent here
-# because we guard on the current schema.
-_ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
-    "run": [
-        ("max_jobs", "INTEGER"),
-        ("scheduled_for", "DATETIME"),
-    ],
-    "application": [
-        ("tags", "VARCHAR DEFAULT ''"),
-        ("deadline", "DATETIME"),
-        ("description", "TEXT DEFAULT ''"),
-        ("dedupe_key", "VARCHAR DEFAULT ''"),
-        ("interview_at", "DATETIME"),
-        ("last_email_at", "DATETIME"),
-    ],
-    "rankedjob": [
-        ("dismissed", "BOOLEAN DEFAULT 0"),
-        ("dedupe_key", "VARCHAR DEFAULT ''"),
-    ],
-    "chatsession": [
-        ("mode", "VARCHAR DEFAULT 'chat'"),
-    ],
-}
-
-
-def _migrate() -> None:
-    insp = inspect(engine)
-    existing_tables = set(insp.get_table_names())
-    with engine.begin() as conn:
-        for table, columns in _ADDED_COLUMNS.items():
-            if table not in existing_tables:
-                continue  # create_all() will build it with all columns
-            present = {c["name"] for c in insp.get_columns(table)}
-            for name, ddl in columns:
-                if name not in present:
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
-
-
 def init_db() -> None:
-    SQLModel.metadata.create_all(engine)
-    _migrate()
+    """Assert the database is reachable and migrated.
+
+    Schema creation is Alembic's job — the container runs `alembic upgrade head`
+    before uvicorn starts. This only fails fast with a readable message if that
+    did not happen, rather than letting every request 500 on a missing table.
+    """
+    from alembic.migration import MigrationContext
+
+    with engine.connect() as conn:
+        current = MigrationContext.configure(conn).get_current_revision()
+    if current is None:
+        raise RuntimeError(
+            "database has no Alembic revision — run `alembic upgrade head` "
+            f"against {engine.url.render_as_string(hide_password=True)}"
+        )
 
 
 def session() -> Session:

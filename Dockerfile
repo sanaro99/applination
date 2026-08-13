@@ -39,6 +39,10 @@ COPY . .
 # NAS. Create them so a first boot without mounts still starts cleanly.
 RUN mkdir -p /app/data /app/output /app/master_data
 
+# LF is enforced by .gitattributes; chmod because a Windows checkout carries no
+# exec bit.
+RUN chmod +x /app/scripts/docker-entrypoint.sh
+
 ENV PYTHON_ENV=production \
     TZ=America/Los_Angeles \
     PORT=8000
@@ -48,4 +52,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/api/health || exit 1
 
-CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Migrations run before the server comes up — see scripts/docker-entrypoint.sh.
+CMD ["/app/scripts/docker-entrypoint.sh"]

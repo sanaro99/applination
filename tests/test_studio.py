@@ -12,6 +12,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 import server.db as db
+from .conftest import migrate
 import server.deps as deps
 import server.config_api as config_api
 import server.studio as studio
@@ -42,6 +43,7 @@ def client(tmp_path, monkeypatch):
         f"sqlite:///{(tmp_path / 'test.db').as_posix()}",
         connect_args={"check_same_thread": False},
     )
+    migrate(test_engine)
     monkeypatch.setattr(db, "engine", test_engine)
 
     # Work on a temp copy of config.yaml so PUT /llm-config can't corrupt the real one.

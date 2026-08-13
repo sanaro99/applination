@@ -1,0 +1,8 @@
+# core.autocrlf=true on a Windows dev machine rewrites checked-out files to
+# CRLF. Anything that runs inside the Linux container must stay LF, or the
+# kernel reads the shebang as "/bin/sh\r" and the build fails with
+# "bad interpreter". Pin those explicitly.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf

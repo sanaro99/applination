@@ -42,6 +42,18 @@ cd web && npm run dev                                    # web only
 python scripts/fetch_webllm_model.py
 ```
 
+## In-flight: multi-user rework
+
+Applination is being converted from single-tenant to multi-user (auth, per-user
+data isolation, BYOK API keys) across three PRs. PR 1 (Postgres + Alembic) is
+merged; PRs 2 and 3 are not started. **Read `docs/MULTI-USER-PLAN.md` before
+touching `server/`, `src/pipeline.py`, or anything that reads `config.yaml` or
+`master_data/`** — it holds the settled decisions, the verified facts, and the
+traps that are easy to reintroduce.
+
+The Seattle instance is deliberately stopped until all three land, so merges to
+`main` currently publish images without serving anything.
+
 ## Commits & version control
 
 - Commit and push after every meaningful feature, fix, or doc change — don't batch unrelated changes.

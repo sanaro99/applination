@@ -24,7 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from sqlalchemy import Boolean, DateTime, inspect, select, text  # noqa: E402
+from sqlalchemy import Boolean, DateTime, Integer, inspect, select, text  # noqa: E402
 from sqlmodel import SQLModel  # noqa: E402
 
 from server import db as _db  # noqa: F401,E402  (registers the models)
@@ -170,8 +170,10 @@ def main() -> int:
             # insert would collide with row #1. Fast-forward past the max id.
             for name in TABLE_ORDER:
                 pk = list(SQLModel.metadata.tables[name].primary_key.columns)
-                # setting's PK is a text key with no sequence behind it.
-                if len(pk) != 1 or pk[0].type.python_type is not int:
+                # Only integer PKs sit behind a sequence — setting's is a text
+                # key. Test with isinstance rather than `.python_type`, which
+                # raises NotImplementedError on SQLModel's AutoString.
+                if len(pk) != 1 or not isinstance(pk[0].type, Integer):
                     continue
                 col = pk[0].name
                 conn.execute(text(

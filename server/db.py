@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
-from sqlalchemy import String
+from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel, create_engine, Session
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -46,6 +46,25 @@ engine = create_engine(
 # status is added, and Postgres cannot drop a value from one at all. VARCHAR
 # also matches how these columns already exist in the SQLite database we are
 # migrating from, so the data copies across untouched.
+#
+# native_enum=False gets that VARCHAR while still handing Python an enum member
+# back on read. Mapping the column to a bare String instead would return plain
+# strings, silently breaking every `status.value` reader in the routers.
+def _status_column(enum_cls: type[Enum]) -> SAEnum:
+    return SAEnum(
+        enum_cls,
+        native_enum=False,          # VARCHAR, not CREATE TYPE
+        create_constraint=False,    # no CHECK — new statuses stay migration-free
+        # Without an explicit length SQLAlchemy sizes the column to the longest
+        # current member, so a longer status added later would need a migration
+        # — the same trap as a native enum, just quieter. 32 is ample headroom.
+        length=32,
+        # Persist the member's value ("applied"), not its name. They happen to
+        # match today; being explicit keeps that from becoming load-bearing.
+        values_callable=lambda e: [m.value for m in e],
+    )
+
+
 class RunStatus(str, Enum):
     scheduled = "scheduled"  # deferred to a future time; picked up by the poller
     queued = "queued"
@@ -68,7 +87,9 @@ class Run(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     started_at: datetime = Field(default_factory=datetime.utcnow)
     finished_at: datetime | None = None
-    status: RunStatus = Field(default=RunStatus.queued, sa_type=String)
+    status: RunStatus = Field(
+        default=RunStatus.queued, sa_type=_status_column(RunStatus)
+    )
     dry_run: bool = False
     no_pdf: bool = False
     no_cache: bool = False
@@ -98,7 +119,8 @@ class Application(SQLModel, table=True):
     cover_file: str = ""
     answers_file: str = ""
     status: ApplicationStatus = Field(
-        default=ApplicationStatus.generated, sa_type=String
+        default=ApplicationStatus.generated,
+        sa_type=_status_column(ApplicationStatus),
     )
     description: str = ""  # job description; used by Coach for context
     notes: str = ""

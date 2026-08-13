@@ -1,8 +1,8 @@
 """baseline schema
 
-Revision ID: 1b6d0aa9823d
+Revision ID: 314cc8e80422
 Revises: 
-Create Date: 2026-08-12 20:23:48.918945
+Create Date: 2026-08-12 22:17:13.837384
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 import sqlmodel
 
 
-revision: str = '1b6d0aa9823d'
+revision: str = '314cc8e80422'
 down_revision: str | None = None
 branch_labels: str | None = None
 depends_on: str | None = None
@@ -23,7 +23,7 @@ def upgrade() -> None:
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('started_at', sa.DateTime(), nullable=False),
     sa.Column('finished_at', sa.DateTime(), nullable=True),
-    sa.Column('status', sa.String(), nullable=False),
+    sa.Column('status', sa.Enum('scheduled', 'queued', 'running', 'done', 'error', 'cancelled', name='runstatus', native_enum=False, length=32), nullable=False),
     sa.Column('dry_run', sa.Boolean(), nullable=False),
     sa.Column('no_pdf', sa.Boolean(), nullable=False),
     sa.Column('no_cache', sa.Boolean(), nullable=False),
@@ -57,7 +57,7 @@ def upgrade() -> None:
     sa.Column('resume_file', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('cover_file', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('answers_file', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.Column('status', sa.String(), nullable=False),
+    sa.Column('status', sa.Enum('generated', 'applied', 'interviewing', 'rejected', 'offer', 'archived', name='applicationstatus', native_enum=False, length=32), nullable=False),
     sa.Column('description', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('notes', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('tags', sqlmodel.sql.sqltypes.AutoString(), nullable=False),

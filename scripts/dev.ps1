@@ -40,11 +40,11 @@ if (-not $dbUp) {
       & docker run -d --name applination-postgres-dev `
         -e POSTGRES_USER=applination -e POSTGRES_DB=applination `
         -e POSTGRES_PASSWORD=applination `
-        -p "${dbPort}:5432" postgres:17-alpine 2>$null | Out-Null
+        -p "${dbPort}:5432" postgres:18-alpine 2>$null | Out-Null
     }
     if ($LASTEXITCODE -ne 0) {
       Write-Host "Could not start Postgres automatically. Start one yourself, then re-run:" -ForegroundColor Red
-      Write-Host "  docker run -d --name applination-postgres-dev -e POSTGRES_USER=applination -e POSTGRES_DB=applination -e POSTGRES_PASSWORD=applination -p 5432:5432 postgres:17-alpine"
+      Write-Host "  docker run -d --name applination-postgres-dev -e POSTGRES_USER=applination -e POSTGRES_DB=applination -e POSTGRES_PASSWORD=applination -p 5432:5432 postgres:18-alpine"
     }
   } else {
     Write-Host "Postgres is not running and docker was not found on PATH." -ForegroundColor Red

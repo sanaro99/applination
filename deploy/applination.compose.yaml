@@ -21,7 +21,10 @@ services:
   # internal compose network. Reach it for maintenance with
   # `docker compose exec applination-db psql -U applination`.
   applination-db:
-    image: postgres:17-alpine
+    # Pinned to the same major version used in local development, so what gets
+    # tested is what ships. Bumping the major version means a dump/restore —
+    # Postgres will not start against a data directory from an older major.
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: applination

@@ -7,12 +7,41 @@
 # path is Cloudflare Tunnel -> Traefik :443 -> here.
 #
 # PREREQUISITES (do these first, in order):
-#   1. /mnt/apps-pool/appconfig/applination.env exists (chmod 600)
+#   1. /mnt/apps-pool/appconfig/applination.env exists (chmod 600) and sets
+#      POSTGRES_PASSWORD and DATABASE_URL (see applination.env.example)
 #   2. /mnt/apps-pool/appconfig/applination/{config.yaml,master_data,data,output}
 #      exist and hold your migrated data
+#   3. /mnt/apps-pool/appconfig/applination/pgdata exists (empty is fine —
+#      Postgres initialises it on first boot)
 # Compose refuses to start if env_file or a bind source is missing.
 
 services:
+  # Postgres replaced the old SQLite file at data/app.db. It is deliberately
+  # NOT published to a host port: the only client is applination-api on the
+  # internal compose network. Reach it for maintenance with
+  # `docker compose exec applination-db psql -U applination`.
+  applination-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: applination
+      POSTGRES_DB: applination
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in applination.env}
+      TZ: America/Los_Angeles
+    volumes:
+      - /mnt/apps-pool/appconfig/applination/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U applination -d applination"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Watchtower is intentionally NOT enabled here. An unattended major-version
+    # bump of Postgres will not start against an old data directory, and that
+    # would take the app down with no one watching.
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+
   applination-api:
     image: ghcr.io/sanaro99/applination-api:latest
     restart: unless-stopped
@@ -20,6 +49,9 @@ services:
       - "127.0.0.1:3002:8000"
     env_file:
       - /mnt/apps-pool/appconfig/applination.env
+    depends_on:
+      applination-db:
+        condition: service_healthy
     volumes:
       # Personal state lives on ZFS, never in the image.
       - /mnt/apps-pool/appconfig/applination/config.yaml:/app/config.yaml

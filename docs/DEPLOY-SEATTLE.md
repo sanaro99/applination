@@ -42,8 +42,12 @@ avoids certifying a second subdomain.
 Then, **System → Shell**:
 
 ```bash
-sudo mkdir -p /mnt/apps-pool/appconfig/applination/{master_data,data,output}
+sudo mkdir -p /mnt/apps-pool/appconfig/applination/{master_data,data,output,pgdata}
 ```
+
+`pgdata` backs the Postgres container and must start empty — Postgres
+initialises it on first boot and refuses to start against a directory it did
+not create.
 
 Do **not** create `config.yaml` as an empty file yet — see Step 1. If a
 bind-mount source file is missing, Docker silently creates a *directory* in
@@ -270,6 +274,79 @@ Wait 30–60 s for first certificate issuance, then load
 
 ---
 
+## Upgrading a live instance from SQLite to Postgres
+
+One-time cutover for an instance already running the pre-Postgres build. The
+old `data/app.db` is **never deleted** — it is left in place as the rollback
+path. Budget ~15 minutes of downtime.
+
+**1. Snapshot first.** Datasets → `apps-pool/appconfig` → Snapshots → Add.
+This is the thing that makes every later step reversible.
+
+**2. Add the database settings** to `/mnt/apps-pool/appconfig/applination.env`:
+
+```bash
+# openssl rand -base64 32   — generate, don't invent
+POSTGRES_PASSWORD=<generated>
+DATABASE_URL=postgresql+psycopg://applination:<generated>@applination-db:5432/applination
+```
+
+Percent-encode the password in `DATABASE_URL` if it contains `@ : / ?`.
+
+**3. Create the pgdata directory** (must be empty):
+
+```bash
+sudo mkdir -p /mnt/apps-pool/appconfig/applination/pgdata
+```
+
+**4. Update the app YAML** from `deploy/applination.compose.yaml` (it now has
+the `applination-db` service) and Save. Postgres initialises, then the API
+container runs `alembic upgrade head` on start and creates the schema.
+
+**5. Confirm the schema exists and is empty:**
+
+```bash
+sudo docker compose -p applination exec applination-db \
+  psql -U applination -d applination -c "\dt"
+# expect: alembic_version, application, chatmessage, chatsession,
+#         rankedjob, run, savedanswer, setting
+```
+
+**6. Copy the data in.** Dry run first — it writes nothing:
+
+```bash
+sudo docker compose -p applination exec applination-api \
+  python scripts/sqlite_to_postgres.py --sqlite /app/data/app.db --dry-run
+```
+
+Check the reported per-table counts against what you expect, then run it for
+real by dropping `--dry-run`. The script refuses to touch a non-empty target,
+so it cannot double-copy by accident.
+
+**7. Verify the counts match**, comparing against the SQLite source:
+
+```bash
+sudo docker compose -p applination exec applination-db \
+  psql -U applination -d applination -c \
+  "SELECT 'run' t, count(*) FROM run
+   UNION ALL SELECT 'application', count(*) FROM application
+   UNION ALL SELECT 'rankedjob', count(*) FROM rankedjob
+   UNION ALL SELECT 'chatsession', count(*) FROM chatsession
+   UNION ALL SELECT 'chatmessage', count(*) FROM chatmessage
+   UNION ALL SELECT 'savedanswer', count(*) FROM savedanswer
+   UNION ALL SELECT 'setting', count(*) FROM setting;"
+```
+
+**8. Restart the API** and load the app. Applications, run history, and Coach
+chats should look exactly as before, and a **new** run must be creatable —
+that last check is what proves the id sequences were fast-forwarded correctly.
+
+**Rollback:** roll back to the snapshot from step 1, or simply redeploy the
+previous image tag — `data/app.db` is untouched and still authoritative for
+the old build.
+
+---
+
 ## Ongoing
 
 **Deploy:** `git push origin main` → Actions builds both images → Watchtower
@@ -285,9 +362,18 @@ then **Apps → applination → Restart**. Editing the file alone does nothing.
 *variable* of that name and re-run the workflow — an app restart won't help.
 
 **Back up:** add a periodic ZFS snapshot task on the `appconfig` dataset.
-`data/app.db` is your entire application history and `master_data/` is your
-resume source of truth; neither exists anywhere else once you stop running
-locally.
+`pgdata/` is your entire application history and `master_data/` is your resume
+source of truth; neither exists anywhere else once you stop running locally.
+
+A filesystem snapshot of a running Postgres is crash-consistent, which
+Postgres recovers from cleanly — but for a backup you can actually inspect and
+restore selectively, also take a logical dump:
+
+```bash
+sudo docker compose -p applination exec applination-db \
+  pg_dump -U applination -d applination --format=custom \
+  > /mnt/apps-pool/appconfig/applination/backups/app-$(date +%F).dump
+```
 
 ---
 
@@ -306,3 +392,8 @@ locally.
 | Documents generate as `.docx` only | LibreOffice missing from the image; check `soffice --version` in the container |
 | Single-job URL wizard extracts nothing | Chromium missing; `python -m playwright install chromium` in the container to confirm |
 | Image pull fails | GHCR package still private (Step 3) |
+| API restarts, `database has no Alembic revision` | `alembic upgrade head` did not run — check the API container's start logs for a migration failure |
+| API restarts, `connection refused` to `applination-db` | `DATABASE_URL` host must be `applination-db` (the service name), not `localhost` |
+| API starts but every query 500s | `DATABASE_URL` password disagrees with `POSTGRES_PASSWORD`, or contains an unencoded `@ : / ?` |
+| Postgres won't start after a version bump | `pgdata` was initialised by an older major version; restore the snapshot and pin the previous image tag |
+| New run fails on a duplicate primary key | Sequences were not fast-forwarded — re-run the `setval` block at the end of `scripts/sqlite_to_postgres.py` |

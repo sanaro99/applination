@@ -23,6 +23,45 @@ $root = (Resolve-Path "$PSScriptRoot\..").Path
 $venvPython = Join-Path $root ".venv\Scripts\python.exe"
 $pythonExe = if (Test-Path $venvPython) { $venvPython } else { "python" }
 
+# --- Postgres ---------------------------------------------------------------
+# Persistence moved from a SQLite file to Postgres. Bring up a local dev
+# instance if one isn't already listening, but never block the dev servers on
+# it — print what to do and carry on, so a Docker outage doesn't stop frontend
+# work.
+$dbPort = 5432
+$dbUp = [bool](Get-NetTCPConnection -LocalPort $dbPort -State Listen -ErrorAction SilentlyContinue)
+if (-not $dbUp) {
+  $docker = (Get-Command docker -ErrorAction SilentlyContinue).Source
+  if ($docker) {
+    Write-Host "Postgres not listening on $dbPort - starting applination-postgres-dev" -ForegroundColor Yellow
+    # `docker start` on an existing container, else create it.
+    & docker start applination-postgres-dev 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      & docker run -d --name applination-postgres-dev `
+        -e POSTGRES_USER=applination -e POSTGRES_DB=applination `
+        -e POSTGRES_PASSWORD=applination `
+        -p "${dbPort}:5432" postgres:17-alpine 2>$null | Out-Null
+    }
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "Could not start Postgres automatically. Start one yourself, then re-run:" -ForegroundColor Red
+      Write-Host "  docker run -d --name applination-postgres-dev -e POSTGRES_USER=applination -e POSTGRES_DB=applination -e POSTGRES_PASSWORD=applination -p 5432:5432 postgres:17-alpine"
+    }
+  } else {
+    Write-Host "Postgres is not running and docker was not found on PATH." -ForegroundColor Red
+    Write-Host "Set DATABASE_URL to an existing Postgres, or install Docker Desktop."
+  }
+}
+
+# Apply migrations before the API starts, so a schema change pulled from git
+# doesn't surface as a confusing 500 on the first request.
+Push-Location $root
+try {
+  & $pythonExe -m alembic upgrade head
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "alembic upgrade failed - the API will refuse to start. Fix the database first." -ForegroundColor Red
+  }
+} finally { Pop-Location }
+
 # Scope the reload watcher to backend source only. Without --reload-dir,
 # uvicorn watches the whole repo root (Path.cwd()), which includes
 # web/.next (rewritten continuously by the Next.js dev server), output/,

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect
 
 import server.db as db
+from .conftest import migrate
 import src.providers as providers
 
 
@@ -31,6 +32,7 @@ def client(tmp_path, monkeypatch):
         f"sqlite:///{(tmp_path / 'test.db').as_posix()}",
         connect_args={"check_same_thread": False},
     )
+    migrate(test_engine)
     monkeypatch.setattr(db, "engine", test_engine)
 
     # Fake out the provider chain so post_message never hits the network.

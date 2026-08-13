@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import select
 
-from .auth import require_owner, require_user
+from .auth import require_user
 from .db import Application, Run, User, session
 from .deps import load_config, update_llm_config
 from .limits import LLM_LIMIT, limiter
@@ -33,10 +33,12 @@ class ProviderInfo(BaseModel):
 
 @router.get("/providers", response_model=list[ProviderInfo])
 def list_providers(
-    # Owner-only: reports which of the global config's provider keys are set.
-    user: User = Depends(require_owner),
+    user: User = Depends(require_user),
 ) -> list[ProviderInfo]:
-    llm = load_config().get("llm", {})
+    # Reports which of *this* user's provider keys are set. load_config has
+    # already merged their decrypted UserSecret rows in, so a key stored
+    # encrypted reads as configured here without ever being returned.
+    llm = load_config(user).get("llm", {}) or {}
     primary = llm.get("primary")
     fallbacks = llm.get("fallbacks", []) or []
     out: list[ProviderInfo] = []
@@ -81,14 +83,14 @@ class TestResult(BaseModel):
 def test_provider(
     request: Request,
     body: TestBody,
-    # Owner-only + rate limited: makes a real (small) call on the owner's key.
-    user: User = Depends(require_owner),
+    # Rate limited: makes a real (small) call on this user's own key.
+    user: User = Depends(require_user),
 ) -> TestResult:
     name = body.provider.strip().lower()
     if name not in KNOWN_PROVIDERS:
         raise HTTPException(400, f"unknown provider: {name}")
 
-    llm = load_config().get("llm", {})
+    llm = load_config(user).get("llm", {}) or {}
     model = str((llm.get(name) or {}).get("model", ""))
 
     from src.providers import get_provider
@@ -159,8 +161,8 @@ def _validate_provider(name: str) -> str:
 
 
 @router.get("/llm-config", response_model=LlmConfigOut, response_model_by_alias=True)
-def get_llm_config(user: User = Depends(require_owner)) -> LlmConfigOut:
-    llm = load_config().get("llm", {}) or {}
+def get_llm_config(user: User = Depends(require_user)) -> LlmConfigOut:
+    llm = load_config(user).get("llm", {}) or {}
     tasks_cfg = llm.get("tasks", {}) or {}
     tasks: dict[str, TaskRouting] = {}
     for name, block in tasks_cfg.items():
@@ -176,14 +178,16 @@ def get_llm_config(user: User = Depends(require_owner)) -> LlmConfigOut:
             primary=llm.get("primary"),
             fallbacks=list(llm.get("fallbacks", []) or []),
         ),
-        providers=list_providers(),
+        # Called directly, not through FastAPI, so the user has to be passed
+        # explicitly — the Depends() default is just an object here.
+        providers=list_providers(user),
         tasks=tasks,
     )
 
 
 @router.put("/llm-config")
 def put_llm_config(
-    body: LlmConfigIn, user: User = Depends(require_owner)
+    body: LlmConfigIn, user: User = Depends(require_user)
 ) -> dict:
     valid_tasks = set(_task_names())
     # Validate before touching the file.
@@ -222,7 +226,7 @@ def put_llm_config(
         elif "tasks" in llm:
             del llm["tasks"]
 
-    update_llm_config(_mutate)
+    update_llm_config(user, _mutate)
     return {"ok": True}
 
 

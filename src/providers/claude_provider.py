@@ -4,7 +4,7 @@ import json
 import logging
 import os
 
-from .base import LLMProvider, _parse_json
+from .base import LLMProvider, _parse_json, resolve_api_key
 
 LOG = logging.getLogger(__name__)
 
@@ -18,12 +18,10 @@ class ClaudeProvider(LLMProvider):
         except ImportError:
             raise ImportError("pip install anthropic")
 
-        key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-        if not key:
-            raise RuntimeError(
-                "Claude provider needs an API key. Set llm.claude.api_key in "
-                "config.yaml or the ANTHROPIC_API_KEY env var."
-            )
+        key = resolve_api_key(
+            api_key, "ANTHROPIC_API_KEY",
+            provider="Claude", config_key="llm.claude.api_key",
+        )
         self.client = Anthropic(api_key=key)
         self.model = model
 

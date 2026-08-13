@@ -12,30 +12,24 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .config_api import STORIES_DIR
-from .auth import require_owner
-from .deps import load_config
+from .auth import require_user
+from .db import User
+from .deps import load_config, paths_for
 
-# Owner-only, wholesale. Every endpoint here reads or writes the single global
-# master_data/ profile, using the global provider keys, which is not per-user until PR 3. Signup is open, so
-# without this any account could read and rewrite the owner's profile at the owner's expense.
-#
-# Applied at the router rather than per-endpoint so a new endpoint added to this
-# file is owner-gated by default rather than by remembering.
-router = APIRouter(
-    prefix="/api/master-data", tags=["studio"],
-    dependencies=[Depends(require_owner)],
-)
+# Per-user as of PR 3: each account reads and rewrites its own master_data/
+# profile, paid for with its own provider keys. (PR 2 had this owner-only,
+# because both the profile and the keys were a single global.)
+router = APIRouter(prefix="/api/master-data", tags=["studio"])
 log = logging.getLogger("server.studio")
 
 _KINDS = {"story", "bio", "resume"}
 
 
-def _resolve_chain(provider: str | None):
+def _resolve_chain(user: User, provider: str | None):
     """Return a provider chain: a single explicit provider if requested, else
     the configured content_studio task chain (with fallbacks)."""
-    cfg = load_config()
-    llm = cfg["llm"]
+    cfg = load_config(user)
+    llm = cfg.get("llm") or {}
     if provider:
         from src.providers import get_provider
         name = provider.strip().lower()
@@ -74,7 +68,9 @@ class GeneratedStory(BaseModel):
 
 
 @router.post("/stories/generate", response_model=GeneratedStory)
-def generate_story_endpoint(body: GenerateStoryBody) -> GeneratedStory:
+def generate_story_endpoint(
+    body: GenerateStoryBody, user: User = Depends(require_user)
+) -> GeneratedStory:
     if not body.description.strip():
         raise HTTPException(400, "description is required")
 
@@ -86,11 +82,15 @@ def generate_story_endpoint(body: GenerateStoryBody) -> GeneratedStory:
     )
     from src.reference_loader import load_stories
 
-    taxonomy = load_taxonomy(STORIES_DIR)
-    existing = [s.get("title", "") for s in load_stories(STORIES_DIR)]
-    existing_slugs = {p.stem for p in STORIES_DIR.glob("*.md")}
+    paths = paths_for(user)
+    stories_dir = paths.stories_dir
+    # Taxonomy from the committed global _INDEX.md, stories from the user's own
+    # directory — the vocabulary is shared, the content is not.
+    taxonomy = load_taxonomy(paths.taxonomy_dir)
+    existing = [s.get("title", "") for s in load_stories(stories_dir)]
+    existing_slugs = {p.stem for p in stories_dir.glob("*.md")}
 
-    chain = _resolve_chain(body.provider)
+    chain = _resolve_chain(user, body.provider)
     story = _call(
         chain,
         lambda p: generate_story(
@@ -116,7 +116,7 @@ class TweakBody(BaseModel):
 
 
 @router.post("/tweak")
-def tweak_endpoint(body: TweakBody) -> dict:
+def tweak_endpoint(body: TweakBody, user: User = Depends(require_user)) -> dict:
     kind = body.kind.strip().lower()
     if kind not in _KINDS:
         raise HTTPException(400, f"unknown kind: {body.kind}")
@@ -128,8 +128,12 @@ def tweak_endpoint(body: TweakBody) -> dict:
     from src.content_studio import tweak_content
     from src.reference_loader import load_stories
 
-    stories = load_stories(STORIES_DIR) if kind in ("resume", "bio") else None
-    chain = _resolve_chain(body.provider)
+    stories = (
+        load_stories(paths_for(user).stories_dir)
+        if kind in ("resume", "bio")
+        else None
+    )
+    chain = _resolve_chain(user, body.provider)
     text = _call(
         chain,
         lambda p: tweak_content(

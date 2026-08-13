@@ -37,14 +37,20 @@ def _latest_resume_version(folder: Path, fmt: str) -> int:
     return best
 
 
-def _friendly_basename(company: str, doc: str, version: int | None) -> str:
-    """User-facing filename stem, e.g. 'Sanchit_Arora_resume_Cloudflare'.
+def _friendly_basename(
+    user: User, company: str, doc: str, version: int | None
+) -> str:
+    """User-facing filename stem, e.g. 'Ada_Lovelace_resume_Cloudflare'.
 
     The on-disk names stay canonical (resume.pdf / cover_letter.pdf / resume.vN
     .pdf); this is only the name presented to the user at download time via
     Content-Disposition. version>1 appends '_v{n}'.
+
+    Takes the user so the name comes from *their* config — the download name is
+    the candidate's own name, and reading it from a global config would put one
+    person's name on everybody's resume.
     """
-    full = ((load_config().get("user") or {}).get("full_name") or "Candidate").strip()
+    full = ((load_config(user).get("user") or {}).get("full_name") or "Candidate").strip()
     name_token = re.sub(r"[^A-Za-z0-9]+", "_", full).strip("_") or "Candidate"
     comp = re.sub(r"[^A-Za-z0-9]+", "_", company or "").strip("_") or "Company"
     label = "cover_letter" if doc == "cover" else "resume"
@@ -195,7 +201,7 @@ def download_doc(
     if not path.exists():
         raise HTTPException(404, f"{disk_name} not found for this application")
 
-    filename = f"{_friendly_basename(company, doc, name_version)}.{fmt}"
+    filename = f"{_friendly_basename(user, company, doc, name_version)}.{fmt}"
     return FileResponse(path, media_type=_DOC_MEDIA[fmt], filename=filename)
 
 

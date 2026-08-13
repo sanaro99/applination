@@ -13,7 +13,7 @@ used to do fetch+match+classify+apply in one blocking call is split in two:
 classified message at a time, submitted by the browser).
 
 OAuth client id/secret live under ``inbox:`` in config.yaml; the access/refresh
-token lives in the ``Setting`` table (see ``server/gmail_auth.py``). Disabled
+token lives encrypted in ``UserSecret`` (see ``server/gmail_auth.py``). Disabled
 until both are present.
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ from pydantic import BaseModel
 from sqlmodel import select
 
 from . import gmail_auth
-from .auth import require_owner
+from .auth import require_user
 from .db import Application, ApplicationStatus, Setting, User, session
 from .deps import load_config, update_config
 from .scoping import find_owned, owned
@@ -77,8 +77,8 @@ _COMPANY_STOPWORDS = {
 # --------------------------------------------------------------------------
 # config + small helpers
 # --------------------------------------------------------------------------
-def _inbox_cfg() -> dict:
-    return (load_config().get("inbox") or {})
+def _inbox_cfg(user) -> dict:
+    return (load_config(user).get("inbox") or {})
 
 
 def _to_naive_utc(dt: datetime | None) -> datetime | None:
@@ -163,10 +163,10 @@ class InboxStatus(BaseModel):
 
 
 @router.get("/status", response_model=InboxStatus)
-def inbox_status(user: User = Depends(require_owner)) -> InboxStatus:
-    cfg = _inbox_cfg()
+def inbox_status(user: User = Depends(require_user)) -> InboxStatus:
+    cfg = _inbox_cfg(user)
     has_client = bool(cfg.get("client_id")) and bool(cfg.get("client_secret"))
-    connected = gmail_auth.is_connected(user.id)
+    connected = gmail_auth.is_connected(user)
     last = _get_setting(user.id, _LAST_SYNC_KEY)
     return InboxStatus(
         configured=connected,
@@ -187,7 +187,7 @@ class OAuthCredentials(BaseModel):
 
 @router.put("/oauth/credentials")
 def set_oauth_credentials(
-    body: OAuthCredentials, user: User = Depends(require_owner)
+    body: OAuthCredentials, user: User = Depends(require_user)
 ) -> dict:
     def mut(data: dict) -> None:
         inbox = data.get("inbox")
@@ -198,15 +198,15 @@ def set_oauth_credentials(
         inbox["client_secret"] = body.client_secret
         inbox.setdefault("redirect_uri", _DEFAULT_REDIRECT_URI)
 
-    update_config(mut)
+    update_config(user, mut)
     return {"ok": True}
 
 
 @router.get("/oauth/authorize")
-def oauth_authorize(user: User = Depends(require_owner)) -> RedirectResponse:
+def oauth_authorize(user: User = Depends(require_user)) -> RedirectResponse:
     from src.gmail_oauth import build_auth_url
 
-    cfg = _inbox_cfg()
+    cfg = _inbox_cfg(user)
     client_id = str(cfg.get("client_id") or "")
     client_secret = str(cfg.get("client_secret") or "")
     redirect_uri = str(cfg.get("redirect_uri") or _DEFAULT_REDIRECT_URI)
@@ -232,7 +232,7 @@ def oauth_callback(
     # top-level GET navigation, and SameSite=Lax sends the session cookie on
     # exactly those. That lets the pending OAuth state be looked up under the
     # right user instead of being trusted from the query string.
-    user: User = Depends(require_owner),
+    user: User = Depends(require_user),
 ) -> HTMLResponse:
     from src.gmail_oauth import exchange_code, credentials_to_token_json, get_account_email
 
@@ -268,7 +268,7 @@ def oauth_callback(
         return _page("Invalid or expired sign-in attempt. You can close this window and try again.", False)
     _set_setting(user.id, _OAUTH_STATE_KEY, "")
 
-    cfg = _inbox_cfg()
+    cfg = _inbox_cfg(user)
     client_id = str(cfg.get("client_id") or "")
     client_secret = str(cfg.get("client_secret") or "")
     redirect_uri = str(cfg.get("redirect_uri") or _DEFAULT_REDIRECT_URI)
@@ -284,16 +284,16 @@ def oauth_callback(
 
 
 @router.post("/oauth/disconnect")
-def oauth_disconnect(user: User = Depends(require_owner)) -> dict:
+def oauth_disconnect(user: User = Depends(require_user)) -> dict:
     gmail_auth.clear_token(user.id)
     return {"ok": True}
 
 
 @router.post("/test")
-def inbox_test(user: User = Depends(require_owner)) -> dict:
+def inbox_test(user: User = Depends(require_user)) -> dict:
     from src.gmail_oauth import get_account_email
 
-    creds = gmail_auth.get_credentials(user.id)
+    creds = gmail_auth.get_credentials(user)
     if creds is None:
         raise HTTPException(400, "Gmail is not connected yet.")
     try:
@@ -335,14 +335,14 @@ class CandidatesResult(BaseModel):
 
 @router.get("/sync/candidates", response_model=CandidatesResult)
 def sync_candidates(
-    days: int | None = None, user: User = Depends(require_owner)
+    days: int | None = None, user: User = Depends(require_user)
 ) -> CandidatesResult:
     """Fetch + match only — no classification. The browser classifies each
     candidate (WebLLM) and submits results one at a time to ``/sync/apply``."""
     from src.gmail_api import GmailApiScanner
 
-    cfg = _inbox_cfg()
-    creds = gmail_auth.get_credentials(user.id)
+    cfg = _inbox_cfg(user)
+    creds = gmail_auth.get_credentials(user)
     if creds is None:
         raise HTTPException(400, "Gmail is not connected. Connect it from the Config page.")
     days = days or int(cfg.get("scan_days", 30) or 30)
@@ -413,13 +413,13 @@ class ApplyResult(BaseModel):
 
 @router.post("/sync/apply", response_model=ApplyResult)
 def sync_apply(
-    body: ApplyBody, user: User = Depends(require_owner)
+    body: ApplyBody, user: User = Depends(require_user)
 ) -> ApplyResult:
     """Apply one browser-classified message. Validates/clamps the submitted
     classification before trusting it (never take client values as-is)."""
     from src.inbox import normalize_classification
 
-    cfg = _inbox_cfg()
+    cfg = _inbox_cfg(user)
     min_conf = float(cfg.get("min_confidence", 0.6) or 0.6)
     auto_update = bool(cfg.get("auto_update_status", True))
     result = normalize_classification(body.model_dump())

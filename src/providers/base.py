@@ -16,9 +16,66 @@ reasoning models never leaks into rendered documents.
 from __future__ import annotations
 import json
 import logging
+import os
 import re
 
 _TRAILING_COMMA_RE = re.compile(r",\s*([\]}])")
+
+# --------------------------------------------------------------------------
+# API key resolution
+# --------------------------------------------------------------------------
+# Every provider used to fall back to a process-wide env var when no key was
+# configured: `api_key or os.environ.get("DEEPSEEK_API_KEY", "")`. Single-tenant
+# that was a convenience. Multi-tenant it is a billing leak — a user with no key
+# of their own would silently spend the *server operator's*, because the env var
+# belongs to the process, not the account.
+#
+# The fallback is now off unless ALLOW_ENV_API_KEYS is set, which is the right
+# default for a hosted install and easy to switch back on for a single-user
+# local one.
+ALLOW_ENV_API_KEYS_VAR = "ALLOW_ENV_API_KEYS"
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def env_api_keys_allowed() -> bool:
+    return (os.environ.get(ALLOW_ENV_API_KEYS_VAR) or "").strip().lower() in _TRUTHY
+
+
+def resolve_api_key(
+    api_key: str,
+    *env_vars: str,
+    provider: str,
+    config_key: str,
+) -> str:
+    """The key to use, or raise with a message that says what to actually do.
+
+    An explicitly configured key always wins. The env vars are consulted only
+    when ``ALLOW_ENV_API_KEYS`` is enabled — and when it is not, the error says
+    so rather than leaving someone staring at a set env var wondering why it is
+    being ignored.
+    """
+    if api_key:
+        return api_key
+    if env_api_keys_allowed():
+        for var in env_vars:
+            value = os.environ.get(var, "")
+            if value:
+                return value
+        raise RuntimeError(
+            f"{provider} needs an API key. Set {config_key} in your config, or "
+            f"one of: {', '.join(env_vars)}."
+        )
+    hint = ""
+    if any(os.environ.get(v) for v in env_vars):
+        hint = (
+            f" ({', '.join(env_vars)} is set in the environment but ignored: "
+            f"{ALLOW_ENV_API_KEYS_VAR} is not enabled, so one account cannot "
+            "spend the server's key.)"
+        )
+    raise RuntimeError(
+        f"No API key configured for {provider}. Add your own key under "
+        f"{config_key} on the Config page.{hint}"
+    )
 
 # Reasoning-mode tags from open-source reasoning models (DeepSeek R1/V4,
 # Qwen3 Thinking, GLM-4 Reasoning, etc.). Stripping these here protects the

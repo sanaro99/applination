@@ -12,7 +12,7 @@ import logging
 import time
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 from .scrapers import Job
 from .providers import get_task_chains
@@ -26,7 +26,6 @@ from .reference_loader import (
 from .excel_writer import build_tracker
 
 from .main import (
-    ROOT,
     fetch_all,
     rank_and_filter,
     process_job,
@@ -35,6 +34,27 @@ from .main import (
 from .profile import derive_profile
 
 EventCallback = Callable[[dict[str, Any]], None]
+
+
+class PipelinePaths(Protocol):
+    """Where one run reads its profile and writes its documents.
+
+    Structural, not an import: ``server/user_paths.py`` owns the concrete
+    ``UserPaths``, and ``src/`` must not import from ``server/`` — the
+    dependency runs the other way. Anything exposing these attributes works,
+    which is also what lets tests hand in a throwaway temp directory.
+
+    ``guidelines_dir`` is shared and committed; every other path is per-user.
+    """
+
+    master_dir: Path
+    resume_path: Path
+    bio_path: Path
+    stories_dir: Path
+    cover_letter_examples_dir: Path
+    guidelines_dir: Path
+
+    def resolve_output(self, cfg: dict | None = None) -> Path: ...
 
 
 class _EventLogHandler(logging.Handler):
@@ -63,6 +83,7 @@ def _noop(_evt: dict) -> None:
 def run_pipeline(
     cfg: dict,
     *,
+    paths: PipelinePaths,
     dry_run: bool = False,
     no_pdf: bool = False,
     no_cache: bool = False,
@@ -84,6 +105,11 @@ def run_pipeline(
     writing the tracker. The tailoring of a single job is one blocking call and
     cannot be interrupted mid-flight, so the in-progress job always finishes in
     either mode.
+
+    `paths` says whose data this run reads and where it writes. It is required
+    and has no default: the previous version reached for `ROOT / "master_data"`
+    directly, which under multi-user would have every run tailoring the same
+    person's resume regardless of who started it.
 
     Caller is responsible for setting up `log` (use `setup_logging()` from
     src.main for the same file/stdout behavior).
@@ -119,19 +145,28 @@ def run_pipeline(
         root_log.addHandler(handler)
 
     try:
-        master = _load_yaml(ROOT / "master_data" / "resume.yaml")
+        master = _load_yaml(paths.resume_path)
         user = cfg["user"]
         out_cfg = dict(cfg["output"])
         if no_pdf:
             out_cfg["produce_pdf"] = False
+        # The config's output.root is advisory; paths.resolve_output is what
+        # keeps a hand-edited absolute path from writing outside this user's
+        # tree. Overwrite it here so every downstream reader of out_cfg["root"]
+        # (day_root, the job cache) gets the sandboxed value.
+        out_root = paths.resolve_output(cfg)
+        out_cfg["root"] = str(out_root)
 
-        bio_path = ROOT / "master_data" / "bio.md"
-        bio = bio_path.read_text(encoding="utf-8") if bio_path.exists() else ""
-        all_stories = load_stories(ROOT / "master_data" / "stories")
-        all_examples = load_example_letters(
-            ROOT / "master_data" / "cover_letters" / "examples"
+        bio = (
+            paths.bio_path.read_text(encoding="utf-8")
+            if paths.bio_path.exists()
+            else ""
         )
-        all_guidelines = load_guidelines(ROOT / "master_data" / "guidelines")
+        all_stories = load_stories(paths.stories_dir)
+        all_examples = load_example_letters(paths.cover_letter_examples_dir)
+        # Guidelines are committed and generic — shared by every user, never
+        # copied per account.
+        all_guidelines = load_guidelines(paths.guidelines_dir)
         log.info(
             "loaded %d stories, %d example letters, %d guidelines",
             len(all_stories), len(all_examples), len(all_guidelines),

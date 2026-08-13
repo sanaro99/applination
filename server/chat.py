@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import select
 
-from .auth import require_owner, require_user
+from .auth import require_user
 from .db import (
     Application,
     ChatMessage,
@@ -28,7 +28,7 @@ from .db import (
     User,
     session,
 )
-from .deps import load_config
+from .deps import load_config, paths_for
 from .limits import LLM_LIMIT, limiter
 from .scoping import find_owned, get_owned, owned
 
@@ -277,22 +277,26 @@ def delete_session(sid: int, user: User = Depends(require_user)) -> dict:
 _DEFAULT_TITLES = {"chat": "New chat", "interview": "New interview"}
 
 
-def _run_chain(sys_prompt: str, user_prompt: str, *, task: str) -> str:
+def _run_chain(user: User, sys_prompt: str, user_prompt: str, *, task: str) -> str:
     """Call the per-task provider chain and return a non-empty reply.
 
     Shared by the chat, interview-kickoff, and essay flows. ``task`` selects
     the configured chain (llm.tasks.<task>); falls back to the global chain if
     the task is unconfigured. Raises HTTPException(502) on failure.
+
+    The chain is built from ``user``'s own config and API keys, so the call is
+    billed to the account that made it.
     """
     from src.providers import get_provider_chain, get_task_chains, try_chain
 
-    cfg = load_config()
+    cfg = load_config(user)
+    llm = cfg.get("llm") or {}
     try:
-        chain = get_task_chains(cfg["llm"]).get(task)
+        chain = get_task_chains(llm).get(task)
     except Exception:  # noqa: BLE001 — bad task config shouldn't 500 the chat
         chain = None
     if not chain:
-        chain = get_provider_chain(cfg["llm"])
+        chain = get_provider_chain(llm)
     if not chain:
         raise HTTPException(502, "no LLM provider is configured")
     try:
@@ -320,9 +324,9 @@ def post_message(
     request: Request,
     sid: int,
     body: PostMessageBody,
-    # Owner-only until PR 3: the reply is grounded in the one global
-    # master_data/ profile and paid for with the global provider keys.
-    user: User = Depends(require_owner),
+    # Per-user as of PR 3: grounded in this account's own master_data/
+    # profile and paid for with its own provider key.
+    user: User = Depends(require_user),
 ) -> PostMessageOut:
     content = body.content.strip()
     if not content:
@@ -369,8 +373,8 @@ def post_message(
         pick_stories,
     )
 
-    cfg = load_config()
-    bundle = load_profile_bundle()
+    cfg = load_config(user)
+    bundle = load_profile_bundle(paths_for(user))
     stories = pick_stories(bundle, question=content, app=app_data)
     sys_prompt, user_prompt = build_coach_prompt(
         bundle,
@@ -381,7 +385,10 @@ def post_message(
         user=cfg.get("user"),
         mode=mode,
     )
-    reply = _run_chain(sys_prompt, user_prompt, task=mode if mode == "interview" else "coach")
+    reply = _run_chain(
+        user, sys_prompt, user_prompt,
+        task=mode if mode == "interview" else "coach",
+    )
 
     story_titles = [s.get("title", "") for s in stories]
     meta = json.dumps({"stories": story_titles})
@@ -436,7 +443,7 @@ class _MsgView:
 def kickoff(
     request: Request,
     sid: int,
-    user: User = Depends(require_owner),  # owner-only: see post_message
+    user: User = Depends(require_user),
 ) -> MessageOut:
     """Generate the opening interviewer question for an interview session that
     has no messages yet. Idempotent: 400 if the session already has messages."""
@@ -468,8 +475,8 @@ def kickoff(
         pick_stories,
     )
 
-    cfg = load_config()
-    bundle = load_profile_bundle()
+    cfg = load_config(user)
+    bundle = load_profile_bundle(paths_for(user))
     stories = pick_stories(
         bundle, question=(app_data.title if app_data else "interview"),
         app=app_data,
@@ -477,7 +484,7 @@ def kickoff(
     sys_prompt, user_prompt = build_interview_kickoff_prompt(
         bundle, app=app_data, stories=stories, user=cfg.get("user"),
     )
-    reply = _run_chain(sys_prompt, user_prompt, task="interview")
+    reply = _run_chain(user, sys_prompt, user_prompt, task="interview")
 
     with session() as s:
         msg = ChatMessage(
@@ -511,7 +518,7 @@ class EssayBody(BaseModel):
 def draft_essay(
     request: Request,
     body: EssayBody,
-    user: User = Depends(require_owner),  # owner-only: see post_message
+    user: User = Depends(require_user),
 ) -> dict:
     prompt = body.prompt.strip()
     if not prompt:
@@ -534,8 +541,8 @@ def draft_essay(
         pick_stories,
     )
 
-    cfg = load_config()
-    bundle = load_profile_bundle()
+    cfg = load_config(user)
+    bundle = load_profile_bundle(paths_for(user))
     stories = pick_stories(bundle, question=prompt, app=app_data)
     sys_prompt, user_prompt = build_essay_prompt(
         bundle,
@@ -546,7 +553,7 @@ def draft_essay(
         stories=stories,
         user=cfg.get("user"),
     )
-    content = _run_chain(sys_prompt, user_prompt, task="essay")
+    content = _run_chain(user, sys_prompt, user_prompt, task="essay")
     return {"content": content}
 
 

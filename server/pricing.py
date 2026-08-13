@@ -7,8 +7,10 @@ from __future__ import annotations
 
 from datetime import timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from .auth import require_user
+from .db import User
 from .deps import load_config
 from src.pricing_window import is_peak, load_windows, next_non_peak
 
@@ -20,8 +22,8 @@ def _fmt(minutes: int) -> str:
 
 
 @router.get("/pricing-window")
-def pricing_window() -> dict:
-    cfg = load_config()
+def pricing_window(user: User = Depends(require_user)) -> dict:
+    cfg = load_config(user)
     avoid_peak, windows = load_windows(cfg)
     peak = is_peak(windows=windows) if avoid_peak else False
     nxt = next_non_peak(windows=windows).astimezone(timezone.utc)

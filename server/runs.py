@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import os
 import threading
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -12,7 +13,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 from sqlmodel import select
 
-from .auth import require_owner, require_user
+from .auth import require_user
 from .db import (
     Application,
     ApplicationStatus,
@@ -22,7 +23,7 @@ from .db import (
     User,
     session,
 )
-from .deps import load_config
+from .deps import load_config, paths_for
 from .events import bus, sse_format
 from .scoping import get_owned, owned
 
@@ -66,18 +67,72 @@ def _clamp_max_jobs(n: int) -> int:
     return max(_MIN_JOBS, min(_MAX_JOBS, int(n)))
 
 
-def _active_run_exists() -> bool:
-    """True if any user has a run queued or running (scheduled is NOT active)."""
+# How many pipelines may run at once across the whole install. Each one is a
+# daemon thread doing network I/O and LLM calls, so the ceiling is about memory
+# and provider rate limits rather than CPU. Env-tunable because the right number
+# depends entirely on the host.
+MAX_CONCURRENT_RUNS = max(1, int(os.environ.get("MAX_CONCURRENT_RUNS", "2")))
+
+# Per-user cap. One at a time, always: a second concurrent run for the same
+# account would race the first over the same output directory and the same
+# excluded-keys set.
+MAX_RUNS_PER_USER = 1
+
+
+def _active_run_exists(user_id: int) -> bool:
+    """True if this user has a run queued or running (scheduled is NOT active).
+
+    Per-user as of PR 3. The old version asked the question globally, which
+    meant one person's run blocked *everybody* from starting one — fine when
+    there was one account, an outage for everyone else the moment there were
+    two.
+    """
     with session() as s:
-        # noscope: deliberately global. One pipeline occupies the whole worker,
-        # so the concurrency guard has to see across users. PR 3 replaces this
-        # with a per-user cap of 1 plus a global MAX_CONCURRENT_RUNS and
-        # round-robin dispatch; until then a single global slot is the honest
-        # behaviour, and runs are owner-only anyway.
         row = s.exec(
-            select(Run).where(Run.status.in_([RunStatus.queued, RunStatus.running]))
+            owned(
+                select(Run).where(
+                    Run.status.in_([RunStatus.queued, RunStatus.running])
+                ),
+                Run,
+                user_id,
+            )
         ).first()
     return row is not None
+
+
+def _active_run_count() -> int:
+    """Runs queued or running across every user — the global ceiling."""
+    with session() as s:
+        # noscope: deliberately global. This is the install-wide concurrency
+        # guard; scoping it to one user would defeat its only purpose. It reads
+        # a count, never row contents, so it discloses nothing about who is
+        # running what.
+        rows = s.exec(
+            select(Run.id).where(
+                Run.status.in_([RunStatus.queued, RunStatus.running])
+            )
+        ).all()
+    return len(rows)
+
+
+def _round_robin(runs: list[Run]) -> list[Run]:
+    """Reorder due runs so no single user's backlog starves the others.
+
+    Input is ordered by ``scheduled_for``. Grouping preserves that order both
+    between users (whoever was due first is served first) and within a user, so
+    the result is fair without being arbitrary: A's oldest, B's oldest, A's
+    second, B's second.
+    """
+    by_user: dict[int, list[Run]] = {}
+    for r in runs:
+        by_user.setdefault(r.user_id, []).append(r)
+    out: list[Run] = []
+    while by_user:
+        for uid in list(by_user):
+            out.append(by_user[uid].pop(0))
+            if not by_user[uid]:
+                del by_user[uid]
+    return out
 
 
 def _start_worker_thread(run: Run) -> None:
@@ -97,13 +152,16 @@ def _start_worker_thread(run: Run) -> None:
 
 
 def dispatch_due_scheduled_runs() -> None:
-    """Fire any scheduled runs whose time has come, one at a time.
+    """Fire any scheduled runs whose time has come, fairly across users.
 
     Called by the lifespan poller (~60s). Because scheduled runs live in the DB,
-    they survive a server restart — the poller re-picks them up. Skips dispatch
-    while another run is active so we never run two pipelines at once.
+    they survive a server restart — the poller re-picks them up.
+
+    Two limits apply: at most ``MAX_RUNS_PER_USER`` per account, and at most
+    ``MAX_CONCURRENT_RUNS`` in total. Anything skipped this tick is retried on
+    the next one, so a busy account's runs are delayed, never dropped.
     """
-    if _active_run_exists():
+    if _active_run_count() >= MAX_CONCURRENT_RUNS:
         return
     now = datetime.utcnow()
     with session() as s:
@@ -116,10 +174,22 @@ def dispatch_due_scheduled_runs() -> None:
             .where(Run.status == RunStatus.scheduled, Run.scheduled_for <= now)
             .order_by(Run.scheduled_for)
         ).all()
-        due_ids = [r.id for r in due]
-    for run_id in due_ids:
-        if _active_run_exists():
-            break  # let the running one finish; retry the rest next tick
+        # Detached copies: the session closes before dispatch.
+        ordered = _round_robin([Run(**r.model_dump()) for r in due])
+
+    # Tracked in-loop as well as in the DB. A run claimed a moment ago is
+    # already `queued` and so is counted by _active_run_count(), but re-querying
+    # per candidate would be one round trip per due run for no benefit.
+    started_per_user: dict[int, int] = {}
+    for candidate in ordered:
+        if _active_run_count() >= MAX_CONCURRENT_RUNS:
+            break  # retry the rest next tick
+        uid = candidate.user_id
+        if started_per_user.get(uid, 0) >= MAX_RUNS_PER_USER:
+            continue
+        if _active_run_exists(uid):
+            continue  # this account already has one in flight
+        run_id = candidate.id
         with session() as s:
             # noscope: re-reading a row this function already selected globally.
             run = s.get(Run, run_id)
@@ -129,8 +199,13 @@ def dispatch_due_scheduled_runs() -> None:
             s.add(run)
             s.commit()
             s.refresh(run)
-        log.info("dispatching scheduled run %d (was due %s)", run_id, run.scheduled_for)
-        _start_worker_thread(run)
+            thread_run = Run(**run.model_dump())
+        started_per_user[uid] = started_per_user.get(uid, 0) + 1
+        log.info(
+            "dispatching scheduled run %d for user %d (was due %s)",
+            run_id, uid, thread_run.scheduled_for,
+        )
+        _start_worker_thread(thread_run)
 
 
 class StartRunBody(BaseModel):
@@ -250,11 +325,17 @@ def _worker(
         s.commit()
 
     try:
-        cfg = load_config()
+        # Config, master data and output root all resolve under this user's own
+        # directory — including the API keys, which are decrypted from their
+        # UserSecret rows by load_config. A run therefore spends the key of the
+        # account that scheduled it and nobody else's.
+        cfg = load_config(user_id)
+        paths = paths_for(user_id)
         if max_jobs is not None:
-            cfg["search"]["max_jobs_per_day"] = _clamp_max_jobs(max_jobs)
+            cfg.setdefault("search", {})["max_jobs_per_day"] = _clamp_max_jobs(max_jobs)
         summary = run_pipeline(
             cfg,
+            paths=paths,
             dry_run=dry_run,
             no_pdf=no_pdf,
             no_cache=no_cache,
@@ -398,11 +479,9 @@ def _link_ranked(
 @router.post("", response_model=RunOut)
 def start_run(
     body: StartRunBody | None = None,
-    # Owner-only until PR 3: a run reads the single global config.yaml and
-    # master_data/ and writes into the single global output/. Started by anyone
-    # else it would spend the owner's API keys on the owner's resume — the
-    # database scoping below is correct but would be protecting the wrong thing.
-    user: User = Depends(require_owner),
+    # Per-user as of PR 3: the run reads this account's own config, master data
+    # and API keys, and writes into its own output root.
+    user: User = Depends(require_user),
 ) -> RunOut:
     # Body is optional: an empty POST starts a normal (non-dry) run with defaults.
     body = body or StartRunBody()
@@ -415,8 +494,17 @@ def start_run(
         sched = sched.astimezone(timezone.utc).replace(tzinfo=None)
     is_scheduled = sched is not None and sched > now
 
-    if not is_scheduled and _active_run_exists():
-        raise HTTPException(409, "A run is already in progress. Wait for it to finish.")
+    if not is_scheduled:
+        if _active_run_exists(user.id):
+            raise HTTPException(
+                409, "A run is already in progress. Wait for it to finish."
+            )
+        if _active_run_count() >= MAX_CONCURRENT_RUNS:
+            raise HTTPException(
+                503,
+                "The server is at its run capacity right now. Try again shortly, "
+                "or schedule the run for later.",
+            )
 
     with session() as s:
         run = Run(

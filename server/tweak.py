@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from .auth import require_owner, require_user
+from .auth import require_user
 from .db import Application, User, session
 from .deps import load_config
 from .limits import LLM_LIMIT, limiter
@@ -119,7 +119,7 @@ def put_cover_letter(
 
     (folder / "cover_letter.txt").write_text(text, encoding="utf-8")
 
-    cfg = load_config()
+    cfg = load_config(user)
     from src.cover_letter import build_cover_letter
     from src.pdf_convert import docx_to_pdf
 
@@ -153,8 +153,8 @@ def tweak(
     request: Request,
     app_id: int,
     body: TweakBody,
-    # Owner-only until PR 3: re-tailors with the global provider keys.
-    user: User = Depends(require_owner),
+    # Per-user as of PR 3: re-tailors with this account's own provider key.
+    user: User = Depends(require_user),
 ) -> TweakOut:
     if not body.instruction.strip():
         raise HTTPException(400, "instruction is required")
@@ -180,7 +180,7 @@ def tweak(
         else {"company": a.company, "title": a.title}
     )
 
-    cfg = load_config()
+    cfg = load_config(user)
     from src.tweak import apply_tweak, _next_version, render_docx
     from src.providers import get_provider, get_provider_with_fallback
     from src.pdf_convert import docx_to_pdf

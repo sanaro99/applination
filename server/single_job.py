@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import select
 
-from .auth import require_owner
+from .auth import require_user
 from .db import (
     Application,
     ApplicationStatus,
@@ -25,7 +25,7 @@ from .db import (
     User,
     session,
 )
-from .deps import load_config
+from .deps import load_config, paths_for
 from .events import bus
 from .limits import LLM_LIMIT, limiter
 from .scoping import find_owned
@@ -54,8 +54,8 @@ class ExtractedJob(BaseModel):
 def extract(
     request: Request,
     body: ExtractBody,
-    # Owner-only until PR 3: uses the global config's provider keys.
-    user: User = Depends(require_owner),
+    # Per-user as of PR 3: spends this account's own provider key.
+    user: User = Depends(require_user),
 ) -> ExtractedJob:
     if not body.url.strip():
         raise HTTPException(400, "url is required")
@@ -66,8 +66,10 @@ def extract(
     from src.job_extractor import JobExtractor
     from src.providers import get_provider_chain
 
-    cfg = load_config()
-    chain = get_provider_chain(cfg["llm"])
+    cfg = load_config(user)
+    chain = get_provider_chain(cfg.get("llm") or {})
+    if not chain:
+        raise HTTPException(502, "no LLM provider is configured")
     extractor = JobExtractor(chain[0])
     try:
         data: dict[str, Any] = extractor.extract(body.url)
@@ -134,17 +136,21 @@ def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
             s.commit()
 
         try:
-            cfg = load_config()
-            master_path = Path(__file__).resolve().parent.parent / "master_data"
+            cfg = load_config(user_id)
+            paths = paths_for(user_id)
             import yaml
             master = yaml.safe_load(
-                (master_path / "resume.yaml").read_text(encoding="utf-8")
+                paths.resume_path.read_text(encoding="utf-8")
+            ) if paths.resume_path.exists() else {}
+            bio = (
+                paths.bio_path.read_text(encoding="utf-8")
+                if paths.bio_path.exists()
+                else ""
             )
-            bio_path = master_path / "bio.md"
-            bio = bio_path.read_text(encoding="utf-8") if bio_path.exists() else ""
-            all_stories = load_stories(master_path / "stories")
-            all_examples = load_example_letters(master_path / "cover_letters" / "examples")
-            all_guidelines = load_guidelines(master_path / "guidelines")
+            all_stories = load_stories(paths.stories_dir)
+            all_examples = load_example_letters(paths.cover_letter_examples_dir)
+            # Guidelines are committed and shared by every user.
+            all_guidelines = load_guidelines(paths.guidelines_dir)
 
             task_chains = get_task_chains(cfg["llm"])
             tailor = Tailor(task_chains=task_chains,
@@ -152,6 +158,8 @@ def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
                                 "critique_cover_letters", False))
 
             out_cfg = dict(cfg["output"])
+            # Sandboxed to this user's tree, same as run_pipeline does.
+            out_cfg["root"] = str(paths.resolve_output(cfg))
             day = date.today().isoformat()
             day_root = Path(out_cfg["root"]) / day
             day_root.mkdir(parents=True, exist_ok=True)
@@ -302,9 +310,9 @@ def start_generation(body: GenerateBody, user_id: int) -> int:
 def generate(
     request: Request,
     body: GenerateBody,
-    # Owner-only until PR 3: tailors the global master resume with the global
-    # provider keys. See runs.start_run.
-    user: User = Depends(require_owner),
+    # Per-user as of PR 3: tailors this account's own master resume with its
+    # own provider key. See runs.start_run.
+    user: User = Depends(require_user),
 ) -> GenerateOut:
     if not body.company.strip() or not body.title.strip():
         raise HTTPException(400, "company and title are required")

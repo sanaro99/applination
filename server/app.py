@@ -8,15 +8,14 @@ from pathlib import Path
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
 from .applications import router as applications_router
 from .auth import require_user, resolve_user, router as auth_router
 from .db import init_db
 from .limits import limiter
-from .deps import load_config
 from .events import bus
+from .user_paths import USERS_DIR
 from .runs import router as runs_router
 from .single_job import router as single_job_router
 from .config_api import router as config_router
@@ -26,12 +25,13 @@ from .ranked import router as ranked_router
 from .ops import router as ops_router
 from .chat import router as chat_router
 from .studio import router as studio_router
-from .onboarding import (
-    router as onboarding_router,
-    status_router as onboarding_status_router,
-)
+from .onboarding import router as onboarding_router
+from .files import router as files_router
 from .inbox import router as inbox_router
-from .reminders import router as reminders_router
+from .reminders import (
+    calendar_router,
+    router as reminders_router,
+)
 from .pricing import router as pricing_router
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -60,6 +60,11 @@ PUBLIC_PATHS: frozenset[str] = frozenset({
     "/docs/oauth2-redirect",
     "/openapi.json",
     "/redoc",
+    # Subscribing calendar apps cannot log in — they send no cookies and follow
+    # no redirects to a login page. This one carries its own authentication: a
+    # signed, per-user, revocable token (server/feed_tokens.py) that the
+    # endpoint verifies itself, and it 404s without a valid one.
+    "/api/calendar.ics",
 })
 
 # Note what is deliberately *not* here: /api/inbox/oauth/callback. Google
@@ -113,35 +118,24 @@ def create_app() -> FastAPI:
         if user is None:
             return JSONResponse({"detail": "not authenticated"}, status_code=401)
 
-        # /files serves the one global output tree, which is still the owner's
-        # alone until PR 3 gives each user their own root. Without this, any
-        # signed-up account could read the owner's resumes and cover letters by
-        # walking /files — no database scoping would catch it, because no
-        # database row is involved.
-        if path.startswith("/files") and not user.is_owner:
-            return JSONResponse(
-                {"detail": "owner-only until per-user output lands"},
-                status_code=403,
-            )
-
         # Hand the resolved id to the rate limiter (and save the routers a
         # second lookup) without bypassing the per-route dependency.
         request.state.user_id = user.id
         return await call_next(request)
 
-    cfg = load_config()
-    out_root = Path(cfg["output"]["root"])
-    if not out_root.is_absolute():
-        out_root = ROOT / out_root
-    out_root.mkdir(parents=True, exist_ok=True)
-    app.mount("/files", StaticFiles(directory=str(out_root)), name="files")
+    # No StaticFiles mount. It used to serve the whole output tree at /files,
+    # which under multi-user would let any account read any other's resume by
+    # guessing a path — a leak no database scoping could catch, because no
+    # database row is involved. Documents now go through GET /api/files/...,
+    # which resolves against the requesting user's own output root
+    # (server/files.py).
 
     @app.on_event("startup")
     async def _on_startup() -> None:
         init_db()
         bus.bind_loop(asyncio.get_running_loop())
         app.state._poller_task = asyncio.create_task(_scheduled_run_poller())
-        log.info("server started; output mounted at /files -> %s", out_root)
+        log.info("server started; user data under %s", USERS_DIR)
 
     @app.on_event("shutdown")
     async def _on_shutdown() -> None:
@@ -158,6 +152,11 @@ def create_app() -> FastAPI:
     # (/me, /change-password) declare the dependency individually.
     app.include_router(auth_router)
 
+    # Also mounted without require_user, for the same reason auth is: the
+    # calendar feed authenticates with a signed token instead of a session. It
+    # is the only route in reminders.py that does.
+    app.include_router(calendar_router)
+
     # Layer 1 of 2: every other router is protected at the mount point, so a new
     # endpoint inside any of them is authenticated the moment it is written.
     protected = (
@@ -172,7 +171,7 @@ def create_app() -> FastAPI:
         chat_router,
         studio_router,
         onboarding_router,
-        onboarding_status_router,
+        files_router,
         inbox_router,
         reminders_router,
         pricing_router,

@@ -30,10 +30,23 @@ services:
     environment:
       POSTGRES_USER: applination
       POSTGRES_DB: applination
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in applination.env}
       TZ: America/Los_Angeles
+    # POSTGRES_PASSWORD comes from here, not a top-level ${VAR} default in
+    # `environment:` above — that syntax is resolved by Compose at YAML-parse
+    # time from the shell/project .env, which TrueNAS's "Install via YAML"
+    # apps do not populate from this file. env_file: injects it straight into
+    # the container instead, the same mechanism applination-api already uses.
+    env_file:
+      - /mnt/apps-pool/appconfig/applination.env
     volumes:
-      - /mnt/apps-pool/appconfig/applination/pgdata:/var/lib/postgresql/data
+      # Mounted at the *parent* directory, not .../data. Since the postgres:18
+      # image, the entrypoint stores data in a version-namespaced subdirectory
+      # (e.g. /var/lib/postgresql/18/docker) under a single parent mount, so a
+      # future major-version bump can use `pg_upgrade --link` — both the old
+      # and new version's data need to be visible under one mount for that.
+      # Mounting directly at .../data (the pre-18 layout) makes the image
+      # refuse to start: see docker-library/postgres#1259.
+      - /mnt/apps-pool/appconfig/applination/pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U applination -d applination"]
       interval: 10s

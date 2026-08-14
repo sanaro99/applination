@@ -4,7 +4,7 @@ import logging
 import os
 import time
 
-from .base import LLMProvider, _parse_json
+from .base import LLMProvider, _parse_json, resolve_api_key
 
 LOG = logging.getLogger(__name__)
 
@@ -39,12 +39,10 @@ class GeminiProvider(LLMProvider):
         except ImportError:
             raise ImportError("pip install google-genai")
 
-        key = api_key or os.environ.get("GOOGLE_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
-        if not key:
-            raise RuntimeError(
-                "Gemini needs an API key. Set llm.gemini.api_key in config.yaml "
-                "or GOOGLE_API_KEY env var."
-            )
+        key = resolve_api_key(
+            api_key, "GOOGLE_API_KEY", "GEMINI_API_KEY",
+            provider="Gemini", config_key="llm.gemini.api_key",
+        )
         self._client = genai.Client(api_key=key)
         self._types = genai_types
         self.model_name = model

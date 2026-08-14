@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import select
 
-from .auth import require_owner, require_user
+from .auth import require_user
 from .db import RankedJob, Run, User, session
 from .scoping import get_owned, owned
 from .single_job import GenerateBody, start_generation
@@ -110,9 +110,9 @@ class RescueOut(BaseModel):
 @router.post("/api/ranked/{ranked_id}/generate", response_model=RescueOut)
 def generate_ranked(
     ranked_id: int,
-    # Owner-only until PR 3: generating tailors the one global master resume
-    # with the owner's API keys. See runs.start_run.
-    user: User = Depends(require_owner),
+    # Per-user as of PR 3: tailors this account's own master resume with its
+    # own API key. See runs.start_run.
+    user: User = Depends(require_user),
 ) -> RescueOut:
     with session() as s:
         r = get_owned(

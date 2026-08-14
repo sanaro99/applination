@@ -25,6 +25,46 @@ class _FakeProvider:
         return self._reply
 
 
+def _profile_paths():
+    """A user directory holding a small but real master-data profile.
+
+    The prompt-grounding tests used to read the developer's own
+    ``master_data/`` from the repo root, which made them pass or fail depending
+    on whose checkout they ran in — and meant CI, with no personal data
+    checked in, was asserting against an empty profile. Seeding an explicit one
+    here keeps the assertions honest everywhere.
+    """
+    from server.user_paths import UserPaths
+
+    paths = UserPaths(user_id=1).ensure()
+    paths.resume_path.write_text(
+        "basics:\n"
+        "  name: Ada Lovelace\n"
+        "experience:\n"
+        "  - company: Analytical Engines\n"
+        "    title: Backend Engineer\n"
+        "    bullets:\n"
+        "      - Built AutoFlow, a job orchestration backend.\n",
+        encoding="utf-8",
+    )
+    paths.bio_path.write_text(
+        "I like building backend systems that stay understandable.\n",
+        encoding="utf-8",
+    )
+    (paths.stories_dir / "autoflow.md").write_text(
+        "---\n"
+        "title: AutoFlow orchestration backend\n"
+        "tags: [backend, systems, platform]\n"
+        "role_fit: [swe, backend]\n"
+        "company_fit: [startup]\n"
+        "one_liner: Built a backend that orchestrates nightly jobs.\n"
+        "---\n"
+        "Context, what I did, and the outcome.\n",
+        encoding="utf-8",
+    )
+    return paths
+
+
 def _me(client) -> int:
     """The logged-in user's id. Rows seeded straight into the DB need one now
     that user_id is NOT NULL, and it has to match the client's session or the
@@ -113,7 +153,7 @@ def test_build_coach_prompt_is_grounded():
         pick_stories,
     )
 
-    bundle = load_profile_bundle()
+    bundle = load_profile_bundle(_profile_paths())
     stories = pick_stories(
         bundle, question="Tell me about a backend system you built", app=None
     )
@@ -212,7 +252,7 @@ def test_interview_and_essay_prompts_grounded():
         pick_stories,
     )
 
-    bundle = load_profile_bundle()
+    bundle = load_profile_bundle(_profile_paths())
     stories = pick_stories(bundle, question="leadership", app=None)
 
     sys_i, _ = build_interview_kickoff_prompt(

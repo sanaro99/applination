@@ -8,16 +8,15 @@ Two real users with real data, and for every tenant resource:
 * Unauthenticated -> 401
 * Creating a child under B's parent -> 404
 
-Plus the two structural guards: every route is authenticated or explicitly
-public, and owner-only endpoints reject a non-owner.
+Plus the structural guards: every route is authenticated or explicitly public,
+and each user's config, master data and documents are their own.
 
 Ownership mismatches are asserted as **404, not 403** throughout. A 403 would
 confirm the row exists, which turns id enumeration into a census of other users'
 data.
 
 Rows are seeded directly through the DB rather than through the generating
-endpoints, because those endpoints are owner-only until per-user config lands
-(PR 3) and would otherwise make it impossible to give B any data at all.
+endpoints, because those endpoints run a real pipeline and call an LLM.
 """
 from __future__ import annotations
 
@@ -25,6 +24,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import select
 
 import server.db as db
 from server.db import (
@@ -59,8 +59,9 @@ def app_env(tmp_path, monkeypatch):
 def users(app_env, tmp_path):
     """Users A and B, each with their own logged-in client and own data.
 
-    A registers first and is therefore the owner (see auth.signup), which also
-    lets the owner-gating assertions below use B as the non-owner.
+    A registers first and is therefore the owner (see auth.signup). Nothing is
+    owner-gated any more, but B being a non-owner is what makes the "a plain
+    account is a first-class tenant" assertions meaningful.
     """
     with TestClient(app_env) as ca, TestClient(app_env) as cb:
         a = register(ca, "a@example.com")
@@ -215,13 +216,65 @@ def test_csv_export_only_contains_own_rows(users):
     assert b["data"]["company"] not in body
 
 
+def _feed_path(client) -> str:
+    r = client.get("/api/reminders/calendar-feed")
+    assert r.status_code == 200, r.text
+    return r.json()["path"]
+
+
 def test_calendar_feed_only_contains_own_rows(users):
     a, b = users["a"], users["b"]
-    text = a["client"].get("/api/calendar.ics").text
+    text = a["client"].get(_feed_path(a["client"])).text
     # Assert the feed is non-empty first: otherwise "B's company is absent"
     # holds trivially and the test proves nothing.
     assert a["data"]["company"] in text
     assert b["data"]["company"] not in text
+
+
+def test_calendar_feed_token_works_without_a_session(app_env, users):
+    """The whole point: a subscribing calendar app sends no cookies."""
+    a, b = users["a"], users["b"]
+    path = _feed_path(a["client"])
+    with TestClient(app_env) as anon:
+        r = anon.get(path)
+        assert r.status_code == 200
+        assert a["data"]["company"] in r.text
+        assert b["data"]["company"] not in r.text
+
+
+def test_calendar_feed_rejects_a_missing_or_forged_token(app_env, users):
+    path = _feed_path(users["a"]["client"])
+    token = path.split("token=")[1]
+    user_id, serial, sig = token.split(".")
+    with TestClient(app_env) as anon:
+        assert anon.get("/api/calendar.ics").status_code == 404
+        assert anon.get("/api/calendar.ics?token=garbage").status_code == 404
+        # Right shape, wrong signature.
+        forged = f"{user_id}.{serial}.{'0' * len(sig)}"
+        assert anon.get(f"/api/calendar.ics?token={forged}").status_code == 404
+        # Another user's id under A's signature.
+        swapped = f"{int(user_id) + 1}.{serial}.{sig}"
+        assert anon.get(f"/api/calendar.ics?token={swapped}").status_code == 404
+
+
+def test_rotating_the_calendar_token_revokes_the_old_url(app_env, users):
+    ca = users["a"]["client"]
+    old = _feed_path(ca)
+    with TestClient(app_env) as anon:
+        assert anon.get(old).status_code == 200
+    new = ca.post("/api/reminders/calendar-feed/rotate").json()["path"]
+    assert new != old
+    with TestClient(app_env) as anon:
+        assert anon.get(old).status_code == 404
+        assert anon.get(new).status_code == 200
+
+
+def test_one_users_token_does_not_rotate_anothers(users):
+    """Revocation has to be per-user or it is a denial of service."""
+    ca, cb = users["a"]["client"], users["b"]["client"]
+    b_before = _feed_path(cb)
+    ca.post("/api/reminders/calendar-feed/rotate")
+    assert _feed_path(cb) == b_before
 
 
 # --------------------------------------------------------------------------- #
@@ -426,7 +479,6 @@ def test_settings_are_per_user(users):
         ("get", "/api/master-data/bio"),
         ("get", "/api/providers"),
         ("get", "/api/llm-config"),
-        ("get", "/api/calendar.ics"),
         ("get", "/api/onboarding/status"),
         ("get", "/api/inbox/status"),
         ("get", "/api/auth/me"),
@@ -446,11 +498,12 @@ def _call(client, method: str, path: str):
     return getattr(client, method)(path)
 
 
-def test_files_mount_requires_authentication(app_env):
-    """The static mount is not a route, so only the middleware protects it."""
+def test_files_endpoint_requires_authentication(app_env):
+    """The StaticFiles mount is gone; /api/files is a real route behind auth."""
     with TestClient(app_env) as anon:
-        r = anon.get("/files/anything.pdf")
-        assert r.status_code == 401
+        assert anon.get("/api/files/anything.pdf").status_code == 401
+        # And the old mount no longer serves anything at all.
+        assert anon.get("/files/anything.pdf").status_code in (401, 404)
 
 
 def test_public_paths_are_reachable_without_a_session(app_env):
@@ -549,49 +602,116 @@ def test_route_enumeration_guard_catches_an_unprotected_route(app_env):
 
 
 # --------------------------------------------------------------------------- #
-# Owner-only surface (PR 2 only; PR 3 makes these per-user)
+# Config and master data (owner-gated in PR 2; per-user from PR 3)
+#
+# The owner gate is gone because the thing it protected is gone: there is no
+# single global config.yaml left for a second account to reach. These tests
+# assert the replacement — every account gets its own, and cannot see anybody
+# else's.
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize(
     "method,path,body",
     [
         ("get", "/api/config", None),
-        ("put", "/api/config", {"text": "user: {}\n"}),
         ("get", "/api/master-data/resume", None),
-        ("put", "/api/master-data/bio", {"text": "hi"}),
         ("get", "/api/master-data/stories", None),
         ("get", "/api/providers", None),
         ("get", "/api/llm-config", None),
-        ("post", "/api/runs", {}),
         ("get", "/api/inbox/status", None),
-        ("post", "/api/onboarding/complete", {}),
+        ("get", "/api/onboarding/status", None),
     ],
 )
-def test_non_owner_cannot_reach_global_config_endpoints(users, method, path, body):
-    """Config and master data are still one global install until PR 3. Signup is
-    open, so without an owner gate any account could read the owner's API keys
-    and personal resume."""
+def test_non_owner_can_reach_their_own_config_endpoints(users, method, path, body):
+    """A non-owner account is a first-class tenant now, not a second-class one."""
     cb = users["b"]["client"]
     assert users["b"]["user"]["is_owner"] is False
     kwargs = {"json": body} if body is not None else {}
     r = getattr(cb, method)(path, **kwargs)
-    assert r.status_code == 403, f"{method.upper()} {path} -> {r.status_code}"
+    assert r.status_code == 200, f"{method.upper()} {path} -> {r.status_code}"
 
 
-def test_owner_can_reach_global_config_endpoints(users):
-    """The 403s above must be about ownership, not a broken route."""
-    ca = users["a"]["client"]
-    assert users["a"]["user"]["is_owner"] is True
-    assert ca.get("/api/config").status_code == 200
-    assert ca.get("/api/providers").status_code == 200
+def test_config_is_not_shared_between_users(users):
+    """The core of PR 3. B writing config must not be visible to A."""
+    ca, cb = users["a"]["client"], users["b"]["client"]
+    assert cb.put(
+        "/api/config", json={"text": "user:\n  full_name: Only B\n"}
+    ).status_code == 200
+    assert "Only B" not in ca.get("/api/config").json()["text"]
+    assert "Only B" in cb.get("/api/config").json()["text"]
 
 
-def test_non_owner_onboarding_status_hides_owner_setup_state(users):
-    """/status stays reachable (the gate polls it) but must not report the
-    owner's real setup progress to an unrelated account."""
-    body = users["b"]["client"].get("/api/onboarding/status").json()
-    assert body["onboarded"] is True
-    assert body["can_run"] is False
-    assert body["steps"]["resume"] is False
+def test_master_data_is_not_shared_between_users(users):
+    ca, cb = users["a"]["client"], users["b"]["client"]
+    assert cb.put(
+        "/api/master-data/bio", json={"text": "B's private bio"}
+    ).status_code == 200
+    assert ca.get("/api/master-data/bio").json()["text"] == ""
+    assert cb.get("/api/master-data/bio").json()["text"] == "B's private bio"
+
+
+def test_stories_are_not_shared_between_users(users):
+    ca, cb = users["a"]["client"], users["b"]["client"]
+    cb.put("/api/master-data/stories/secret", json={"text": "---\ntags: []\n---\nB"})
+    assert ca.get("/api/master-data/stories").json() == []
+    assert [s["name"] for s in cb.get("/api/master-data/stories").json()] == ["secret"]
+    # And not reachable by guessing the name either.
+    assert ca.get("/api/master-data/stories/secret").status_code == 404
+
+
+def test_api_keys_never_come_back_out_of_the_config_endpoint(users):
+    """A key submitted through the raw YAML editor is stored encrypted and
+    blanked in the file, so a later GET cannot hand it back — to its owner or
+    to anyone who somehow reached the endpoint."""
+    cb = users["b"]["client"]
+    cb.put(
+        "/api/config",
+        json={"text": "llm:\n  deepseek:\n    api_key: sk-super-secret\n"},
+    )
+    assert "sk-super-secret" not in cb.get("/api/config").json()["text"]
+    # But it is stored, and reported as set.
+    status = cb.get("/api/secrets").json()
+    assert status["key_configured"] is True
+    names = [s["name"] for s in status["secrets"]]
+    assert "llm.deepseek.api_key" in names
+    # Masked, never the plaintext.
+    entry = next(s for s in status["secrets"] if s["name"] == "llm.deepseek.api_key")
+    assert entry["preview"] == "…cret"
+    assert "sk-super-secret" not in str(status)
+
+
+def test_stored_api_key_is_merged_back_for_the_owner_only(users):
+    """The stored key has to reach the provider layer for its own user, and
+    only for them — /api/providers reports it as configured for B, not A."""
+    cb = users["b"]["client"]
+    cb.put(
+        "/api/config",
+        json={"text": "llm:\n  deepseek:\n    api_key: sk-b-key\n    model: m\n"},
+    )
+
+    def deepseek_configured(client) -> bool:
+        for p in client.get("/api/providers").json():
+            if p["name"] == "deepseek":
+                return p["configured"]
+        return False
+
+    assert deepseek_configured(cb) is True
+    assert deepseek_configured(users["a"]["client"]) is False
+
+
+def test_secrets_are_encrypted_at_rest(users):
+    """The ciphertext in the database must not contain the key."""
+    from server.db import UserSecret
+
+    cb = users["b"]["client"]
+    cb.put(
+        "/api/config",
+        json={"text": "llm:\n  mistral:\n    api_key: sk-plaintext-check\n"},
+    )
+    with db.Session(db.engine) as s:
+        rows = s.exec(select(UserSecret)).all()
+    assert rows, "nothing was stored"
+    for row in rows:
+        assert "sk-plaintext-check" not in row.ciphertext
 
 
 # --------------------------------------------------------------------------- #

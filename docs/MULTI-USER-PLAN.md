@@ -9,8 +9,8 @@ Status at a glance:
 | PR | Scope | State |
 |---|---|---|
 | 1 | Postgres + Alembic baseline | **Merged** (#26, 2026-08-13) |
-| 2 | Users, auth, tenant columns | **Merged** (#28) |
-| 3 | Per-user filesystem, remaining traps | Not started |
+| 2 | Users, auth, tenant columns | **Merged** (#29, 2026-08-13) |
+| 3 | Per-user filesystem, remaining traps | **Merged** (#31, 2026-08-13) |
 
 ---
 
@@ -259,9 +259,10 @@ Plus the route-enumeration test and the scope-lint test.
 
 ---
 
-## PR 3 — Per-user filesystem and the remaining traps
+## PR 3 — Per-user filesystem and the remaining traps (merged)
 
-New file: `server/user_paths.py`.
+New files: `server/user_paths.py`, `server/user_secrets.py`, `server/files.py`,
+`server/feed_tokens.py`, `server/cli.py`, `scripts/migrate_to_multiuser.py`.
 
 ```
 data/users/<user_id>/
@@ -347,12 +348,81 @@ regardless of how large `output/` is.
 
 ---
 
+### What PR 3 did differently from this plan
+
+- **BYOK needed a write path the plan never specified.** Secrets are "merged in
+  at read time" and "never written to YAML" — but nothing said how a key gets
+  into `UserSecret` in the first place. The answer: config writes **divert**
+  them. `update_config` and `PUT /api/config` pull every path in
+  `user_secrets.SECRET_PATHS` out of the document, store it encrypted, and write
+  the field back empty. A `GET` therefore returns a config with the key present
+  but blank, which needed a **Stored keys card** on the Config page — without
+  one, a blanked field reads as a lost key and the natural response is to paste
+  it again on every visit.
+
+- **`require_owner` was deleted, not relaxed.** Every endpoint it guarded is
+  per-user now, so the gate had nothing left to protect. Leaving a dead
+  owner-check in the auth module would invite the assumption that something is
+  still owner-only. `User.is_owner` stays: it marks the CLI's default account
+  and the one the backfill targeted.
+
+- **`src/` does not import `server/`.** The plan says "add an explicit
+  `paths: UserPaths` parameter to `run_pipeline()`", but importing `UserPaths`
+  into `src/pipeline.py` inverts the dependency direction the rest of the
+  codebase uses. The parameter is typed as a **`PipelinePaths` Protocol**
+  declared in `src/pipeline.py` instead — structural, so `UserPaths` satisfies
+  it without either module knowing about the other, and a test can pass a
+  throwaway temp directory.
+
+- **`output.root` is sandboxed, not trusted.** It is user-editable through the
+  raw YAML editor, so an absolute path or `../2/output` would have written into
+  another account's tree. `UserPaths.resolve_output` honours the value only
+  while it stays inside the user's own directory, and silently falls back to the
+  default otherwise — the run should still happen, just contained.
+
+- **The Gmail token moved to `UserSecret`** (the plan listed it there in the
+  model but PR 2 had left it as a plaintext `Setting` row). The migration is
+  conditional on `APPLINATION_SECRET_KEY`: without one it **warns and leaves the
+  plaintext row alone** rather than failing the deploy or destroying a mailbox
+  credential.
+
+- **The calendar feed came back.** PR 2 regressed external subscription by
+  making `/api/calendar.ics` session-only. It is public again, authenticated by
+  a signed per-user token (`server/feed_tokens.py`) that is revocable per user
+  by bumping a serial — rotating the Fernet key would revoke everyone's. It
+  needs its own router, mounted without the `require_user` dependency, and an
+  explicit entry in `PUBLIC_PATHS`.
+
+- **`get_llm_config` was calling `list_providers()` directly**, so once that
+  function took a `user` it received the `Depends(...)` object as its argument.
+  The plan's ~25 call sites were the ones that *read* config; this was a plain
+  Python call between two endpoint functions, and only the `TypeError` in
+  `user_paths.user_paths()` caught it. Worth a type guard rather than a
+  `getattr` that would have carried on with something wrong.
+
+- **The HTTP traversal tests prove less than they look like they do.** The URL
+  layer normalises `..` out before routing, so `/api/files/../2/...` 404s even
+  with the containment check removed. `test_user_files.py` therefore also calls
+  the handler **directly** with a raw `..` path — that is the test that fails
+  when the guard is deleted, verified by deleting it.
+
+- **Tests now redirect `USERS_DIR` to a temp directory via an autouse fixture.**
+  Without it, any test touching config created `data/users/1/` inside the
+  working copy — writing real files into the developer's checkout and reading
+  whatever a previous test left behind. `/data/users/` is gitignored; this
+  repository is public.
+
+- **The prompt-grounding tests used to read the developer's own
+  `master_data/`**, so they passed or failed depending on whose checkout ran
+  them, and asserted against an empty profile in CI. They now seed an explicit
+  fixture profile.
+
 ## Rollout
 
-**The Seattle instance is intentionally stopped** until all three PRs have
-landed. Merging to `main` still builds and publishes images, but nothing is
-serving, so a merge cannot take production down and downtime between now and the
-final cutover is expected.
+**The Seattle instance has been intentionally stopped** while the three PRs
+landed. All three are merged, so the cutover below is now the remaining work;
+`docs/DEPLOY-SEATTLE.md` carries the executable version of it (Steps 9-11 are
+the per-user filesystem move).
 
 This means the migrations do **not** have to be run one PR at a time. Do them as
 a single maintenance window once PR 3 merges, in this order:
@@ -366,8 +436,13 @@ a single maintenance window once PR 3 merges, in this order:
    the API runs `alembic upgrade head`.
 4. `scripts/sqlite_to_postgres.py --dry-run`, then for real (PR 1's runbook,
    `docs/DEPLOY-SEATTLE.md`).
-5. `scripts/migrate_to_multiuser.py --dry-run`, then for real (PR 3).
-6. Set the owner password, restart, verify.
+5. `scripts/migrate_to_multiuser.py --dry-run`, then for real (PR 3). This
+   moves the three directories **and** rewrites `Application.folder_path`;
+   skipping it leaves every document link pointing at a path that no longer
+   exists.
+6. Switch the compose file to the single `data` bind mount — after step 5, not
+   before, or the migration cannot see the legacy directories.
+7. Set the owner password, restart, verify a document actually loads.
 
 The old `data/app.db` is never deleted and remains the rollback path.
 
@@ -412,6 +487,8 @@ Same discipline for `POSTGRES_PASSWORD`, added in PR 1.
   Use the native Postgres. Docker itself runs; only registry blobs are blocked.
 - **Tests use their own temp SQLite databases** via `tests/conftest.py::migrate()`,
   which runs the real Alembic migrations, so a migration that drifts from the
-  models fails the suite. Baseline after PR 1: **106 passing**.
+  models fails the suite. An autouse fixture also redirects
+  `user_paths.USERS_DIR` into `tmp_path`, so no test writes user data into the
+  checkout. Baseline after PR 1: **106 passing**; after PR 3: **215**.
 - Reseed the dev database: drop/recreate schema `public` →
   `alembic upgrade head` → `python scripts/sqlite_to_postgres.py --sqlite data/app.db`.

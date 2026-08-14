@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TextEditor } from "@/components/text-editor";
 import { ProvidersPanel } from "@/components/providers-panel";
 import { GmailConnectCard } from "@/components/gmail-connect-card";
+import { StoredSecretsCard } from "@/components/stored-secrets-card";
 import { api } from "@/lib/api";
 
 export default function ConfigPage() {
@@ -18,6 +19,7 @@ export default function ConfigPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       <ProvidersPanel />
+      <StoredSecretsCard />
       <GmailConnectCard />
       <Card>
         <CardHeader>
@@ -32,7 +34,11 @@ export default function ConfigPage() {
               language="yaml"
               onSave={async (text) => {
                 await api.putConfig(text);
+                // Both: saving may have moved an API key out of the file into
+                // encrypted storage, which changes the config text *and* the
+                // stored-keys list.
                 await qc.invalidateQueries({ queryKey: ["config"] });
+                await qc.invalidateQueries({ queryKey: ["secrets"] });
               }}
             />
           )}

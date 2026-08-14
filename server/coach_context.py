@@ -11,7 +11,6 @@ Coach stays grounded in the candidate's real experience and authentic voice.
 """
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import yaml
@@ -21,8 +20,7 @@ from src.reference_loader import BIO_CAP, STORY_BODY_CAP, load_stories
 
 if TYPE_CHECKING:  # avoid a hard import cycle / DB import at module load
     from .db import Application, ChatMessage
-
-MASTER_PATH = Path(__file__).resolve().parent.parent / "master_data"
+    from .user_paths import UserPaths
 
 # Rough char budgets so the assembled prompt stays inside the providers'
 # context windows (tailor.py works to a similar ~8K-token ceiling). The bio /
@@ -34,16 +32,26 @@ _JD_CAP = 1500
 _HISTORY_CAP = 6000
 
 
-def load_profile_bundle() -> dict:
-    """Load {master, bio, stories} once per request.
+def load_profile_bundle(paths: "UserPaths") -> dict:
+    """Load {master, bio, stories} for one user, once per request.
 
-    Mirrors server/single_job.py's master-data loading.
+    Mirrors server/single_job.py's master-data loading. Takes the user's paths
+    rather than reading a module-level constant — the Coach's whole value is
+    being grounded in *your* experience, and a global path would ground every
+    account's answers in whoever owns the repo checkout.
+
+    A missing resume.yaml yields an empty master rather than raising: a user
+    who has not finished onboarding should get a thin answer, not a 500.
     """
-    master_file = MASTER_PATH / "resume.yaml"
-    master = yaml.safe_load(master_file.read_text(encoding="utf-8")) or {}
-    bio_path = MASTER_PATH / "bio.md"
-    bio = bio_path.read_text(encoding="utf-8") if bio_path.exists() else ""
-    stories = load_stories(MASTER_PATH / "stories")
+    master: dict = {}
+    if paths.resume_path.exists():
+        master = yaml.safe_load(paths.resume_path.read_text(encoding="utf-8")) or {}
+    bio = (
+        paths.bio_path.read_text(encoding="utf-8")
+        if paths.bio_path.exists()
+        else ""
+    )
+    stories = load_stories(paths.stories_dir)
     return {"master": master, "bio": bio, "stories": stories}
 
 

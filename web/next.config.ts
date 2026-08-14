@@ -28,11 +28,12 @@ const nextConfig: NextConfig = {
   async rewrites() {
     const target =
       process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8000";
+    // Generated documents no longer need a rule of their own: the API's
+    // StaticFiles mount at /files is gone, replaced by GET /api/files/... so
+    // that every document read is scoped to the requesting user. That is
+    // already covered by the /api rule below.
     return [
       { source: "/api/:path*", destination: `${target}/api/:path*` },
-      // Generated resumes and cover letters are served from the API's static
-      // mount, which is behind the same auth.
-      { source: "/files/:path*", destination: `${target}/files/:path*` },
     ];
   },
 };

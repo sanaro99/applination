@@ -29,8 +29,8 @@ import type {
 // Empty by default so every request is same-origin. Dev used to point straight
 // at http://127.0.0.1:8000, which is a different origin from localhost:3000 —
 // and a SameSite=Lax session cookie is not sent cross-origin, so auth would
-// silently never work. next.config.ts rewrites /api and /files to the API
-// instead. Production is already same-origin behind Traefik.
+// silently never work. next.config.ts rewrites /api to the API instead.
+// Production is already same-origin behind Traefik.
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
 export type OnboardingStatus = {
@@ -100,6 +100,17 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+/**
+ * What GET /api/secrets reports: which API keys are stored, never their values.
+ * `readable: false` means the row exists but could not be decrypted — the
+ * server's encryption key was rotated or lost, and the user must re-enter it.
+ */
+export type StoredSecrets = {
+  key_configured: boolean;
+  detail?: string;
+  secrets: { name: string; readable: boolean; preview: string | null }[];
+};
 
 export type CurrentUser = {
   id: number;
@@ -301,7 +312,14 @@ export const api = {
     http<{ sent: boolean; to: string }>("/api/reminders/digest/send", {
       method: "POST",
     }),
-  calendarUrl: () => `${API_BASE}/api/calendar.ics`,
+  // The feed is authenticated by a signed, revocable per-user token rather
+  // than the session cookie, because a subscribing calendar app sends no
+  // cookies. The server mints it; the client never constructs this URL itself.
+  calendarFeed: () => http<{ path: string }>("/api/reminders/calendar-feed"),
+  rotateCalendarFeed: () =>
+    http<{ path: string }>("/api/reminders/calendar-feed/rotate", {
+      method: "POST",
+    }),
 
   listResumeVersions: (id: number) =>
     http<{ versions: ResumeVersion[] }>(
@@ -395,6 +413,8 @@ export const api = {
   },
 
   getConfig: () => http<{ text: string }>("/api/config"),
+  // Masked only — the API never returns a usable credential.
+  getSecrets: () => http<StoredSecrets>("/api/secrets"),
   putConfig: (text: string) =>
     http<{ ok: boolean }>("/api/config", {
       method: "PUT",
@@ -524,9 +544,11 @@ export const api = {
 export function fileUrl(folderRel: string, filename: string): string {
   if (!folderRel || !filename) return "";
   const parts = folderRel.split("/").filter(Boolean);
-  // folder_rel is "YYYY-MM-DD/Company_Role"; /files mounts at output/ root which already
-  // contains date folders, so use the date+folder pair directly.
-  return `${API_BASE}/files/${parts.map(encodeURIComponent).join("/")}/${encodeURIComponent(filename)}`;
+  // folder_rel is "YYYY-MM-DD/Company_Role", relative to the user's own output
+  // root. /api/files resolves it against that root and refuses anything that
+  // escapes — it replaced the old /files static mount, which served one shared
+  // tree with no ownership check at all.
+  return `${API_BASE}/api/files/${parts.map(encodeURIComponent).join("/")}/${encodeURIComponent(filename)}`;
 }
 
 /**

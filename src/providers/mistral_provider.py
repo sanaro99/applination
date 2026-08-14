@@ -15,7 +15,7 @@ import logging
 import os
 import time
 
-from .base import LLMProvider, _parse_json
+from .base import LLMProvider, _parse_json, resolve_api_key
 
 LOG = logging.getLogger(__name__)
 
@@ -51,12 +51,10 @@ class MistralProvider(LLMProvider):
         except ImportError:
             raise ImportError("pip install openai  # Mistral uses an OpenAI-compatible API")
 
-        key = api_key or os.environ.get("MISTRAL_API_KEY", "")
-        if not key:
-            raise RuntimeError(
-                "Mistral needs an API key. Set llm.mistral.api_key in config.yaml "
-                "or the MISTRAL_API_KEY environment variable."
-            )
+        key = resolve_api_key(
+            api_key, "MISTRAL_API_KEY",
+            provider="Mistral", config_key="llm.mistral.api_key",
+        )
 
         self.client = OpenAI(
             api_key=key,

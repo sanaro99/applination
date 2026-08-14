@@ -16,12 +16,20 @@ from pydantic import BaseModel
 from sqlmodel import select
 
 from . import gmail_auth
-from .auth import require_owner, require_user
+from .auth import require_user
 from .db import Application, ApplicationStatus, User, session
 from .deps import load_config
+from .feed_tokens import FeedTokenUnavailable, issue_token, verify_token
 from .scoping import owned
 
 router = APIRouter(tags=["reminders"])
+
+# The calendar feed is mounted separately, *without* the require_user dependency
+# every other router carries, because a calendar app cannot log in. It
+# authenticates with a signed token instead (server/feed_tokens.py) and is
+# listed in app.PUBLIC_PATHS so the middleware lets it through. That is the
+# whole reason for the second router: nothing else here is public.
+calendar_router = APIRouter(tags=["reminders"])
 log = logging.getLogger("server.reminders")
 
 _LIVE_STATES = (
@@ -32,13 +40,13 @@ _LIVE_STATES = (
 )
 
 
-def _reminders_cfg() -> dict:
-    return (load_config().get("reminders") or {})
+def _reminders_cfg(user: User | int) -> dict:
+    return (load_config(user).get("reminders") or {})
 
 
 def _gather(user: User | int):
     """Collect digest/calendar data from the DB in one pass."""
-    cfg = _reminders_cfg()
+    cfg = _reminders_cfg(user)
     window = int(cfg.get("deadline_window_days", 7) or 7)
     follow_up_days = int(cfg.get("follow_up_days", 10) or 10)
     now = datetime.utcnow()
@@ -96,18 +104,25 @@ def _gather(user: User | int):
 # --------------------------------------------------------------------------
 # calendar feed
 # --------------------------------------------------------------------------
-@router.get("/api/calendar.ics")
-def calendar_feed(user: User = Depends(require_user)) -> Response:
-    """Live iCalendar feed of this user's deadlines and interviews.
+@calendar_router.get("/api/calendar.ics")
+def calendar_feed(token: str = "") -> Response:
+    """Live iCalendar feed of one user's deadlines and interviews.
 
-    Authenticated like everything else, which means an external calendar app
-    cannot subscribe to it — those send no cookies. The alternative was leaving
-    every user's applications readable at a guessable URL. A signed per-user
-    feed token belongs with the rest of the per-user work in PR 3.
+    Authenticated by a signed feed token rather than a session, because
+    subscribing calendar apps send no cookies. An invalid or missing token is a
+    flat 404: a 401 would tell a prober that some token shape is right, and
+    there is nothing here to log into anyway.
     """
     from src.calendar_feed import build_ics, CalEvent
 
-    deadlines, interviews, _follow, _new, _counts = _gather(user)
+    try:
+        user_id = verify_token(token)
+    except FeedTokenUnavailable:
+        user_id = None
+    if user_id is None:
+        raise HTTPException(404, "not found")
+
+    deadlines, interviews, _follow, _new, _counts = _gather(user_id)
     events: list[CalEvent] = []
     for d in deadlines:
         events.append(CalEvent(
@@ -135,6 +150,35 @@ def calendar_feed(user: User = Depends(require_user)) -> Response:
     )
 
 
+class CalendarFeedOut(BaseModel):
+    path: str  # relative, so the browser can render it against its own origin
+
+
+def _feed_out(user_id: int, *, rotate: bool = False) -> CalendarFeedOut:
+    try:
+        token = issue_token(user_id, rotate=rotate)
+    except FeedTokenUnavailable as e:
+        raise HTTPException(
+            503,
+            "Calendar subscription needs APPLINATION_SECRET_KEY to be set on "
+            "the server.",
+        ) from e
+    return CalendarFeedOut(path=f"/api/calendar.ics?token={token}")
+
+
+@router.get("/api/reminders/calendar-feed", response_model=CalendarFeedOut)
+def calendar_feed_url(user: User = Depends(require_user)) -> CalendarFeedOut:
+    """The subscribable URL for this user's feed, minted on first request."""
+    return _feed_out(user.id)  # type: ignore[arg-type]
+
+
+@router.post("/api/reminders/calendar-feed/rotate", response_model=CalendarFeedOut)
+def rotate_calendar_feed(user: User = Depends(require_user)) -> CalendarFeedOut:
+    """Invalidate every previously issued feed URL for this user and mint a new
+    one — the fix for a link that ended up somewhere it should not have."""
+    return _feed_out(user.id, rotate=True)  # type: ignore[arg-type]
+
+
 # --------------------------------------------------------------------------
 # digest
 # --------------------------------------------------------------------------
@@ -148,7 +192,7 @@ def _build_digest_payload(user: User):
     )
     # Renamed from `user`: that shadowed the User parameter this function now
     # takes, which would have silently passed a config dict to _gather().
-    user_cfg = (load_config().get("user") or {})
+    user_cfg = (load_config(user).get("user") or {})
     name = (user_cfg.get("full_name") or "").split(" ")[0]
     subject, html, text = build_digest(data, name=name)
     return data, subject, html, text
@@ -162,7 +206,7 @@ class DigestPreview(BaseModel):
 
 
 @router.get("/api/reminders/digest/preview", response_model=DigestPreview)
-def digest_preview(user: User = Depends(require_owner)) -> DigestPreview:
+def digest_preview(user: User = Depends(require_user)) -> DigestPreview:
     data, subject, html, text = _build_digest_payload(user)
     return DigestPreview(subject=subject, html=html, text=text, empty=data.is_empty)
 
@@ -173,12 +217,12 @@ class DigestSendResult(BaseModel):
 
 
 @router.post("/api/reminders/digest/send", response_model=DigestSendResult)
-def digest_send(user: User = Depends(require_owner)) -> DigestSendResult:
+def digest_send(user: User = Depends(require_user)) -> DigestSendResult:
     from src.gmail_api import send_via_gmail_api
 
-    cfg = load_config()
+    cfg = load_config(user)
     rem = cfg.get("reminders") or {}
-    creds = gmail_auth.get_credentials(user.id)
+    creds = gmail_auth.get_credentials(user)
     sender = gmail_auth.account_email(user.id) or ""
     if creds is None or not sender:
         raise HTTPException(
@@ -196,10 +240,10 @@ def digest_send(user: User = Depends(require_owner)) -> DigestSendResult:
 
 @router.get("/api/reminders/status")
 def reminders_status(user: User = Depends(require_user)) -> dict:
-    rem = load_config().get("reminders") or {}
-    # Gmail is the owner's single connection until PR 3, so a non-owner simply
-    # cannot send — reported as False rather than 403ing the dashboard card.
-    can_send = user.is_owner and gmail_auth.is_connected(user.id)
+    rem = load_config(user).get("reminders") or {}
+    # Each account has its own Gmail connection now, so this is simply whether
+    # *this* user has connected one.
+    can_send = gmail_auth.is_connected(user)
     deadlines, interviews, follow_ups, new_matches, _counts = _gather(user)
     return {
         "can_send_email": can_send,

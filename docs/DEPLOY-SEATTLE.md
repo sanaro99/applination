@@ -42,18 +42,18 @@ avoids certifying a second subdomain.
 Then, **System → Shell**:
 
 ```bash
-sudo mkdir -p /mnt/apps-pool/appconfig/applination/{master_data,data,output,pgdata}
+sudo mkdir -p /mnt/apps-pool/appconfig/applination/{data,pgdata}
 ```
+
+Two directories, not five. Since the multi-user rework every user's
+`config.yaml`, `master_data/` and `output/` live under `data/users/<id>/`, so
+`data` is the only application mount left — the compose file binds exactly that
+one path, and binding the old ones would shadow the repo's committed
+`master_data/guidelines` and `master_data/templates`.
 
 `pgdata` backs the Postgres container and must start empty — Postgres
 initialises it on first boot and refuses to start against a directory it did
 not create.
-
-Do **not** create `config.yaml` as an empty file yet — see Step 1. If a
-bind-mount source file is missing, Docker silently creates a *directory* in
-its place and the container fails in a confusing way; if it exists but is
-empty, the backend crashes at startup with a `KeyError` because
-`load_config()` returns `{}`.
 
 ---
 
@@ -76,7 +76,8 @@ scp -r data                      "${NAS}:~/applination-stage/"
 scp -r output                    "${NAS}:~/applination-stage/"   # ~99 MB, 2138 files
 ```
 
-Then **System → Shell** on the NAS:
+Then **System → Shell** on the NAS. Stage the three legacy directories
+*alongside* `data` — Step 9 is what folds them into it:
 
 ```bash
 sudo rsync -a ~/applination-stage/config.yaml   /mnt/apps-pool/appconfig/applination/
@@ -86,17 +87,17 @@ sudo rsync -a ~/applination-stage/output/       /mnt/apps-pool/appconfig/applina
 
 sudo chmod 600 /mnt/apps-pool/appconfig/applination/config.yaml
 rm -rf ~/applination-stage
-
-# Sanity: config.yaml must be a FILE with content, not a directory
 ls -la /mnt/apps-pool/appconfig/applination/
 ```
 
 If `output/` is slow over the tunnel, tar it first
 (`tar czf output.tgz output` locally, scp one file, `tar xzf` on the NAS).
 
-> `config.yaml` holds your live LLM API keys and Gmail app password. It never
-> enters the image, the repo, or GHCR — `.gitignore` and `.dockerignore` both
-> exclude it, and it reaches the container only as a bind mount.
+> `config.yaml` holds your live LLM API keys. They do not stay there: the
+> per-user migration moves the file into `data/users/1/`, and the first time
+> the app writes config the keys are moved into the Fernet-encrypted
+> `usersecret` table and blanked in the YAML. The file never enters the image,
+> the repo, or GHCR — `.gitignore` and `.dockerignore` both exclude it.
 
 ---
 
@@ -378,6 +379,41 @@ sudo docker compose -p applination exec applination-db \
 chats should look exactly as before, and a **new** run must be creatable —
 that last check is what proves the id sequences were fast-forwarded correctly.
 
+**9. Fold the install into the per-user layout.** This moves `config.yaml`,
+`master_data/` and `output/` into `data/users/<owner-id>/` and rewrites the
+absolute `Application.folder_path` values in the same transaction. Skipping the
+rewrite would leave every application's document links pointing at a directory
+that no longer exists.
+
+```bash
+# Always dry-run first — it prints every move and every path rewrite.
+sudo docker compose -p applination exec applination-api   python scripts/migrate_to_multiuser.py --dry-run
+
+sudo docker compose -p applination exec applination-api   python scripts/migrate_to_multiuser.py
+```
+
+The moves are renames within one dataset, so `output/` migrates in constant
+time no matter how large it has grown. The script is idempotent — a second run
+reports "not present" for each source and rewrites nothing.
+
+**10. Switch the compose file to the single mount.** Replace the four
+`config.yaml` / `master_data` / `data` / `output` bind mounts under
+`applination-api` with the one line from `deploy/applination.compose.yaml`:
+
+```yaml
+    volumes:
+      - /mnt/apps-pool/appconfig/applination/data:/app/data
+```
+
+Save and restart. Do this **after** step 9, not before: while the old mounts
+are still in place the migration can see the legacy directories, and once they
+are gone it cannot.
+
+**11. Verify a document loads.** Open any application and preview its resume.
+That single check exercises the whole chain the rework touched — per-user
+output root, the rewritten `folder_path`, and the new `/api/files` endpoint
+that replaced the `/files` static mount.
+
 **Rollback:** roll back to the snapshot from step 1, or simply redeploy the
 previous image tag — `data/app.db` is untouched and still authoritative for
 the old build.
@@ -429,6 +465,9 @@ sudo docker compose -p applination exec applination-db \
 | Documents generate as `.docx` only | LibreOffice missing from the image; check `soffice --version` in the container |
 | Single-job URL wizard extracts nothing | Chromium missing; `python -m playwright install chromium` in the container to confirm |
 | Image pull fails | GHCR package still private (Step 3) |
+| Document previews 404 after upgrading | `migrate_to_multiuser.py` was not run, or was run before the compose mounts were switched (Steps 9-10) |
+| "No API key configured" on every run | Keys are per-user now. Paste yours on the Config page; the server's env vars are ignored unless `ALLOW_ENV_API_KEYS=1` |
+| Calendar app cannot subscribe to the feed | Use the **Copy link** button on the Reminders card — the feed needs its signed token, a bare `/api/calendar.ics` 404s |
 | API restarts, `database has no Alembic revision` | `alembic upgrade head` did not run — check the API container's start logs for a migration failure |
 | API restarts, `connection refused` to `applination-db` | `DATABASE_URL` host must be `applination-db` (the service name), not `localhost` |
 | API starts but every query 500s | `DATABASE_URL` password disagrees with `POSTGRES_PASSWORD`, or contains an unencoded `@ : / ?` |

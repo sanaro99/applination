@@ -46,11 +46,14 @@ def client(tmp_path, monkeypatch):
     migrate(test_engine)
     monkeypatch.setattr(db, "engine", test_engine)
 
-    # Work on a temp copy of config.yaml so PUT /llm-config can't corrupt the real one.
-    cfg_copy = tmp_path / "config.yaml"
-    shutil.copy(deps.CONFIG_PATH, cfg_copy)
-    monkeypatch.setattr(deps, "CONFIG_PATH", cfg_copy)
-    monkeypatch.setattr(config_api, "CONFIG_PATH", cfg_copy, raising=False)
+    # Config is per-user now and lives under the (temp-redirected) users root,
+    # so there is no real config.yaml left to corrupt. Seed the owner's copy
+    # from the committed example, which is what the app itself does on first
+    # run — the comment-preservation assertion below needs those comments.
+    from server.user_paths import EXAMPLE_CONFIG_PATH, UserPaths
+
+    owner_paths = UserPaths(user_id=1).ensure()
+    shutil.copy(EXAMPLE_CONFIG_PATH, owner_paths.config_path)
 
     fake = _FakeProvider()
     monkeypatch.setattr(providers, "get_provider_chain", lambda cfg: [fake])
@@ -62,9 +65,7 @@ def client(tmp_path, monkeypatch):
     from server.app import app
 
     with TestClient(app) as c:
-        # These endpoints are owner-gated (global config + master data + LLM
-        # calls), so the fixture logs in the first account, which auth.signup
-        # makes the owner.
+        # First account registered gets id 1, matching owner_paths above.
         register(c, "owner@example.com")
         yield c
 
@@ -100,7 +101,9 @@ def test_put_llm_config_preserves_comments_and_blocks(client):
     )
     assert r.status_code == 200
 
-    text = deps.CONFIG_PATH.read_text(encoding="utf-8")
+    from server.user_paths import UserPaths
+
+    text = UserPaths(user_id=1).config_path.read_text(encoding="utf-8")
     # A representative comment + a provider block survive the round-trip.
     assert "Per-task provider chains" in text
     parsed = yaml.safe_load(text)

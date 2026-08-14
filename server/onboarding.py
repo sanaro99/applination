@@ -15,27 +15,17 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlmodel import select
 
-from .config_api import BIO_PATH, RESUME_PATH, STORIES_DIR
 from .db import Setting, User, session
-from .auth import require_owner, require_user
-from .deps import load_config, update_config
+from .auth import require_user
+from .deps import load_config, paths_for, update_config
 from .studio import _call, _resolve_chain
+from .user_secrets import SECRET_PATHS, secret_names
 
-# Owner-only, wholesale. Every endpoint here reads or writes the single global
-# config.yaml, which is not per-user until PR 3. Signup is open, so
-# without this any account could overwrite the owner's contact details, provider keys and search settings.
-#
-# Applied at the router rather than per-endpoint so a new endpoint added to this
-# file is owner-gated by default rather than by remembering.
-router = APIRouter(
-    prefix="/api/onboarding", tags=["onboarding"],
-    dependencies=[Depends(require_owner)],
-)
-
-# /status is the one exception: OnboardingGate polls it on every page load for
-# every user, so owner-gating it would 403 non-owners out of the whole app. It
-# lives on its own router with only require_user.
-status_router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
+# Per-user as of PR 3. Each account onboards its own config.yaml and
+# master_data/, so there is nothing here for one user to reach in another's
+# setup — and the /status split PR 2 needed (owner sees the truth, everyone else
+# a stub) is gone with it.
+router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 log = logging.getLogger("server.onboarding")
 
 # Provider -> env var that can supply its key (mirrors the providers layer).
@@ -72,37 +62,56 @@ def _set_setting(user_id: int, key: str, value: str) -> None:
         s.commit()
 
 
-def _provider_ready(llm: dict) -> bool:
-    """True if at least one LLM provider can actually be called (key set in
-    config or env, or a local Ollama base_url)."""
+def _provider_ready(llm: dict, user_id: int) -> bool:
+    """True if at least one LLM provider can actually be called.
+
+    ``load_config`` has already merged this user's stored keys into ``llm``, so
+    a plain check of the config covers BYOK. The stored-name check behind it
+    catches the case where the Fernet key is missing or rotated: the secret
+    exists but could not be decrypted, and reporting "no provider" would send
+    the user back through the wizard to re-enter a key that is already there.
+
+    The env-var fallback only counts when ALLOW_ENV_API_KEYS is on. Otherwise
+    the providers layer refuses to use it, and reporting the user as ready would
+    be a lie that surfaces as a provider auth error mid-run.
+    """
+    from src.providers import env_api_keys_allowed
+
+    allow_env = env_api_keys_allowed()
     for name, env in _PROVIDER_ENV.items():
         block = llm.get(name) or {}
-        if str(block.get("api_key") or "").strip() or os.environ.get(env):
+        if str(block.get("api_key") or "").strip():
+            return True
+        if allow_env and os.environ.get(env):
             return True
     ollama = llm.get("ollama") or {}
     if str(ollama.get("base_url") or "").strip():
         return True
-    return False
+    stored = set(secret_names(user_id))
+    return any(p in stored for p in SECRET_PATHS if p.endswith(".api_key"))
 
 
-def _count_stories() -> int:
-    if not STORIES_DIR.exists():
+def _count_stories(user: User) -> int:
+    stories_dir = paths_for(user).stories_dir
+    if not stories_dir.exists():
         return 0
-    return sum(1 for p in STORIES_DIR.glob("*.md") if not p.name.startswith("_"))
+    return sum(1 for p in stories_dir.glob("*.md") if not p.name.startswith("_"))
 
 
-def _compute_status(user_id: int) -> dict:
-    cfg = load_config() or {}
-    user = cfg.get("user") or {}
+def _compute_status(user: User) -> dict:
+    user_id = user.id
+    cfg = load_config(user) or {}
+    paths = paths_for(user)
+    contact = cfg.get("user") or {}
     llm = cfg.get("llm") or {}
 
-    name = str(user.get("full_name") or "").strip()
-    email = str(user.get("email") or "").strip()
+    name = str(contact.get("full_name") or "").strip()
+    email = str(contact.get("email") or "").strip()
     contact_ok = name.lower() not in _PLACEHOLDER_NAMES and bool(email) and "example.com" not in email
-    provider_ok = _provider_ready(llm)
-    resume_ok = RESUME_PATH.exists()
-    bio_ok = BIO_PATH.exists()
-    stories = _count_stories()
+    provider_ok = _provider_ready(llm, user_id)
+    resume_ok = paths.resume_path.exists()
+    bio_ok = paths.bio_path.exists()
+    stories = _count_stories(user)
 
     marked = _get_setting(user_id, "onboarded") == "1"
     can_run = contact_ok and provider_ok and resume_ok
@@ -120,42 +129,25 @@ def _compute_status(user_id: int) -> dict:
     }
 
 
-@status_router.get("/status")
+@router.get("/status")
 def status(user: User = Depends(require_user)) -> dict:
-    """Setup state for the onboarding gate.
-
-    Non-owners get a fixed "nothing to do" answer rather than the real one.
-    Onboarding configures the single global install, which only the owner can
-    do until PR 3 — and the real payload would otherwise report the owner's
-    setup progress to every account that signs up.
-    """
-    if not user.is_owner:
-        return {
-            "onboarded": True,
-            "marked_complete": True,
-            "can_run": False,
-            "steps": {
-                "provider": False,
-                "contact": False,
-                "resume": False,
-                "bio": False,
-                "stories": 0,
-            },
-        }
-    return _compute_status(user.id)
+    """Setup state for the onboarding gate. Every account gets its own real
+    answer now, and a fresh signup lands in the wizard rather than inheriting
+    somebody else's completed setup."""
+    return _compute_status(user)
 
 
 @router.post("/complete")
-def complete(user: User = Depends(require_owner)) -> dict:
+def complete(user: User = Depends(require_user)) -> dict:
     _set_setting(user.id, "onboarded", "1")
-    return {"ok": True, **_compute_status(user.id)}
+    return {"ok": True, **_compute_status(user)}
 
 
 @router.post("/reset")
-def reset(user: User = Depends(require_owner)) -> dict:
+def reset(user: User = Depends(require_user)) -> dict:
     """Re-open onboarding (does not delete any data)."""
     _set_setting(user.id, "onboarded", "0")
-    return {"ok": True, **_compute_status(user.id)}
+    return {"ok": True, **_compute_status(user)}
 
 
 # --- Structured config writers (preserve comments via ruamel) ----------------
@@ -171,16 +163,16 @@ class UserBody(BaseModel):
 
 
 @router.put("/user")
-def set_user(body: UserBody, user: User = Depends(require_owner)) -> dict:
+def set_user(body: UserBody, user: User = Depends(require_user)) -> dict:
     def mut(data: dict) -> None:
-        user = data.get("user")
-        if user is None:
-            user = {}
-            data["user"] = user
+        contact = data.get("user")
+        if contact is None:
+            contact = {}
+            data["user"] = contact
         for k, v in body.model_dump().items():
-            user[k] = v
-    update_config(mut)
-    return {"ok": True, **_compute_status(user.id)}
+            contact[k] = v
+    update_config(user, mut)
+    return {"ok": True, **_compute_status(user)}
 
 
 class ProviderBody(BaseModel):
@@ -193,7 +185,7 @@ class ProviderBody(BaseModel):
 
 @router.put("/provider")
 def set_provider(
-    body: ProviderBody, user: User = Depends(require_owner)
+    body: ProviderBody, user: User = Depends(require_user)
 ) -> dict:
     name = body.provider.strip().lower()
     if not name:
@@ -216,8 +208,10 @@ def set_provider(
             block["base_url"] = body.base_url
         if body.make_primary:
             llm["primary"] = name
-    update_config(mut)
-    return {"ok": True, **_compute_status(user.id)}
+    # update_config diverts block["api_key"] into encrypted UserSecret storage
+    # and writes the file with it blanked — the wizard does not have to know.
+    update_config(user, mut)
+    return {"ok": True, **_compute_status(user)}
 
 
 class SearchBody(BaseModel):
@@ -231,7 +225,7 @@ class SearchBody(BaseModel):
 
 @router.put("/search")
 def set_search(
-    body: SearchBody, user: User = Depends(require_owner)
+    body: SearchBody, user: User = Depends(require_user)
 ) -> dict:
     def mut(data: dict) -> None:
         search = data.get("search")
@@ -246,8 +240,8 @@ def set_search(
             search["max_jobs_per_day"] = body.max_jobs_per_day
         if body.min_match_score is not None:
             search["min_match_score"] = body.min_match_score
-    update_config(mut)
-    return {"ok": True, **_compute_status(user.id)}
+    update_config(user, mut)
+    return {"ok": True, **_compute_status(user)}
 
 
 # --- Resume import -----------------------------------------------------------
@@ -286,12 +280,12 @@ class ImportTextBody(BaseModel):
     provider: str | None = None
 
 
-def _do_import(raw_text: str, provider: str | None) -> dict:
+def _do_import(user: User, raw_text: str, provider: str | None) -> dict:
     if len(raw_text.strip()) < 40:
         raise HTTPException(400, "resume text is too short to import")
     from src.content_studio import import_resume, master_resume_to_yaml
 
-    chain = _resolve_chain(provider)
+    chain = _resolve_chain(user, provider)
     data = _call(chain, lambda p: import_resume(raw_text, provider=p))
     return {"text": master_resume_to_yaml(data), "fields": data}
 
@@ -299,6 +293,7 @@ def _do_import(raw_text: str, provider: str | None) -> dict:
 @router.post("/resume-import")
 async def resume_import(
     file: UploadFile | None = File(default=None),
+    user: User = Depends(require_user),
 ) -> dict:
     """Multipart upload (PDF/DOCX/TXT) -> extracted-text -> structured master
     resume YAML (preview; the wizard saves via PUT /api/master-data/resume)."""
@@ -306,10 +301,12 @@ async def resume_import(
         raise HTTPException(400, "no file uploaded")
     data = await file.read()
     text = _extract_text(file.filename or "resume", data)
-    return _do_import(text, None)
+    return _do_import(user, text, None)
 
 
 @router.post("/resume-import-text")
-def resume_import_text(body: ImportTextBody) -> dict:
+def resume_import_text(
+    body: ImportTextBody, user: User = Depends(require_user)
+) -> dict:
     """Same as resume-import but from pasted text (and optional provider pick)."""
-    return _do_import(body.text, body.provider)
+    return _do_import(user, body.text, body.provider)

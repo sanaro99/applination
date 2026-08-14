@@ -18,7 +18,7 @@ import logging
 import os
 import time
 
-from .base import LLMProvider, _parse_json
+from .base import LLMProvider, _parse_json, resolve_api_key
 
 LOG = logging.getLogger(__name__)
 
@@ -57,12 +57,10 @@ class OpenRouterProvider(LLMProvider):
         except ImportError:
             raise ImportError("pip install openai  # OpenRouter uses the OpenAI SDK")
 
-        key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
-        if not key:
-            raise RuntimeError(
-                "OpenRouter needs an API key. Set llm.openrouter.api_key in config.yaml "
-                "or the OPENROUTER_API_KEY environment variable."
-            )
+        key = resolve_api_key(
+            api_key, "OPENROUTER_API_KEY",
+            provider="OpenRouter", config_key="llm.openrouter.api_key",
+        )
 
         default_headers: dict[str, str] = {}
         if site_url:

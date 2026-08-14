@@ -67,12 +67,18 @@ def _find_sibling_json(docx_path: Path) -> Path | None:
     return None
 
 
-def _load_config() -> dict:
-    cfg_path = ROOT / "config.yaml"
-    if not cfg_path.exists():
-        return {}
-    with open(cfg_path, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+def _load_config(user_spec: str | None = None) -> dict:
+    """The config of the account this tweak runs as, API keys merged in.
+
+    Config is per-user now, so there is no repo-root config.yaml to read.
+    Imported here rather than at module scope: server/tweak.py imports
+    ``apply_tweak`` from this module and already has its own user in hand — it
+    must not drag a database import along with it.
+    """
+    from server.cli import context_for
+
+    _user, cfg, _paths = context_for(user_spec)
+    return cfg
 
 
 def _build_provider(provider_name: str | None, cfg: dict):
@@ -227,6 +233,11 @@ def main():
         "--no-pdf", action="store_true",
         help="Skip PDF conversion after tweak"
     )
+    ap.add_argument(
+        "--user", default=None,
+        help="Account whose config and API keys to use: an email or a numeric "
+             "id. Defaults to the owner.",
+    )
     args = ap.parse_args()
 
     logging.basicConfig(
@@ -255,7 +266,13 @@ def main():
 
     resume_json = json.loads(json_path.read_text(encoding="utf-8"))
 
-    cfg = _load_config()
+    from server.cli import UserNotFound
+
+    try:
+        cfg = _load_config(args.user)
+    except UserNotFound as e:
+        ap.error(str(e))
+        return
     user = cfg.get("user", {})
     provider = _build_provider(args.provider, cfg)
 

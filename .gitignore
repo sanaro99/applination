@@ -24,6 +24,10 @@
 /data/app.db
 /data/*.db
 /data/*.dump
+# Per-user data: every account's config.yaml (contact details, search settings),
+# master_data (resume, bio, personal stories) and output (generated resumes and
+# cover letters). This repository is public — none of it may ever be committed.
+/data/users/
 .job_cache.json
 
 # Deploy staging tarballs (docs/DEPLOY-SEATTLE.md Step 1 suggests creating

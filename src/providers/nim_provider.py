@@ -15,7 +15,7 @@ import logging
 import os
 import time
 
-from .base import LLMProvider, _parse_json
+from .base import LLMProvider, _parse_json, resolve_api_key
 
 LOG = logging.getLogger(__name__)
 
@@ -51,12 +51,10 @@ class NIMProvider(LLMProvider):
         except ImportError:
             raise ImportError("pip install openai")
 
-        key = api_key or os.environ.get("NVIDIA_API_KEY", "")
-        if not key:
-            raise RuntimeError(
-                "NIM needs an API key. Set llm.nim.api_key in config.yaml or "
-                "the NVIDIA_API_KEY env var."
-            )
+        key = resolve_api_key(
+            api_key, "NVIDIA_API_KEY",
+            provider="NIM", config_key="llm.nim.api_key",
+        )
         self.client = OpenAI(
             api_key=key,
             base_url=base_url,

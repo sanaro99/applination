@@ -171,20 +171,13 @@ def require_user(request: Request) -> User:
     return user
 
 
-def require_owner(request: Request) -> User:
-    """The owner account, or 403.
-
-    Guards the endpoints that still read the one global ``config.yaml`` /
-    ``master_data/`` — they are not per-user until PR 3, and signup is open, so
-    without this any account could read the owner's API keys.
-    """
-    user = require_user(request)
-    if not user.is_owner:
-        raise HTTPException(
-            403,
-            "owner-only: configuration and master data are not per-user yet",
-        )
-    return user
+# There is deliberately no `require_owner` any more. PR 2 needed one because
+# config, master data and the provider keys were a single global that only the
+# owner could safely touch; PR 3 made all three per-user, so every endpoint it
+# guarded is now correct under plain `require_user`. Keeping a dead
+# owner-gate around would invite the assumption that something is still
+# owner-only. `User.is_owner` itself stays — it marks the account the CLI
+# defaults to and the one the migration backfilled existing data onto.
 
 
 class SignupBody(BaseModel):

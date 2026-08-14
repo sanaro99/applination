@@ -307,7 +307,7 @@ container runs `alembic upgrade head` on start and creates the schema.
 **5. Confirm the schema exists and is empty:**
 
 ```bash
-sudo docker compose -p applination exec applination-db \
+sudo docker exec $(sudo docker ps -qf name=applination-db) \
   psql -U applination -d applination -c "\dt"
 # expect: alembic_version, application, appuser, chatmessage, chatsession,
 #         rankedjob, run, savedanswer, setting, usersecret, usersession
@@ -325,14 +325,14 @@ tested against a real Postgres.
 The schema is still empty at this point, so stepping back costs nothing:
 
 ```bash
-sudo docker compose -p applination exec applination-api \
+sudo docker exec $(sudo docker ps -qf name=applination-api) \
   alembic downgrade 314cc8e80422
 ```
 
 **6. Copy the data in.** Dry run first — it writes nothing:
 
 ```bash
-sudo docker compose -p applination exec applination-api \
+sudo docker exec $(sudo docker ps -qf name=applination-api) \
   python scripts/sqlite_to_postgres.py --sqlite /app/data/app.db --dry-run
 ```
 
@@ -343,7 +343,7 @@ so it cannot double-copy by accident.
 **6b. Upgrade back to head to adopt the copied rows:**
 
 ```bash
-sudo docker compose -p applination exec applination-api \
+sudo docker exec $(sudo docker ps -qf name=applination-api) \
   alembic upgrade head
 ```
 
@@ -353,7 +353,7 @@ as `(user_id, key)`. It prints the owner's id and email, and the account has
 **no usable password** until you set one:
 
 ```bash
-sudo docker compose -p applination exec -it applination-api \
+sudo docker exec -it $(sudo docker ps -qf name=applination-api) \
   python scripts/set_password.py <that-email>
 ```
 
@@ -364,7 +364,7 @@ which is why the password is set before the app is reachable.
 **7. Verify the counts match**, comparing against the SQLite source:
 
 ```bash
-sudo docker compose -p applination exec applination-db \
+sudo docker exec $(sudo docker ps -qf name=applination-db) \
   psql -U applination -d applination -c \
   "SELECT 'run' t, count(*) FROM run
    UNION ALL SELECT 'application', count(*) FROM application
@@ -387,9 +387,9 @@ that no longer exists.
 
 ```bash
 # Always dry-run first — it prints every move and every path rewrite.
-sudo docker compose -p applination exec applination-api   python scripts/migrate_to_multiuser.py --dry-run
+sudo docker exec $(sudo docker ps -qf name=applination-api) python scripts/migrate_to_multiuser.py --dry-run
 
-sudo docker compose -p applination exec applination-api   python scripts/migrate_to_multiuser.py
+sudo docker exec $(sudo docker ps -qf name=applination-api) python scripts/migrate_to_multiuser.py
 ```
 
 The moves are renames within one dataset, so `output/` migrates in constant
@@ -443,7 +443,7 @@ Postgres recovers from cleanly — but for a backup you can actually inspect and
 restore selectively, also take a logical dump:
 
 ```bash
-sudo docker compose -p applination exec applination-db \
+sudo docker exec $(sudo docker ps -qf name=applination-db) \
   pg_dump -U applination -d applination --format=custom \
   > /mnt/apps-pool/appconfig/applination/backups/app-$(date +%F).dump
 ```
@@ -474,6 +474,7 @@ sudo docker compose -p applination exec applination-db \
 | Postgres won't start after a version bump | `pgdata` was initialised by an older major version; restore the snapshot and pin the previous image tag |
 | `applination-db` unhealthy, logs say "there appears to be PostgreSQL data in /var/lib/postgresql/data (unused mount/volume)" | The compose file mounts `pgdata` at the *parent* `/var/lib/postgresql`, matching the postgres:18+ layout — confirm the YAML installed on the NAS matches `deploy/applination.compose.yaml`, not an older copy that mounts `.../data` directly |
 | `down`/`up` fails with `POSTGRES_PASSWORD is missing a value` even though it's set in `applination.env` | That's Compose's `${VAR}` interpolation, which only reads the shell/project `.env` — not a service's `env_file:`. `applination-db` gets `POSTGRES_PASSWORD` via `env_file:` like `applination-api` does, not a top-level default; if you're editing a hand-modified copy of the compose file, drop any `${POSTGRES_PASSWORD:?...}` default back to plain `env_file:` |
+| `docker compose -p applination exec ...` fails with `service "..." is not running` even though the container is healthy | TrueNAS's "Install via YAML" apps don't run compose from a directory where `-p applination` resolves the project. Use `docker exec` against the container directly instead: `sudo docker exec $(sudo docker ps -qf name=applination-<service>) ...` |
 | New run fails on a duplicate primary key | Sequences were not fast-forwarded — re-run the `setval` block at the end of `scripts/sqlite_to_postgres.py` |
 | Copy fails with `NOT NULL constraint failed: <table>.user_id` | The schema is at `head`; step back to `314cc8e80422`, copy, then `upgrade head` (Steps 5b–6b) |
 | Cannot sign in after the cutover; no password works | The adopted owner has an unusable hash by design — run `scripts/set_password.py <email>` |

@@ -302,6 +302,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     useUI();
   const pathname = usePathname();
 
+  // Hooks must run unconditionally on every render, so these live above the
+  // bare-route early returns below — otherwise navigating between a bare
+  // route (/login) and a chrome route changes the hook count and React
+  // throws "Rendered fewer hooks than expected."
+
+  // Restore the persisted collapse preference after mount (SSR renders the
+  // expanded default, so this avoids a hydration mismatch).
+  useEffect(() => {
+    setSidebarCollapsed(readStoredSidebarCollapsed());
+  }, [setSidebarCollapsed]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandOpen(true);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        toggleSidebar();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [setCommandOpen, toggleSidebar]);
+
   // Login and signup render bare. Deliberately without OnboardingGate: there
   // is no session there, so its status query would 401 and bounce the user in
   // a loop between /login and /onboarding.
@@ -324,26 +349,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </>
     );
   }
-
-  // Restore the persisted collapse preference after mount (SSR renders the
-  // expanded default, so this avoids a hydration mismatch).
-  useEffect(() => {
-    setSidebarCollapsed(readStoredSidebarCollapsed());
-  }, [setSidebarCollapsed]);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setCommandOpen(true);
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
-        e.preventDefault();
-        toggleSidebar();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [setCommandOpen, toggleSidebar]);
 
   return (
     <div className="flex h-svh overflow-hidden">

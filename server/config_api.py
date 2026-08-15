@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from .auth import require_user
 from .db import User
-from .deps import paths_for
+from .deps import load_config, paths_for, update_config
 from .user_paths import UserPaths
 from .user_secrets import extract_secrets, secrets_status
 
@@ -91,6 +91,33 @@ def put_config(body: TextBody, user: User = Depends(require_user)) -> dict:
             text = buf.getvalue()
 
     _write(paths.config_path, text)
+    return {"ok": True}
+
+
+class KeywordsBody(BaseModel):
+    keywords: list[str]
+
+
+@router.get("/search/keywords")
+def get_search_keywords(user: User = Depends(require_user)) -> dict:
+    """The target-roles list only (`search.keywords`), for the Master Data
+    'Target roles' tab. Kept separate from /api/onboarding/search, which also
+    writes remote_ok/onsite_cities/countries — this endpoint must not touch
+    those when a user only edits their roles after onboarding."""
+    cfg = load_config(user) or {}
+    keywords = (cfg.get("search") or {}).get("keywords") or []
+    return {"keywords": [str(k) for k in keywords]}
+
+
+@router.put("/search/keywords")
+def put_search_keywords(body: KeywordsBody, user: User = Depends(require_user)) -> dict:
+    def mut(data: dict) -> None:
+        search = data.get("search")
+        if search is None:
+            search = {}
+            data["search"] = search
+        search["keywords"] = [k.strip() for k in body.keywords if k.strip()]
+    update_config(user, mut)
     return {"ok": True}
 
 

@@ -259,6 +259,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  suggestKeywords: (body: {
+    description: string;
+    existing?: string[];
+    provider?: string;
+  }) =>
+    http<{ keywords: string[] }>("/api/master-data/roles/suggest", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   tweakContent: (body: {
     kind: "story" | "bio" | "resume";
     text: string;
@@ -419,6 +428,14 @@ export const api = {
     http<{ ok: boolean }>("/api/config", {
       method: "PUT",
       body: JSON.stringify({ text }),
+    }),
+
+  getSearchKeywords: () =>
+    http<{ keywords: string[] }>("/api/search/keywords"),
+  putSearchKeywords: (keywords: string[]) =>
+    http<{ ok: boolean }>("/api/search/keywords", {
+      method: "PUT",
+      body: JSON.stringify({ keywords }),
     }),
 
   getResume: () => http<{ text: string }>("/api/master-data/resume"),

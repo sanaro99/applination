@@ -108,6 +108,29 @@ def generate_story_endpoint(
     return GeneratedStory(filename=slug, text=text, fields=story)
 
 
+class SuggestKeywordsBody(BaseModel):
+    description: str
+    existing: list[str] = []
+    provider: str | None = None
+
+
+@router.post("/roles/suggest")
+def suggest_keywords_endpoint(
+    body: SuggestKeywordsBody, user: User = Depends(require_user)
+) -> dict:
+    if not body.description.strip():
+        raise HTTPException(400, "description is required")
+
+    from src.content_studio import suggest_keywords
+
+    chain = _resolve_chain(user, body.provider)
+    keywords = _call(
+        chain,
+        lambda p: suggest_keywords(body.description, provider=p, existing=body.existing),
+    )
+    return {"keywords": keywords}
+
+
 class TweakBody(BaseModel):
     kind: str
     text: str

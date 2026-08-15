@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-from .schemas import STORY_SCHEMA, MASTER_RESUME_SCHEMA
+from .schemas import STORY_SCHEMA, MASTER_RESUME_SCHEMA, KEYWORDS_SCHEMA
 
 # Frontmatter key order matching the existing story files.
 _STORY_KEYS = ("title", "tags", "role_fit", "company_fit", "one_liner")
@@ -74,6 +74,39 @@ def generate_story(
     )
     data = provider.json_call(system, user, max_tokens=1600, schema=STORY_SCHEMA)
     return _coerce_story(data)
+
+
+def suggest_keywords(
+    description: str, *, provider, existing: list[str] | None = None
+) -> list[str]:
+    """Suggest job-search keyword/role phrases from a freeform description of
+    the roles or kind of work the candidate wants.
+
+    Returns short phrases suitable for job-board query strings (matching the
+    style of `search.keywords` in config.yaml), e.g. "backend engineer intern",
+    not full sentences. Does not include anything already in `existing`.
+    """
+    existing_list = ", ".join(existing or []) or "(none yet)"
+    system = (
+        "You turn a candidate's description of the roles/work they want into "
+        "short job-search keyword phrases, the kind typed into a job board's "
+        "search box. Each phrase should be 2-5 words, specific enough to filter "
+        "listings (e.g. 'backend engineer intern', 'machine learning research', "
+        "'data engineer new grad'), not a full sentence and not a single generic "
+        "word. Prefer phrases matching how job postings are actually titled."
+    )
+    user = (
+        f"Keywords already in use (do not repeat these): {existing_list}\n\n"
+        f"Roles/work the candidate wants:\n{description.strip()}\n\n"
+        "Return a JSON object with a 'keywords' array of 2-8 new phrases."
+    )
+    data = provider.json_call(system, user, max_tokens=400, schema=KEYWORDS_SCHEMA)
+    out: list[str] = []
+    for k in data.get("keywords") or []:
+        s = str(k).strip()
+        if s:
+            out.append(s)
+    return out
 
 
 def import_resume(text: str, *, provider) -> dict:

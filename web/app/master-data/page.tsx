@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Plus, Sparkles } from "lucide-react";
+import { Loader2, Plus, Sparkles, X } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -46,6 +47,7 @@ export default function MasterDataPage() {
               <TabsTrigger value="resume">resume.yaml</TabsTrigger>
               <TabsTrigger value="bio">bio.md</TabsTrigger>
               <TabsTrigger value="stories">Stories</TabsTrigger>
+              <TabsTrigger value="roles">Target roles</TabsTrigger>
             </TabsList>
             <TabsContent value="resume" className="mt-4">
               <ResumeEditor />
@@ -55,6 +57,9 @@ export default function MasterDataPage() {
             </TabsContent>
             <TabsContent value="stories" className="mt-4">
               <StoriesEditor />
+            </TabsContent>
+            <TabsContent value="roles" className="mt-4">
+              <RolesEditor />
             </TabsContent>
           </Tabs>
         </CardContent>
@@ -227,6 +232,183 @@ function StoriesEditor() {
           setSelected(name);
         }}
       />
+    </div>
+  );
+}
+
+function RolesEditor() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["search-keywords"],
+    queryFn: () => api.getSearchKeywords(),
+  });
+  if (isLoading || !data) return <Skeleton className="h-[40svh] w-full" />;
+  return <RolesEditorInner key={data.keywords.join("\n")} initial={data.keywords} />;
+}
+
+function RolesEditorInner({ initial }: { initial: string[] }) {
+  const qc = useQueryClient();
+  const [list, setKeywords] = useState<string[]>(initial);
+  const [baseline] = useState<string[]>(initial);
+
+  const [manual, setManual] = useState("");
+  const [description, setDescription] = useState("");
+  const [provider, setProvider] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+
+  const suggest = useMutation({
+    mutationFn: () =>
+      api.suggestKeywords({
+        description: description.trim(),
+        existing: list,
+        provider: provider ?? undefined,
+      }),
+    onSuccess: (r) => {
+      const fresh = r.keywords.filter((k) => !list.includes(k));
+      if (fresh.length === 0) {
+        toast.info("No new suggestions — try describing it differently.");
+      }
+      setSuggestions(fresh);
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const save = useMutation({
+    mutationFn: (kw: string[]) => api.putSearchKeywords(kw),
+    onSuccess: () => {
+      toast.success("Target roles saved");
+      qc.invalidateQueries({ queryKey: ["search-keywords"] });
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  function addKeyword(k: string) {
+    const v = k.trim();
+    if (!v || list.includes(v)) return;
+    setKeywords([...list, v]);
+  }
+
+  function removeKeyword(k: string) {
+    setKeywords(list.filter((x) => x !== k));
+  }
+
+  const dirty =
+    list.length !== baseline.length || list.some((k, i) => k !== baseline[i]);
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <Label className="text-sm">
+          Roles / keywords you&apos;re searching for
+        </Label>
+        <p className="text-xs text-muted-foreground">
+          These are the search terms used to query job boards each run — e.g.
+          &quot;software engineer intern&quot;, &quot;machine learning
+          intern&quot;.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {list.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No roles yet — add one below.
+            </p>
+          )}
+          {list.map((k) => (
+            <Badge key={k} variant="secondary" className="gap-1 py-1 pl-2.5 pr-1 text-sm">
+              {k}
+              <button
+                type="button"
+                onClick={() => removeKeyword(k)}
+                className="ml-1 rounded-full p-0.5 hover:bg-muted-foreground/20"
+                aria-label={`Remove ${k}`}
+              >
+                <X className="size-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 pt-1">
+          <Input
+            value={manual}
+            onChange={(e) => setManual(e.target.value)}
+            placeholder="Add a role or keyword…"
+            className="max-w-xs"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addKeyword(manual);
+                setManual("");
+              }
+            }}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            onClick={() => {
+              addKeyword(manual);
+              setManual("");
+            }}
+            disabled={!manual.trim()}
+          >
+            <Plus className="size-4" /> Add
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-2 rounded-lg border p-4">
+        <Label className="text-sm">Suggest roles with AI</Label>
+        <p className="text-xs text-muted-foreground">
+          Describe the kind of work you want — a couple of role titles, or
+          just what you&apos;d like to work on — and get suggested search
+          keywords to add.
+        </p>
+        <Textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="e.g. backend or platform engineering roles, also open to anything hands-on with LLMs/RAG"
+          className="min-h-20"
+        />
+        <div className="flex items-center gap-2">
+          <ProviderSelect value={provider} onChange={setProvider} className="h-8 w-44 text-xs" />
+          <Button
+            size="sm"
+            className="gap-2"
+            onClick={() => suggest.mutate()}
+            disabled={!description.trim() || suggest.isPending}
+          >
+            {suggest.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Sparkles className="size-4" />
+            )}
+            Suggest
+          </Button>
+        </div>
+        {suggestions.length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-2">
+            {suggestions.map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => {
+                  addKeyword(k);
+                  setSuggestions((s) => s.filter((x) => x !== k));
+                }}
+                className="rounded-full border border-dashed px-3 py-1 text-sm text-muted-foreground hover:border-solid hover:text-foreground"
+              >
+                <Plus className="mr-1 inline size-3" />
+                {k}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end">
+        <Button onClick={() => save.mutate(list)} disabled={!dirty || save.isPending}>
+          {save.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+          Save
+        </Button>
+      </div>
     </div>
   );
 }

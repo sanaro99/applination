@@ -168,6 +168,12 @@ def require_user(request: Request) -> User:
     if user is None:
         raise HTTPException(401, "not authenticated")
     request.state.user_id = user.id
+    # Read by limits._user_or_ip. The demo is rate limited per IP rather than
+    # per user: its LLM calls are simulated and cost nothing, and a per-user
+    # limit on a shared account is one visitor locking out every other.
+    from .demo import is_demo_user
+
+    request.state.is_demo = is_demo_user(user)
     return user
 
 
@@ -205,14 +211,22 @@ class UserOut(BaseModel):
     id: int
     email: str
     is_owner: bool
+    # Drives the "AI responses are simulated" nudge in the web shell. Not
+    # stored: it is a comparison against a constant email (server/demo.py).
+    is_demo: bool = False
     created_at: datetime
 
 
 def _to_out(u: User) -> UserOut:
+    # Imported inside the function: server/demo.py imports hash_password and
+    # normalize_email from this module, so a module-level import is circular.
+    from .demo import is_demo_user
+
     return UserOut(
         id=u.id,  # type: ignore[arg-type]
         email=u.email,
         is_owner=u.is_owner,
+        is_demo=is_demo_user(u),
         created_at=u.created_at,
     )
 
@@ -275,6 +289,46 @@ def login(request: Request, response: Response, body: LoginBody) -> UserOut:
 # Hashed once at import so the no-such-user path does the same work as a real
 # verify (timing-equalisation only; the value is never a valid password).
 _DUMMY_HASH = _hasher.hash(secrets.token_urlsafe(32))
+
+
+@router.post("/demo", response_model=UserOut)
+@limiter.limit(LOGIN_LIMIT)
+def demo_login(request: Request, response: Response) -> UserOut:
+    """Sign in to the shared demo account. No credentials, by design.
+
+    Rate limited per IP on the same budget as login. There is no password to
+    guess here, but the first call may seed the account, and that is expensive
+    enough not to want in a loop.
+    """
+    from .demo import DEMO_EMAIL, demo_enabled, seed_demo
+
+    if not demo_enabled():
+        # 404 rather than 403: on a deployment with the demo switched off, the
+        # endpoint may as well not exist.
+        raise HTTPException(404, "not found")
+
+    with session() as s:
+        # noscope: resolving the demo account by its constant email, the same
+        # way login resolves an account before any tenant context exists.
+        user = s.exec(select(User).where(User.email == DEMO_EMAIL)).first()
+
+    if user is None:
+        # First visitor on a fresh install. Seed before letting them in, or
+        # they land on the empty dashboard the demo exists to avoid.
+        seed_demo()
+        with session() as s:
+            # noscope: the same constant-email resolution, after seeding.
+            user = s.exec(select(User).where(User.email == DEMO_EMAIL)).first()
+
+    if user is None or user.disabled:
+        raise HTTPException(404, "not found")
+
+    with session() as s:
+        token = create_session(s, user.id)  # type: ignore[arg-type]
+    out = _to_out(user)
+    _set_cookie(response, token, request)
+    log.info("demo session issued")
+    return out
 
 
 @router.post("/logout")

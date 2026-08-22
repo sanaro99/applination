@@ -25,9 +25,14 @@ def _user_or_ip(request: Request) -> str:
     ``require_user`` stashes the id on request.state. The IP fallback matters
     for the unauthenticated routes and means a missing user can never turn into
     an *unlimited* key.
+
+    The shared demo account is keyed by IP instead of by user. The per-user LLM
+    limit exists to cap spend on the shared worker, and a demo call spends
+    nothing: it is answered from a fixture. Keying it per user would let one
+    visitor lock every other visitor out of an account they all share.
     """
     user_id = getattr(request.state, "user_id", None)
-    if user_id is not None:
+    if user_id is not None and not getattr(request.state, "is_demo", False):
         return f"user:{user_id}"
     return f"ip:{get_remote_address(request)}"
 

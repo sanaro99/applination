@@ -188,8 +188,13 @@ export function ApplicationsTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((a) => (
-              <TableRow key={a.id} data-state={selected.has(a.id) ? "selected" : undefined}>
+            {filtered.map((a, i) => (
+              <TableRow
+                key={a.id}
+                // Anchors the product tour's "open one to see the work" step.
+                id={i === 0 ? "tour-first-application" : undefined}
+                data-state={selected.has(a.id) ? "selected" : undefined}
+              >
                 <TableCell>
                   <Checkbox
                     checked={selected.has(a.id)}

@@ -54,12 +54,14 @@ function ApplicationsView() {
             <span className="text-sm text-muted-foreground">
               {applications.length} total
             </span>
-            <InboxSync />
+            <span id="tour-inbox-sync">
+              <InboxSync />
+            </span>
           </div>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="table">
-            <TabsList>
+            <TabsList id="tour-applications-tabs">
               <TabsTrigger value="table">Table</TabsTrigger>
               <TabsTrigger value="kanban">Kanban</TabsTrigger>
             </TabsList>

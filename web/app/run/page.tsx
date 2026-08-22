@@ -305,7 +305,7 @@ export default function RunPage() {
     <div className="mx-auto max-w-7xl space-y-6">
       {!hasStarted ? (
         <BlurFade delay={0.05}>
-          <Card className="relative overflow-hidden">
+          <Card id="tour-run-config" className="relative overflow-hidden">
             <ShineBorder
               shineColor={[
                 "var(--color-chart-1)",
@@ -397,6 +397,7 @@ export default function RunPage() {
               )}
 
               <Button
+                id="tour-run-start"
                 onClick={() => setConfirmOpen(true)}
                 disabled={starting || activeElsewhere}
                 size="lg"

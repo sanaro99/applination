@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LogOut, User as UserIcon } from "lucide-react";
+import { Compass, LogOut, User as UserIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -16,10 +16,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api";
+import { useTourLauncher } from "@/components/tour/tour-root";
 
 export function UserMenu() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const startTour = useTourLauncher();
 
   const { data: user } = useQuery({
     queryKey: ["me"],
@@ -65,6 +67,11 @@ export function UserMenu() {
             )}
           </DropdownMenuLabel>
         </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={startTour}>
+          <Compass className="mr-2 size-4" />
+          Take the tour
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={() => logout.mutate()}

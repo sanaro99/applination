@@ -18,7 +18,9 @@ export default function ConfigPage() {
   });
   return (
     <div className="mx-auto max-w-5xl space-y-4">
-      <ProvidersPanel />
+      <div id="tour-providers">
+        <ProvidersPanel />
+      </div>
       <StoredSecretsCard />
       <GmailConnectCard />
       <Card>

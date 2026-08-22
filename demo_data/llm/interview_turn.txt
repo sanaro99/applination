@@ -1,0 +1,5 @@
+**Feedback:** The story is a good choice and the 4% figure gives it weight, but you spent most of the answer on the architecture before getting to what you personally did. Interviewers are listening for your decisions. You also said the fix "just worked"; say what you actually changed and why you believed it would help.
+
+**Model answer:** "A batch pipeline I owned at Northwind was dropping about 4% of events. It was invisible because the retry logic swallowed the failures and the graphs looked like normal load. I spent two weeks reading the retry path rather than adding instrumentation first, which in hindsight was backwards. The bug was that a retry re-enqueued to the same partition that was already saturated, so a slow consumer became a lossy one. I changed the retry to a separate queue with a backoff, and throughput went up about 30%. The lasting fix was the alert I added afterward, because the real failure was that nothing had been watching."
+
+**Next question:** Tell me about a time you disagreed with a technical decision someone more senior had made. What did you do?

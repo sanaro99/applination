@@ -137,8 +137,15 @@ def get_provider(
             model=_model("mistral-small-latest"),
         )
 
+    if name == "demo":
+        # Simulated responses for the shared demo account. Takes no API key by
+        # design — see src/providers/demo_provider.py.
+        from .demo_provider import DemoProvider
+        return DemoProvider(fixtures_dir=sub.get("fixtures_dir") or None)
+
     raise ValueError(
-        f"Unknown provider '{name}'. Options: claude, gemini, ollama, nim, openrouter, deepseek, mistral."
+        f"Unknown provider '{name}'. Options: claude, gemini, ollama, nim, "
+        f"openrouter, deepseek, mistral, demo."
     )
 
 

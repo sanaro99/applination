@@ -1,0 +1,5 @@
+I read the posting twice, mostly because of the line about owning a service end to end rather than shipping a feature and moving on. That is the part of the job I have been chasing. At Northwind Analytics I inherited a batch pipeline that quietly dropped about 4% of events, and the fix was not clever code; it was two weeks of reading the retry logic until the failure mode was obvious. Throughput went up 30% once it stopped silently retrying itself into a corner.
+
+Most of what I would bring is that habit. I built an internal dashboard at Trellis Labs that cut on-call triage time roughly in half, and the reason it worked was not the charts. It was sitting with the two engineers who got paged most and finding out that they always checked the same three things in the same order. I am comfortable being the person who asks the boring questions early, so that the interesting work is not built on a guess.
+
+I am finishing my degree this spring and looking for a team that treats production as part of the craft rather than as someone else's problem. The work described here reads like that, and I would like to talk about it.

@@ -36,6 +36,7 @@ import { useUI, readStoredSidebarCollapsed } from "@/lib/store";
 import { CommandPalette } from "@/components/command-palette";
 import { RunActivityWatcher } from "@/components/run-activity-watcher";
 import { AuthGate } from "@/components/auth-gate";
+import { DemoBanner } from "@/components/demo-banner";
 import { OnboardingGate } from "@/components/onboarding-gate";
 import { UserMenu } from "@/components/user-menu";
 
@@ -354,6 +355,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex h-svh overflow-hidden">
       <Sidebar />
       <div className="flex h-svh min-w-0 flex-1 flex-col overflow-hidden">
+        <DemoBanner />
         <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/70 px-4 backdrop-blur-xl sm:px-6">
           <div className="flex items-center gap-2">
             <Button

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,28 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const tooShort = mode === "signup" && password.length > 0 &&
     password.length < MIN_PASSWORD_LENGTH;
 
+  // Only offered when the server says a demo exists. A private deployment sets
+  // DEMO_ENABLED=0 and the link disappears rather than 404ing on click.
+  const { data: health } = useQuery({
+    queryKey: ["health"],
+    queryFn: api.health,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  async function onDemo() {
+    setError(null);
+    setBusy(true);
+    try {
+      const user = await api.demoLogin();
+      queryClient.setQueryData(["me"], user);
+      await queryClient.invalidateQueries();
+      router.replace("/");
+    } catch {
+      setError("The demo is unavailable right now.");
+      setBusy(false);
+    }
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -70,7 +92,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-6">
+    <div className="flex min-h-screen flex-col items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>{copy.title}</CardTitle>
@@ -137,6 +159,22 @@ export function AuthForm({ mode }: { mode: Mode }) {
           </p>
         </CardContent>
       </Card>
+
+      {/* Deliberately a muted line beside the card rather than a button: it
+          must not compete with the primary call to action. */}
+      {health?.demo && (
+        <p className="mt-3 w-full max-w-sm text-right text-xs text-muted-foreground">
+          Just exploring?{" "}
+          <button
+            type="button"
+            onClick={onDemo}
+            disabled={busy}
+            className="underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+          >
+            Try the demo
+          </button>
+        </p>
+      )}
     </div>
   );
 }

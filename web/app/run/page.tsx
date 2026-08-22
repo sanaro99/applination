@@ -52,6 +52,7 @@ import {
   type StageState,
 } from "@/components/stage-stepper";
 import { LogTerminal, type LogLine } from "@/components/log-terminal";
+import { SimulatedChip } from "@/components/demo-banner";
 
 interface LiveJob {
   idx: number;
@@ -471,9 +472,12 @@ export default function RunPage() {
                       </Button>
                     </>
                   ) : (
-                    <Button onClick={() => doRun()}>
-                      <Play className="size-4" /> Start run
-                    </Button>
+                    <>
+                      <SimulatedChip className="self-center" />
+                      <Button onClick={() => doRun()}>
+                        <Play className="size-4" /> Start run
+                      </Button>
+                    </>
                   )}
                 </DialogFooter>
               </DialogContent>

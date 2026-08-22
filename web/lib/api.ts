@@ -70,7 +70,12 @@ export function setUnauthorizedHandler(fn: (() => void) | null) {
 }
 
 /** Paths where a 401 is the answer, not a session problem. */
-const AUTH_PATHS = ["/api/auth/login", "/api/auth/signup", "/api/auth/me"];
+const AUTH_PATHS = [
+  "/api/auth/login",
+  "/api/auth/signup",
+  "/api/auth/demo",
+  "/api/auth/me",
+];
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -116,11 +121,14 @@ export type CurrentUser = {
   id: number;
   email: string;
   is_owner: boolean;
+  /** The shared demo account: its AI responses are simulated, not live calls. */
+  is_demo: boolean;
   created_at: string;
 };
 
 export const api = {
-  health: () => http<{ ok: boolean }>("/api/health"),
+  // `demo` tells the unauthenticated login page whether to offer the demo.
+  health: () => http<{ ok: boolean; demo: boolean }>("/api/health"),
 
   me: () => http<CurrentUser>("/api/auth/me"),
   login: (email: string, password: string) =>
@@ -133,6 +141,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
+  demoLogin: () =>
+    http<CurrentUser>("/api/auth/demo", { method: "POST" }),
   logout: () => http<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
   changePassword: (current_password: string, new_password: string) =>
     http<{ ok: boolean }>("/api/auth/change-password", {

@@ -119,6 +119,30 @@ def test_ranking_call_has_no_schema_but_needs_scores(provider):
     assert {"idx", "score", "reason"} <= set(out["scores"][0])
 
 
+def test_ranking_through_the_real_rank_jobs_call(provider):
+    """Drives Tailor.rank_jobs rather than an invented prompt.
+
+    The hand-written prompts in the tests either side of this one hid a real
+    bug: rank_jobs puts its "scores" contract in the *user* prompt, not the
+    system one, so dispatching on the system prompt returned {} for every
+    batch and _parse_scores quietly scored all 50 jobs 60. A flat ranking is
+    invisible in a passing test and obvious on the demo's triage tab.
+    """
+    from src.tailor import Tailor
+
+    tailor = Tailor(task_chains={"ranking": [provider]})
+    jobs = [
+        {"company": f"Company {i}", "title": "Software Engineer", "desc": "Build things."}
+        for i in range(30)
+    ]
+    scored = tailor.rank_jobs(jobs, "A new-grad backend engineer.")
+
+    assert len(scored) == 30
+    assert not any("parse failed" in s["reason"] for s in scored)
+    # The real failure mode was every job landing on the same fallback score.
+    assert len({s["score"] for s in scored}) > 1
+
+
 def test_ranking_scores_every_job_in_the_batch(provider):
     # A short list silently drops jobs: _parse_scores is handed batch_size and
     # fills the gap with nothing.

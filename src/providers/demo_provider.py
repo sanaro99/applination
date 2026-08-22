@@ -110,14 +110,17 @@ class DemoProvider(LLMProvider):
     ) -> dict:
         self._sleep()
         if schema is None:
-            # Two callers pass no schema and ask for different things.
-            # The ranker asks for {"scores": [...]} in prose and reads that key
-            # directly (src/tailor.py rank_jobs -> _parse_scores).
-            if "scores" in (system or ""):
+            # Two callers pass no schema and ask for different things. Both
+            # prompts are searched, not just the system one: rank_jobs puts its
+            # "scores" contract in the *user* prompt, and matching on the system
+            # prompt alone silently returned {} for every batch, which
+            # _parse_scores absorbed by scoring all 50 jobs 60.
+            haystack = f"{system or ''}\n{user or ''}".lower()
+            if "triage assistant" in haystack or '"scores"' in haystack:
                 return self._ranking_response(user)
             # src/tweak.py asks for an edited copy of a resume it embeds in the
             # user prompt. Returning {} here silently emptied the tweak.
-            if "resume editor" in (system or "").lower():
+            if "resume editor" in haystack:
                 return self._tweak_response(user)
             return {}
 

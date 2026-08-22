@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { NextStep, NextStepProvider, useNextStep } from "nextstepjs";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
 import { TourCard } from "@/components/tour/tour-card";
@@ -16,6 +16,28 @@ import {
 // extra optional field, so it satisfies NextStep's `steps` prop as-is.
 
 const SEEN_PREFIX = "applination.tour.v1.seen.";
+
+// Matches the sidebar's own collapse point (`md` in app-shell.tsx) — below
+// it the rail is 68px wide and content is cramped, so a side-anchored card
+// has nowhere to fit. See `TourContext.isNarrowViewport` in tour-steps.ts.
+const NARROW_VIEWPORT_QUERY = "(max-width: 767px)";
+
+function useIsNarrowViewport(): boolean {
+  // Defaults to false (desktop layout) for SSR/first paint; corrected on
+  // mount below. The tour only ever opens after mount (a click, or the
+  // auto-start effect), so this never renders a step against a stale guess.
+  const [narrow, setNarrow] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW_VIEWPORT_QUERY);
+    const update = () => setNarrow(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  return narrow;
+}
 
 /**
  * Per-user so switching accounts on one browser does not inherit someone
@@ -113,10 +135,15 @@ export function TourRoot({ children }: { children: React.ReactNode }) {
     queryFn: () => api.listApplications(),
     enabled: false,
   });
+  const isNarrowViewport = useIsNarrowViewport();
 
   const steps = useMemo(
-    () => buildTour({ hasApplications: (apps?.length ?? 0) > 0 }),
-    [apps],
+    () =>
+      buildTour({
+        hasApplications: (apps?.length ?? 0) > 0,
+        isNarrowViewport,
+      }),
+    [apps, isNarrowViewport],
   );
 
   return (

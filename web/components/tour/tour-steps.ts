@@ -9,6 +9,17 @@ export const TOUR_NAME = "product-tour";
  */
 export interface TourContext {
   hasApplications: boolean;
+  /**
+   * True under the ~768px breakpoint. nextstepjs assumes a fixed ~256px
+   * budget when deciding whether a side-anchored card fits (`CARD_SPACE` in
+   * its `checkSideCutOff`), but our card can be up to 22rem (352px) wide —
+   * on a narrow viewport that budget is wrong and the card runs off-screen
+   * regardless of which side is requested. `buildTour` drops `side`
+   * entirely in that case, which falls back to a centered card (still with
+   * the spotlight on the real target) rather than trusting the library's
+   * cutoff math to save it.
+   */
+  isNarrowViewport: boolean;
 }
 
 /**
@@ -220,11 +231,13 @@ export function buildTour(ctx: TourContext): TourStep[] {
     // welcome step (i === 0) has nothing to compare against, and later steps
     // on the same page already got it once.
     const changedPage = i > 0 && def.path !== prevPath;
+    const step = toStep(def);
     return {
-      ...toStep(def),
+      ...step,
       ...(nextPath && nextPath !== def.path ? { nextRoute: nextPath } : {}),
       ...(prevPath && prevPath !== def.path ? { prevRoute: prevPath } : {}),
       ...(changedPage ? { navHint: PATH_LABELS[def.path] } : {}),
+      ...(ctx.isNarrowViewport && step.side ? { side: undefined } : {}),
     };
   });
 }

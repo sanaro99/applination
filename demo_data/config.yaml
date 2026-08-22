@@ -1,0 +1,186 @@
+# =====================================================================
+# Applination - the shared DEMO account's configuration (John Doe)
+# ---------------------------------------------------------------------
+# Committed on purpose. server/demo.py copies this into the demo user's
+# data/users/<id>/config.yaml on every re-seed, so edit it here, not there:
+# anything changed in the live copy is wiped nightly.
+#
+# Everything below is fictional. This repository is public.
+# =====================================================================
+
+user:
+  full_name: "John Doe"
+  email: "demo@applination.app"
+  phone: "+1-555-0100"
+  location_city: "Seattle, WA"
+  linkedin: "linkedin.com/in/john-doe-demo"
+  github: "github.com/john-doe-demo"
+  portfolio: ""               # optional personal site
+
+# What kind of roles do you want?
+search:
+  # Keywords used to query job boards. Be specific. Quoted phrases are AND.
+  # Examples: ["software engineer intern", "data scientist", "ML engineer"]
+  keywords:
+  - software engineer new grad
+  - data engineer
+  - platform engineer
+  - backend engineer
+  last_n_hours: 24
+
+  # Remote / hybrid / onsite preference. Used for filtering + Excel column.
+  remote_ok: true
+  onsite_cities:
+  - Remote
+  - Seattle
+  - San Francisco
+
+  # Countries to restrict to (ISO codes). Used by Adzuna/JSearch where supported.
+  countries: ["us"]
+
+  # Maximum jobs written to the day's Excel + folder.
+  max_jobs_per_day: 12
+
+  # Only keep jobs whose match_score >= this (0-100). The LLM ranks them.
+  min_match_score: 55
+
+  # Skip re-processing jobs seen within the last N days (uses output/.job_cache.json).
+  # Set to 0 or use --no-cache flag to disable. Cuts costs ~80% on day 2+ runs.
+  cache_ttl_days: 7
+
+# =====================================================================
+# Job sources. Enable/disable and fill keys. All are free or free-tier.
+# =====================================================================
+sources:
+  remotive:
+    enabled: true          # No key required. Remote jobs only.
+
+  themuse:
+    enabled: true          # No key required. Good variety.
+
+  adzuna:
+    enabled: false         # Free. Register at https://developer.adzuna.com
+    app_id: ""
+    app_key: ""
+
+  jsearch:
+    enabled: false         # RapidAPI. LinkedIn+Indeed coverage. Free tier = 200/mo.
+    rapidapi_key: ""       # or set RAPIDAPI_KEY env var
+
+  greenhouse:
+    enabled: true
+    # A built-in list of ~250 known Greenhouse company slugs is used by default.
+    use_builtin_list: true
+    extra_companies: []    # add slugs from a company's careers URL
+
+  # SimplifyJobs / Pitt CSC intern list (no key needed). Updated daily.
+  simplify_github:
+    enabled: true
+    max_age_days: 9999  # get ALL currently open roles; set to 7 for "what's new"
+    us_only: true
+
+  # Lever — company career boards (no key needed). Add slugs you know use Lever.
+  lever:
+    enabled: false
+    last_n_hours: 720
+    companies: []          # e.g. [mistral, plaid] — verify at jobs.lever.co/{slug}
+
+# =====================================================================
+# LLM providers — primary + fallbacks.
+# Fill in the API key for at least ONE provider. The onboarding flow can
+# do this for you and test connectivity.
+# =====================================================================
+llm:
+  # The demo account never makes a real model call. `demo` serves
+  # committed fixtures from demo_data/llm/ so every AI flow works without
+  # an API key - see src/providers/demo_provider.py. No fallbacks: a
+  # fallback would be a real provider, and reaching it would mean
+  # spending somebody's money on a shared public account.
+  primary: "demo"          # claude | gemini | ollama | nim | openrouter | deepseek | mistral | demo
+  fallbacks: []
+
+  # Per-task provider chains. Omit a task block to inherit the global chain above.
+  # `thinking: false` turns off chain-of-thought for a task (DeepSeek v4 only;
+  # ignored by other providers). Recommended for simple, structured tasks like
+  # ranking + critique — v4 reasons by default, which adds latency + tokens and
+  # can truncate the answer, without improving a bounded scoring/grading call.
+  tasks: {}
+
+  critique_cover_letters: false
+  critique_top_n: 15
+  tailoring_premium_top_n: 3
+
+  claude:
+    api_key: ""                  # or set ANTHROPIC_API_KEY env var
+    model: "claude-haiku-4-5-20251001"
+  gemini:
+    api_key: ""                  # or set GOOGLE_API_KEY env var — free at aistudio.google.com
+    model: "gemini-2.5-flash"
+  openrouter:
+    api_key: ""                  # or set OPENROUTER_API_KEY env var — free at openrouter.ai/keys
+    model: "tencent/hy3-preview:free"
+    site_url: ""
+    site_name: "applination"
+  deepseek:
+    api_key: ""                  # or set DEEPSEEK_API_KEY env var — platform.deepseek.com
+    # deepseek-v4-flash — fast + very cheap, default. deepseek-v4-pro — reasoning, ~3x cost.
+    # (legacy deepseek-chat / deepseek-reasoner retired 2026-07-24 15:59 UTC — use v4-* names)
+    model: "deepseek-v4-flash"
+  mistral:
+    api_key: ""                  # or set MISTRAL_API_KEY env var — console.mistral.ai
+    model: "mistral-small-latest"
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "llama3.2"
+  nim:
+    api_key: ""                  # or set NVIDIA_API_KEY env var
+    base_url: "https://integrate.api.nvidia.com/v1"
+    model: "meta/llama-3.1-8b-instruct"
+
+# =====================================================================
+# Output + format
+# =====================================================================
+output:
+  root: "./output"              # folder tree is output/YYYY-MM-DD/Company_Role/
+  produce_pdf: true             # requires LibreOffice or Microsoft Word installed
+  font_name: "Times New Roman"
+  base_font_size: 10.0          # pt. Body text (headings are +2pt = 11pt).
+  margins_inches: 0.25          # left/right; top/bottom auto-set to 0.19"
+
+# =====================================================================
+# Close the loop — read recruiter replies + send reminders.
+# Uses Google OAuth (Gmail API), not an App Password. Create an OAuth client
+# in Google Cloud Console (APIs & Services > Credentials), enable the Gmail
+# API, add the redirect_uri below to the client's Authorized redirect URIs,
+# then paste client_id/client_secret here — the rest is done from the
+# Config page's "Connect Gmail" card (one-time consent flow; tokens are
+# stored outside config.yaml).
+# =====================================================================
+inbox:
+  enabled: false
+  client_id: ""                 # OAuth client ID from Google Cloud Console
+  client_secret: ""             # OAuth client secret
+  redirect_uri: "http://127.0.0.1:8000/api/inbox/oauth/callback"
+  scan_days: 30                 # how many days back to scan on each sync
+  min_confidence: 0.6           # only change status when the LLM is this sure (0-1)
+  auto_update_status: true      # advance applied -> interviewing/rejected/offer
+  max_classifications: 80       # cap LLM calls per sync (cost guard)
+
+reminders:
+  digest_enabled: false         # email a daily "what needs attention" digest
+  digest_to: ""                 # recipient; defaults to user.email
+  deadline_window_days: 7       # surface deadlines within this many days
+  follow_up_days: 10            # nudge applications with no reply after N days
+
+# =====================================================================
+# DeepSeek peak-hour pricing awareness (used by the web run trigger).
+# DeepSeek V4 may bill a ~2x surcharge during Beijing business hours
+# (UNCONFIRMED by official docs). When avoid_peak is true, triggering a
+# run inside a peak window prompts to schedule it for after the window.
+# Times are UTC "HH:MM-HH:MM". Set avoid_peak: false to disable entirely.
+# =====================================================================
+pricing:
+  avoid_peak: true
+  peak_windows_utc:
+  - "01:00-04:00"     # Beijing 09:00-12:00
+  - "06:00-10:00"     # Beijing 14:00-18:00

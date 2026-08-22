@@ -1,0 +1,117 @@
+{
+  "summary": "Final-year CS student who has shipped production data infrastructure. Cut silent event loss in a batch pipeline from 4% to under 0.1% and raised throughput 30%, then added the alerting that would have caught it in a day. Looking for backend and platform work where reliability is treated as part of the craft.",
+  "skills": [
+    {
+      "group": "Languages",
+      "items": [
+        "Python",
+        "Go",
+        "SQL",
+        "TypeScript",
+        "Bash"
+      ]
+    },
+    {
+      "group": "Data & Messaging",
+      "items": [
+        "PostgreSQL",
+        "Kafka",
+        "Redis",
+        "Airflow",
+        "dbt",
+        "Parquet",
+        "DuckDB"
+      ]
+    },
+    {
+      "group": "Infrastructure & SRE",
+      "items": [
+        "Docker",
+        "Kubernetes",
+        "Terraform",
+        "AWS",
+        "GitHub Actions",
+        "CI/CD"
+      ]
+    },
+    {
+      "group": "Engineering Practices",
+      "items": [
+        "Distributed Systems",
+        "Observability",
+        "On-call",
+        "System Design",
+        "Unit Testing",
+        "Code Review",
+        "REST APIs",
+        "Git"
+      ]
+    }
+  ],
+  "experience": [
+    {
+      "company": "Northwind Analytics",
+      "role": "Data Platform Intern",
+      "location": "Seattle, WA",
+      "dates": "Jun 2025 - Sep 2025",
+      "bullets": [
+        "Diagnosed a silent 4% event loss in a Kafka-backed pipeline unnoticed for eight months, tracing it to retries re-enqueued onto a saturated partition.",
+        "Moved retries to a dedicated queue with exponential backoff, cutting loss below 0.1% and raising end-to-end throughput about 30%.",
+        "Added freshness and drop-rate alerting plus the on-call runbook, turning an eight-month blind spot into a one-day detection.",
+        "Backfilled 14 months of affected records with an idempotent Airflow DAG, validating row counts against the upstream source before cutover.",
+        "Raised pipeline test coverage from 31% to 78% with integration tests against containerized Kafka and Postgres."
+      ]
+    },
+    {
+      "company": "Trellis Labs",
+      "role": "Software Engineering Intern",
+      "location": "Remote",
+      "dates": "Jan 2025 - May 2025",
+      "bullets": [
+        "Built an on-call triage dashboard in React and FastAPI that cut median time to first useful signal from 11 minutes to 5 across 40 engineers.",
+        "Designed it around the three checks the most-paged engineers already ran first, rather than surfacing every available metric.",
+        "Added a service-dependency view backed by recursive Postgres queries so responders could see blast radius in one place."
+      ]
+    },
+    {
+      "company": "Cascadia State University",
+      "role": "Teaching Assistant, Data Structures",
+      "location": "Seattle, WA",
+      "dates": "Sep 2024 - Present",
+      "bullets": [
+        "Lead two weekly sections for 120 students on trees, graphs, hashing and complexity analysis.",
+        "Rewrote the debugging lab around instrumenting a broken implementation, lifting median lab scores 12 points."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Course Scheduler",
+      "tech": "Python, OR-Tools, FastAPI, PostgreSQL",
+      "link": "github.com/john-doe-demo/course-scheduler",
+      "bullets": [
+        "Constraint solver timetabling 400 students across 60 sections under instructor, room and prerequisite constraints.",
+        "Cut solve time from 90 seconds to 4 by reformulating room assignment as a flow problem instead of a boolean matrix."
+      ]
+    },
+    {
+      "name": "Transit Delay Predictor",
+      "tech": "Python, scikit-learn, DuckDB, Streamlit",
+      "link": "github.com/john-doe-demo/transit-delay",
+      "bullets": [
+        "Predicts bus arrival delay from historical GTFS feeds and live weather; built in 36 hours, placed third of 42 teams.",
+        "Shipped a calibrated confidence interval instead of a fragile point estimate after cutting scope twice under time pressure."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "school": "Cascadia State University",
+      "degree": "BS Computer Science",
+      "location": "Seattle, WA",
+      "dates": "Sep 2022 - Jun 2026",
+      "gpa": "3.7/4.0",
+      "coursework": "Distributed Systems, Databases, Algorithms, Operating Systems, Machine Learning, Computer Networks"
+    }
+  ]
+}

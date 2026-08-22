@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ProviderSelect } from "@/components/provider-select";
+import { SimulatedChip } from "@/components/demo-banner";
 
 /**
  * Reusable "instruct the LLM to revise this" panel. Mirrors the resume
@@ -43,6 +44,7 @@ export function AiAssist({
       <div className="flex items-center justify-between gap-2">
         <Label className="flex items-center gap-1.5 text-sm font-medium">
           <Sparkles className="size-3.5 text-primary" /> {label}
+          <SimulatedChip />
         </Label>
         <ProviderSelect
           value={provider}

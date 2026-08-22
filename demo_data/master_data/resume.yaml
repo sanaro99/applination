@@ -1,0 +1,130 @@
+# =====================================================================
+# MASTER RESUME - the demo persona, John Doe. Entirely fictional.
+#
+# Committed on purpose: server/demo.py copies this into the demo account's
+# data/users/<id>/master_data/resume.yaml on every re-seed. Edit it here.
+#
+# The employers and school below are invented. A real company must never
+# appear to have employed a person who does not exist - this repository is
+# public. Real companies appear in demo_data/ only as public job postings.
+# =====================================================================
+
+# Pinned rather than derived. The derivation in src/profile.py counts any role
+# without "intern" in the title as full-time, which would read the teaching
+# assistantship as professional experience and describe a final-year student
+# as a professional.
+profile:
+  identity_titles: ["Software Engineer", "Data Platform Engineer"]
+  seniority: "new-grad"
+  preserve_fulltime: false
+  education_close: "BS Computer Science, Cascadia State University"
+
+summary_options:
+  - "Final-year CS student who has shipped production data infrastructure. Cut silent event loss in a batch pipeline from 4% to under 0.1% and raised throughput 30%. Looking for backend and platform work where reliability is part of the craft."
+  - "Backend-leaning new grad with two internships in data platform and developer tooling. Built an on-call triage dashboard that halved median time to first useful signal. BS Computer Science, June 2026."
+  - "Data platform engineer in training. Comfortable in Python and Go, at home in Postgres and Kafka, and unusually willing to read the retry logic until the failure mode is obvious."
+
+core_skills:
+  - "Python"
+  - "SQL"
+  - "Git"
+  - "REST APIs"
+  - "System Design"
+  - "Unit Testing"
+
+ats_adjacent_skills:
+  - "Go"
+  - "Docker"
+  - "Kubernetes"
+  - "PostgreSQL"
+  - "Kafka"
+  - "Airflow"
+  - "Terraform"
+  - "AWS"
+  - "CI/CD"
+  - "Data Structures & Algorithms"
+
+skills:
+  languages: ["Python", "Go", "SQL", "TypeScript", "Bash"]
+  frameworks: ["FastAPI", "Flask", "React", "dbt", "Airflow"]
+  data: ["PostgreSQL", "Kafka", "Redis", "Parquet", "DuckDB"]
+  devops_cloud: ["Docker", "Kubernetes", "Terraform", "AWS", "GitHub Actions"]
+  practices: ["Code Review", "Unit Testing", "Observability", "On-call", "System Design"]
+
+experience:
+  - company: "Northwind Analytics"
+    role: "Data Platform Intern"
+    location: "Seattle, WA"
+    start_date: "Jun 2025"
+    end_date: "Sep 2025"
+    bullets_all:
+      - "Diagnosed a silent 4% event loss in a Kafka-backed batch pipeline that had gone unnoticed for eight months, tracing it to retries re-enqueued onto an already saturated partition."
+      - "Moved retries onto a dedicated queue with exponential backoff, cutting loss to under 0.1% and raising end-to-end throughput about 30%."
+      - "Added the freshness and drop-rate alerting that would have caught the bug in a day, then wrote the runbook the on-call rotation still uses."
+      - "Backfilled 14 months of affected records with an idempotent Airflow DAG, validating row counts against the upstream source before cutover."
+      - "Cut nightly job runtime 22% by replacing per-row lookups with a broadcast join after profiling the DAG rather than guessing."
+      - "Wrote integration tests against a containerized Kafka and Postgres, taking the pipeline's test coverage from 31% to 78%."
+
+  - company: "Trellis Labs"
+    role: "Software Engineering Intern"
+    location: "Remote"
+    start_date: "Jan 2025"
+    end_date: "May 2025"
+    bullets_all:
+      - "Built an internal on-call triage dashboard in React and FastAPI that cut median time to first useful signal from 11 minutes to 5."
+      - "Designed it by shadowing the two most-paged engineers and encoding the three checks they always ran first, rather than surfacing every available metric."
+      - "Added a service-dependency view backed by Postgres recursive queries so responders could see blast radius without opening four tabs."
+      - "Instrumented the dashboard itself with structured logging, then used those logs to drop the two panels nobody ever opened."
+      - "Shipped behind a feature flag to 40 engineers over three weeks, collecting feedback in a weekly office hour."
+
+  - company: "Cascadia State University"
+    role: "Teaching Assistant, Data Structures"
+    location: "Seattle, WA"
+    start_date: "Sep 2024"
+    end_date: "Present"
+    bullets_all:
+      - "Lead two weekly sections for 120 students, covering trees, graphs, hashing and complexity analysis."
+      - "Rewrote the debugging lab after noticing most students could describe a data structure but not instrument one, lifting median lab scores 12 points."
+      - "Hold four office hours a week and grade roughly 60 submissions a fortnight with written feedback."
+
+projects:
+  - name: "Course Scheduler"
+    tech: "Python, OR-Tools, FastAPI, PostgreSQL"
+    link: "github.com/john-doe-demo/course-scheduler"
+    bullets_all:
+      - "Senior capstone: a constraint solver that timetables 400 students across 60 sections while respecting instructor availability, room capacity and prerequisite chains."
+      - "Cut solve time from 90 seconds to 4 by reformulating room assignment as a flow problem instead of a boolean matrix."
+      - "Exposed it as a FastAPI service with a what-if endpoint so the registrar could test a schedule change before committing it."
+
+  - name: "Transit Delay Predictor"
+    tech: "Python, scikit-learn, DuckDB, Streamlit"
+    link: "github.com/john-doe-demo/transit-delay"
+    bullets_all:
+      - "Built in 36 hours at a regional hackathon: predicts bus arrival delay from historical GTFS feeds and live weather."
+      - "Cut scope twice during the event, dropping a route-planning feature to ship an honest confidence interval instead of a fragile point estimate."
+      - "Placed third of 42 teams; the judges singled out the calibration plot."
+
+education:
+  - school: "Cascadia State University"
+    degree: "BS Computer Science"
+    location: "Seattle, WA"
+    start_date: "Sep 2022"
+    end_date: "Jun 2026"
+    gpa: "3.7/4.0"
+    coursework:
+      - "Distributed Systems"
+      - "Databases"
+      - "Algorithms"
+      - "Operating Systems"
+      - "Machine Learning"
+      - "Computer Networks"
+
+certifications: []
+
+awards:
+  - name: "Third Place, Cascadia Civic Hack"
+    date: "Mar 2025"
+    description: "Transit delay predictor, 42 teams."
+
+activities:
+  - "Organizer, Cascadia CS Reading Group (distributed systems papers, fortnightly)"

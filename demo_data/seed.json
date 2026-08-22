@@ -1,0 +1,332 @@
+{
+  "_comment": [
+    "Database fixture for the shared demo account. Loaded by server/demo.py.",
+    "",
+    "Every timestamp here is a RELATIVE offset, never an absolute date. The",
+    "seeder rebases them onto the current time, because a demo with fixed",
+    "dates rots in public: deadlines go negative, the upcoming-interviews card",
+    "empties, /stats flatlines, and the product starts advertising abandonment.",
+    "",
+    "The companies are real and publicly hiring; they appear here only as job",
+    "postings, which is what they are. The candidate is fictional."
+  ],
+
+  "runs": [
+    {
+      "key": "run-recent",
+      "days_ago": 1,
+      "duration_minutes": 7,
+      "status": "done",
+      "jobs_found": 214,
+      "applications_created": 6
+    },
+    {
+      "key": "run-older",
+      "days_ago": 8,
+      "duration_minutes": 9,
+      "status": "done",
+      "jobs_found": 198,
+      "applications_created": 6
+    }
+  ],
+
+  "applications": [
+    {
+      "run": "run-recent",
+      "company": "Stripe",
+      "title": "Software Engineer, New Grad",
+      "location": "Seattle, WA",
+      "url": "https://stripe.com/jobs/search",
+      "source": "greenhouse",
+      "match_score": 88,
+      "match_reason": "Payments infrastructure work maps directly onto the pipeline reliability experience.",
+      "folder": "Stripe_Software_Engineer_New_Grad",
+      "resume_file": "resume.docx",
+      "cover_file": "cover_letter.docx",
+      "status": "applied",
+      "applied_days_ago": 1,
+      "deadline_in_days": 12,
+      "tags": "priority,infra",
+      "description": "Build and operate the systems that move money. You will own services end to end, including their reliability, and work on data pipelines that must not lose a single event."
+    },
+    {
+      "run": "run-recent",
+      "company": "Datadog",
+      "title": "Software Engineer I, Data Platform",
+      "location": "Remote",
+      "url": "https://careers.datadoghq.com",
+      "source": "greenhouse",
+      "match_score": 91,
+      "match_reason": "Observability plus data platform is the strongest overlap in the whole pool.",
+      "folder": "Datadog_Software_Engineer_I_Data_Platform",
+      "resume_file": "resume.docx",
+      "cover_file": "cover_letter.docx",
+      "status": "interviewing",
+      "applied_days_ago": 6,
+      "interview_in_days": 3,
+      "deadline_in_days": 20,
+      "tags": "priority,observability",
+      "notes": "Recruiter screen went well. Technical round is a systems design on ingest pipelines.",
+      "description": "Work on the ingestion pipeline that handles trillions of events per day. Experience with Kafka, backpressure and exactly-once semantics is valued."
+    },
+    {
+      "run": "run-recent",
+      "company": "Cloudflare",
+      "title": "Systems Engineer, New Grad",
+      "location": "Remote",
+      "url": "https://www.cloudflare.com/careers",
+      "source": "greenhouse",
+      "match_score": 79,
+      "match_reason": "Systems focus fits; the role leans harder on Rust than the resume evidences.",
+      "folder": "Cloudflare_Systems_Engineer_New_Grad",
+      "resume_file": "resume.docx",
+      "cover_file": "cover_letter.docx",
+      "status": "generated",
+      "deadline_in_days": 5,
+      "tags": "systems",
+      "description": "Build the edge platform. Strong systems fundamentals required; Rust or Go experience preferred."
+    },
+    {
+      "run": "run-recent",
+      "company": "Snowflake",
+      "title": "Software Engineer, Data Pipelines",
+      "location": "Seattle, WA",
+      "url": "https://careers.snowflake.com",
+      "source": "greenhouse",
+      "match_score": 84,
+      "match_reason": "Batch pipeline ownership and backfill experience line up well.",
+      "folder": "Snowflake_Software_Engineer_Data_Pipelines",
+      "resume_file": "resume.docx",
+      "cover_file": "cover_letter.docx",
+      "status": "applied",
+      "applied_days_ago": 1,
+      "deadline_in_days": 9,
+      "tags": "data",
+      "description": "Own the pipelines that load customer data at scale. You will care about correctness, idempotency and cost."
+    },
+    {
+      "run": "run-recent",
+      "company": "Figma",
+      "title": "Software Engineer, Infrastructure",
+      "location": "San Francisco, CA",
+      "url": "https://www.figma.com/careers",
+      "source": "greenhouse",
+      "match_score": 72,
+      "match_reason": "Infrastructure fit is good; less evidence of the multiplayer/realtime work described.",
+      "status": "archived",
+      "tags": "",
+      "notes": "Requires 2+ years. Archiving rather than applying.",
+      "description": "Scale the infrastructure behind multiplayer design. Realtime systems experience preferred."
+    },
+    {
+      "run": "run-recent",
+      "company": "Notion",
+      "title": "Backend Engineer, New Grad",
+      "location": "Remote",
+      "url": "https://www.notion.so/careers",
+      "source": "lever",
+      "match_score": 68,
+      "match_reason": "Backend fundamentals match; the posting emphasises product work over platform.",
+      "status": "generated",
+      "deadline_in_days": 16,
+      "tags": "backend",
+      "description": "Build the backend behind Notion's document model. Postgres depth valued."
+    },
+
+    {
+      "run": "run-older",
+      "company": "Databricks",
+      "title": "Software Engineer, New Grad",
+      "location": "Seattle, WA",
+      "url": "https://www.databricks.com/company/careers",
+      "source": "greenhouse",
+      "match_score": 86,
+      "match_reason": "Spark and pipeline work is close to the Northwind experience.",
+      "folder": "Databricks_Software_Engineer_New_Grad",
+      "resume_file": "resume.docx",
+      "cover_file": "cover_letter.docx",
+      "status": "rejected",
+      "applied_days_ago": 8,
+      "tags": "data",
+      "notes": "Rejected after the online assessment. Timed out on the second problem.",
+      "description": "Join the team building the lakehouse platform. Distributed systems coursework and strong data fundamentals expected."
+    },
+    {
+      "run": "run-older",
+      "company": "Vercel",
+      "title": "Software Engineer, Platform",
+      "location": "Remote",
+      "url": "https://vercel.com/careers",
+      "source": "lever",
+      "match_score": 74,
+      "match_reason": "Developer-tooling instinct fits; less frontend depth than the posting wants.",
+      "status": "rejected",
+      "applied_days_ago": 9,
+      "tags": "devtools",
+      "notes": "No response for three weeks, then a form rejection.",
+      "description": "Build the platform developers deploy to. Node and TypeScript depth expected."
+    },
+    {
+      "run": "run-older",
+      "company": "Airtable",
+      "title": "Software Engineer, New Grad",
+      "location": "San Francisco, CA",
+      "url": "https://www.airtable.com/careers",
+      "source": "greenhouse",
+      "match_score": 66,
+      "match_reason": "Solid generalist match without a standout overlap.",
+      "status": "applied",
+      "applied_days_ago": 7,
+      "deadline_in_days": 2,
+      "tags": "",
+      "description": "Work across the stack on the Airtable application. Product sense valued."
+    },
+    {
+      "run": "run-older",
+      "company": "Grafana Labs",
+      "title": "Backend Engineer, Observability",
+      "location": "Remote",
+      "url": "https://grafana.com/about/careers",
+      "source": "greenhouse",
+      "match_score": 83,
+      "match_reason": "The on-call dashboard story is almost exactly this job.",
+      "status": "interviewing",
+      "applied_days_ago": 8,
+      "interview_in_days": 6,
+      "tags": "priority,observability",
+      "notes": "Take-home submitted. They asked for a short write-up on dashboard design tradeoffs.",
+      "description": "Build the backend for Grafana's observability stack. Go experience preferred; strong opinions about what belongs on a dashboard required."
+    },
+    {
+      "run": "run-older",
+      "company": "Linear",
+      "title": "Software Engineer",
+      "location": "Remote",
+      "url": "https://linear.app/careers",
+      "source": "lever",
+      "match_score": 61,
+      "match_reason": "Good engineering fit, but the role is senior and product-facing.",
+      "status": "archived",
+      "tags": "",
+      "notes": "Senior role. Keeping for reference.",
+      "description": "Build Linear. Small team, high bar, TypeScript throughout."
+    },
+    {
+      "run": "run-older",
+      "company": "Sentry",
+      "title": "Software Engineer, Ingest",
+      "location": "Seattle, WA",
+      "url": "https://sentry.io/careers",
+      "source": "greenhouse",
+      "match_score": 89,
+      "match_reason": "Event ingestion at volume, with an explicit emphasis on not dropping events.",
+      "folder": "Sentry_Software_Engineer_Ingest",
+      "resume_file": "resume.docx",
+      "cover_file": "cover_letter.docx",
+      "status": "offer",
+      "applied_days_ago": 8,
+      "tags": "priority,infra",
+      "notes": "Offer received. Two weeks to decide.",
+      "description": "Own the ingest pipeline that accepts events from millions of clients. Backpressure, retries and correctness under load are the daily work."
+    }
+  ],
+
+  "ranked_jobs": [
+    {"run": "run-recent", "company": "Stripe", "title": "Software Engineer, New Grad", "location": "Seattle, WA", "source": "greenhouse", "match_score": 88, "selected": true, "match_reason": "Payments infrastructure work maps directly onto the pipeline reliability experience."},
+    {"run": "run-recent", "company": "Datadog", "title": "Software Engineer I, Data Platform", "location": "Remote", "source": "greenhouse", "match_score": 91, "selected": true, "match_reason": "Observability plus data platform is the strongest overlap in the whole pool."},
+    {"run": "run-recent", "company": "Cloudflare", "title": "Systems Engineer, New Grad", "location": "Remote", "source": "greenhouse", "match_score": 79, "selected": true, "match_reason": "Systems focus fits; the role leans harder on Rust than the resume evidences."},
+    {"run": "run-recent", "company": "Snowflake", "title": "Software Engineer, Data Pipelines", "location": "Seattle, WA", "source": "greenhouse", "match_score": 84, "selected": true, "match_reason": "Batch pipeline ownership and backfill experience line up well."},
+    {"run": "run-recent", "company": "Figma", "title": "Software Engineer, Infrastructure", "location": "San Francisco, CA", "source": "greenhouse", "match_score": 72, "selected": true, "match_reason": "Infrastructure fit is good; less evidence of the multiplayer/realtime work described."},
+    {"run": "run-recent", "company": "Notion", "title": "Backend Engineer, New Grad", "location": "Remote", "source": "lever", "match_score": 68, "selected": true, "match_reason": "Backend fundamentals match; the posting emphasises product work over platform."},
+    {"run": "run-recent", "company": "Anduril", "title": "Software Engineer, New Grad", "location": "Seattle, WA", "source": "greenhouse", "match_score": 54, "selected": false, "match_reason": "Below threshold: embedded and C++ emphasis with no supporting evidence.", "description": "Build software for autonomous systems. C++ and embedded experience required."},
+    {"run": "run-recent", "company": "Robinhood", "title": "Software Engineer I", "location": "Menlo Park, CA", "source": "greenhouse", "match_score": 63, "selected": false, "match_reason": "Reasonable backend match, edged out by higher-scoring roles this run.", "description": "Work on the brokerage backend. Java and Kotlin throughout."},
+    {"run": "run-recent", "company": "Instacart", "title": "Software Engineer, Fulfillment", "location": "Remote", "source": "greenhouse", "match_score": 58, "selected": false, "match_reason": "Generic backend overlap; nothing that plays to the platform experience.", "description": "Optimize the fulfillment engine. Python and Rails."},
+    {"run": "run-recent", "company": "Coinbase", "title": "Software Engineer, New Grad", "location": "Remote", "source": "greenhouse", "match_score": 47, "selected": false, "dismissed": true, "match_reason": "Below threshold and outside the stated interests.", "description": "Build crypto infrastructure. Go and Solidity."},
+    {"run": "run-recent", "company": "Palantir", "title": "Software Engineer, New Grad", "location": "Seattle, WA", "source": "greenhouse", "match_score": 51, "selected": false, "dismissed": true, "match_reason": "Below threshold; deployment-heavy role with significant travel.", "description": "Forward deployed engineering. Significant client travel."},
+    {"run": "run-recent", "company": "Roblox", "title": "Software Engineer, Infrastructure", "location": "San Mateo, CA", "source": "greenhouse", "match_score": 44, "selected": false, "match_reason": "Below threshold: game infrastructure and C++ with no supporting evidence.", "description": "Scale the Roblox platform. C++ and Lua."},
+
+    {"run": "run-older", "company": "Databricks", "title": "Software Engineer, New Grad", "location": "Seattle, WA", "source": "greenhouse", "match_score": 86, "selected": true, "match_reason": "Spark and pipeline work is close to the Northwind experience."},
+    {"run": "run-older", "company": "Vercel", "title": "Software Engineer, Platform", "location": "Remote", "source": "lever", "match_score": 74, "selected": true, "match_reason": "Developer-tooling instinct fits; less frontend depth than the posting wants."},
+    {"run": "run-older", "company": "Airtable", "title": "Software Engineer, New Grad", "location": "San Francisco, CA", "source": "greenhouse", "match_score": 66, "selected": true, "match_reason": "Solid generalist match without a standout overlap."},
+    {"run": "run-older", "company": "Grafana Labs", "title": "Backend Engineer, Observability", "location": "Remote", "source": "greenhouse", "match_score": 83, "selected": true, "match_reason": "The on-call dashboard story is almost exactly this job."},
+    {"run": "run-older", "company": "Linear", "title": "Software Engineer", "location": "Remote", "source": "lever", "match_score": 61, "selected": true, "match_reason": "Good engineering fit, but the role is senior and product-facing."},
+    {"run": "run-older", "company": "Sentry", "title": "Software Engineer, Ingest", "location": "Seattle, WA", "source": "greenhouse", "match_score": 89, "selected": true, "match_reason": "Event ingestion at volume, with an explicit emphasis on not dropping events."},
+    {"run": "run-older", "company": "Discord", "title": "Software Engineer, New Grad", "location": "San Francisco, CA", "source": "greenhouse", "match_score": 57, "selected": false, "match_reason": "Realtime messaging focus; the resume's strengths are batch rather than streaming.", "description": "Build realtime messaging at scale. Elixir and Rust."},
+    {"run": "run-older", "company": "Asana", "title": "Software Engineer, New Grad", "location": "Remote", "source": "greenhouse", "match_score": 52, "selected": false, "match_reason": "Below threshold: product engineering with a heavy frontend component.", "description": "Build the Asana product. TypeScript and React."},
+    {"run": "run-older", "company": "Twilio", "title": "Software Engineer I", "location": "Remote", "source": "greenhouse", "match_score": 64, "selected": false, "match_reason": "Decent API-platform match, edged out on score this run.", "description": "Build the messaging APIs. Java and Go."},
+    {"run": "run-older", "company": "Plaid", "title": "Software Engineer, New Grad", "location": "Remote", "source": "lever", "match_score": 69, "selected": false, "match_reason": "Strong data-integration match; just missed the selection cutoff.", "description": "Build the financial data network. Go and TypeScript."}
+  ],
+
+  "chat_sessions": [
+    {
+      "title": "Prepping the pipeline story",
+      "mode": "chat",
+      "days_ago": 2,
+      "messages": [
+        {
+          "role": "user",
+          "content": "I keep getting asked to describe a hard technical problem. Which of my stories should I use, and how do I structure it?"
+        },
+        {
+          "role": "assistant",
+          "content": "Good question to prepare for, and you have stronger material for it than you are using.\n\n**Lead with the pipeline story.** The Northwind event-loss work is your best answer to anything about debugging, ownership, or persistence. The shape that works: the pipeline was dropping about 4% of events, nobody had noticed because the retry logic made the failure look like normal load, and it took two weeks of reading code to find. Land on the number, 30% throughput improvement, because it makes the whole story concrete.\n\n**What to tighten.** You tend to open with context and take too long to reach what you actually did. Try starting with the problem in one sentence, then go straight to your decision.\n\n**One thing to add.** Say what you would do differently. For this story that is easy and honest: you would have added the alerting first, because the reason it went unnoticed for months was that nothing was watching."
+        },
+        {
+          "role": "user",
+          "content": "That helps. How do I answer it if the interviewer wants something more recent than an internship?"
+        },
+        {
+          "role": "assistant",
+          "content": "Use the capstone scheduler, and lead with the reformulation rather than the tool.\n\nThe honest hard part was not writing a constraint program; OR-Tools does that. It was noticing that room assignment did not need the full generality of the model. Once sections are placed in time, assigning rooms is bipartite matching with capacities, and that has a fast exact solution. Ninety seconds became four.\n\nThat framing works better for a recency question because it is a decision you made this year, and because it shows you profile before you optimize. If they push on scale, be straight that 400 students is small and say what you would watch first if it were 40,000: the room-matching phase stays cheap, the time-slot phase is where it would hurt."
+        }
+      ]
+    },
+    {
+      "title": "Mock interview: Datadog",
+      "mode": "interview",
+      "days_ago": 4,
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "Thanks for making the time. I would like to spend most of this on how you work through problems rather than on your resume, so I will start broad.\n\nTell me about a time you found a bug that had been present for a while without anyone noticing. What made it hard to see, and how did you eventually track it down?"
+        },
+        {
+          "role": "user",
+          "content": "At my internship there was a pipeline built on Kafka with a few consumers and a Postgres sink, and the architecture was fairly standard, and we were losing events. I read the code and found it and fixed it and it just worked after that."
+        },
+        {
+          "role": "assistant",
+          "content": "**Feedback:** The story is a good choice and the 4% figure gives it weight, but you spent most of the answer on the architecture before getting to what you personally did. Interviewers are listening for your decisions. You also said the fix \"just worked\"; say what you actually changed and why you believed it would help.\n\n**Model answer:** \"A batch pipeline I owned at Northwind was dropping about 4% of events. It was invisible because the retry logic swallowed the failures and the graphs looked like normal load. I spent two weeks reading the retry path rather than adding instrumentation first, which in hindsight was backwards. The bug was that a retry re-enqueued to the same partition that was already saturated, so a slow consumer became a lossy one. I changed the retry to a separate queue with a backoff, and throughput went up about 30%. The lasting fix was the alert I added afterward, because the real failure was that nothing had been watching.\"\n\n**Next question:** Tell me about a time you disagreed with a technical decision someone more senior had made. What did you do?"
+        },
+        {
+          "role": "user",
+          "content": "Better. Let me try that one properly."
+        }
+      ]
+    }
+  ],
+
+  "saved_answers": [
+    {
+      "title": "Hardest technical problem",
+      "prompt": "Tell me about the hardest technical problem you have solved.",
+      "days_ago": 2,
+      "tags": "behavioral,debugging,pipeline",
+      "content": "A batch pipeline I owned at Northwind was dropping about 4% of events, and had been for eight months. It was invisible because the retry logic swallowed the failures and the graphs looked like normal load. I spent two weeks reading the retry path. The bug was that a retry re-enqueued to the partition that had already failed it, so a partition that fell behind became one that dropped. Moving retries to a dedicated queue with backoff cut loss to under 0.1% and raised throughput about 30%. The part I am actually proud of is the freshness alerting I added afterwards, because the real defect was that nothing was watching."
+    },
+    {
+      "title": "Why this team",
+      "prompt": "Why do you want to work here specifically?",
+      "days_ago": 3,
+      "tags": "motivation,observability",
+      "content": "Because the work is the part of engineering I already reach for. I spent an internship discovering that a system nobody was watching had been lying for eight months, and the fix that mattered was the alert, not the code. A team whose product is other people's visibility into their own systems is a team that already believes that, which means I would spend less time arguing for the boring half of reliability and more time doing it."
+    },
+    {
+      "title": "A time I cut scope",
+      "prompt": "Tell me about a time you had to make a tradeoff under time pressure.",
+      "days_ago": 5,
+      "tags": "behavioral,judgment,product",
+      "content": "At a 36-hour hackathon we set out to build a trip planner that routed around predicted bus delays. By hour ten the routing layer was clearly going to eat the rest of the time and still be fragile, so I argued for shipping just the prediction with a calibrated confidence interval. We cut again at hour twenty-four, dropping a live map for a static one, which the team resisted because it demos worse. It bought us the evaluation we had not run, and the model turned out to be overconfident on rainy evenings in a way we could correct. Third of 42 teams, and the judges mentioned the calibration plot."
+    }
+  ]
+}

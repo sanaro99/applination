@@ -65,6 +65,7 @@ import type {
 } from "@/lib/types";
 import { Markdown } from "@/components/coach/markdown";
 import { GroundPicker } from "@/components/coach/ground-picker";
+import { SimulatedChip } from "@/components/demo-banner";
 
 interface ModeCopy {
   newLabel: string;
@@ -305,8 +306,9 @@ export function ConversationWorkspace({ mode }: { mode: ChatMode }) {
       <section className="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-border bg-card">
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
-            <h2 className="truncate font-heading text-sm font-semibold">
-              {session?.title ?? copy.emptyTitle}
+            <h2 className="flex items-center gap-2 truncate font-heading text-sm font-semibold">
+              <span className="truncate">{session?.title ?? copy.emptyTitle}</span>
+              <SimulatedChip />
             </h2>
             <p className="text-[11px] text-muted-foreground">
               {copy.threadHint}

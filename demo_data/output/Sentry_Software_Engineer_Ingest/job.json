@@ -1,0 +1,17 @@
+{
+  "source": "greenhouse",
+  "company": "Sentry",
+  "title": "Software Engineer, Ingest",
+  "location": "Seattle, WA",
+  "url": "https://sentry.io/careers",
+  "description": "Own the ingest pipeline that accepts events from millions of clients. Backpressure, retries and correctness under load are the daily work.",
+  "posted_at": "",
+  "remote": false,
+  "salary": "",
+  "external_id": "",
+  "match_score": 0,
+  "match_reason": "",
+  "additional_questions": "",
+  "specific_instructions": "",
+  "tailored_summary_preview": "Final-year CS student who has shipped production data infrastructure. Cut silent event loss in a batch pipeline from 4% to under 0.1% and raised throughput 30%,"
+}

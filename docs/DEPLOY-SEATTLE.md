@@ -450,6 +450,43 @@ sudo docker exec $(sudo docker ps -qf name=applination-db) \
 
 ---
 
+## Nightly demo re-seed
+
+The demo account (`demo@applination.app`, persona "John Doe") is shared and
+fully writable, so any visitor can change anything in it — statuses, notes,
+master data, the lot. That is deliberate: a read-only demo of an interactive
+product demonstrates nothing. Restoring it nightly is the whole mitigation, and
+it only mitigates if something actually runs it.
+
+Verify by hand first, on the NAS:
+
+```bash
+sudo /mnt/apps-pool/appconfig/applination/scripts/seed_demo_cron.sh
+```
+
+Then install it:
+
+```bash
+sudo crontab -e
+```
+
+```
+# Restore the shared demo account at 04:10 local, when nobody is looking at it.
+10 4 * * * /mnt/apps-pool/appconfig/applination/scripts/seed_demo_cron.sh >> /var/log/applination-demo-seed.log 2>&1
+```
+
+The script resolves the container with `docker ps -qf name=applination-api`,
+the same way every other command in this document does, and runs
+`python scripts/seed_demo.py` inside it so it sees the same database and
+`data/users` volume as the server.
+
+**To turn the demo off entirely:** set `DEMO_ENABLED=0` in
+`/mnt/apps-pool/appconfig/applination.env` and restart the app. The link
+disappears from the login page and `POST /api/auth/demo` 404s. Remove the cron
+entry too, or it will log a failure every night.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |

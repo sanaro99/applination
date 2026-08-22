@@ -4,6 +4,14 @@ AI-assisted job application pipeline (internships, new-grad, and full-time). Eve
 
 **GitHub:** https://github.com/sanaro99/applination
 
+### Try it without signing up
+
+Every deployment carries a shared demo account (persona "John Doe") with a
+populated dashboard, a history of runs, generated resumes and cover letters, a
+ranked-job triage pool and a working Coach. Click **Try the demo** beside the
+login form. AI responses in that account are simulated rather than live model
+calls, and it is restored nightly.
+
 ---
 
 ## What it does

@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { Markdown } from "@/components/coach/markdown";
 import { GroundPicker } from "@/components/coach/ground-picker";
+import { SimulatedChip } from "@/components/demo-banner";
 
 export default function EssayPage() {
   const qc = useQueryClient();
@@ -123,6 +124,9 @@ export default function EssayPage() {
             )}
             Draft answer
           </Button>
+          <p className="flex justify-center">
+            <SimulatedChip />
+          </p>
         </CardContent>
       </Card>
 

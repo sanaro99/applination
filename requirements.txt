@@ -23,3 +23,7 @@ pypdf>=4.0.0
 google-auth>=2.30.0
 google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.130.0
+
+# Used by the test suite to prove DemoProvider's synthesised output actually
+# satisfies the schemas the real providers are held to (tests/test_demo_provider.py).
+jsonschema>=4.21

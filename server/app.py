@@ -56,6 +56,11 @@ PUBLIC_PATHS: frozenset[str] = frozenset({
     "/api/auth/login",
     "/api/auth/signup",
     "/api/auth/logout",   # clearing a cookie you may no longer have is harmless
+    # The shared demo account is the product's front door for anyone who has
+    # not signed up, so it cannot require a session. It takes no credentials,
+    # is rate limited per IP, and lands the caller in an account that holds
+    # nothing but committed fixture data (server/demo.py).
+    "/api/auth/demo",
     "/docs",
     "/docs/oauth2-redirect",
     "/openapi.json",
@@ -145,7 +150,11 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     def health() -> dict:
-        return {"ok": True}
+        from .demo import demo_enabled
+
+        # The login page is unauthenticated and needs to know whether to offer
+        # the demo link. This is the only public endpoint it already calls.
+        return {"ok": True, "demo": demo_enabled()}
 
     # The auth router is the only one mounted without require_user — login and
     # signup obviously cannot require a session. Its own routes that do

@@ -1,0 +1,7 @@
+Good question to prepare for, and you have stronger material for it than you are using.
+
+**Lead with the pipeline story.** The Northwind event-loss work is your best answer to anything about debugging, ownership, or persistence. The shape that works: the pipeline was dropping about 4% of events, nobody had noticed because the retry logic made the failure look like normal load, and it took two weeks of reading code to find. Land on the number, 30% throughput improvement, because it makes the whole story concrete.
+
+**What to tighten.** You tend to open with context and take too long to reach what you actually did. Try starting with the problem in one sentence, then go straight to your decision. The background can come out in follow-up questions.
+
+**One thing to add.** Say what you would do differently. For this story that is easy and honest: you would have added the alerting first, because the reason it went unnoticed for months was that nothing was watching. Interviewers read that as judgment rather than as a weakness.

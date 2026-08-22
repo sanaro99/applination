@@ -221,7 +221,8 @@ def main():
     )
     ap.add_argument(
         "--provider",
-        choices=["claude", "gemini", "ollama", "nim", "openrouter", "deepseek", "mistral"],
+        choices=["claude", "gemini", "ollama", "nim", "openrouter", "deepseek",
+                 "mistral", "demo"],
         default=None,
         help="LLM provider to use for this tweak (overrides config primary)"
     )

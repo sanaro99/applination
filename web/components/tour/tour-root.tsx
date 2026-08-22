@@ -12,6 +12,8 @@ import {
   TOUR_START_PATH,
   buildTour,
 } from "@/components/tour/tour-steps";
+// buildTour's return type (TourStep[]) is structurally a Step[] with an
+// extra optional field, so it satisfies NextStep's `steps` prop as-is.
 
 const SEEN_PREFIX = "applination.tour.v1.seen.";
 

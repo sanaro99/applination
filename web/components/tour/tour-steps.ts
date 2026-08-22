@@ -122,7 +122,10 @@ const STEPS: TourStepDef[] = [
     title: "Close the loop from your inbox",
     content:
       "Connect Gmail and this reads replies from companies you applied to, then moves each application forward on its own — interview scheduled, rejected, offer. Classification runs inside your browser, so the emails never leave it.",
-    side: "bottom-left",
+    // The anchor sits flush against the right edge of its header; "-left"
+    // grows the card rightward off-screen. "-right" grows it leftward, into
+    // the page, which is the only direction with room.
+    side: "bottom-right",
     scrollOffset: HEADER_CLEARANCE,
     ...RETRY,
   },
@@ -152,10 +155,34 @@ const STEPS: TourStepDef[] = [
     title: "That's the tour",
     content:
       "Have a look around — nothing here is locked. If you want this walkthrough again, it lives in this menu and in the ⌘K palette.",
-    side: "bottom-left",
+    // Same fix as the inbox-sync step above: this anchor is also flush
+    // against the right edge of the header.
+    side: "bottom-right",
     ...RETRY,
   },
 ];
+
+/**
+ * `Step` plus the nav breadcrumb `buildTour` derives for a page-changing step.
+ * Not part of nextstepjs's own `Step` — read via this type in `TourCard`.
+ */
+export interface TourStep extends Step {
+  navHint?: string;
+}
+
+/**
+ * Sidebar nav group + label for each path a step can land on, shown as a
+ * breadcrumb so a step that jumps to a new page tells you which nav tab it
+ * came from — the tour otherwise teleports the user with no explanation of
+ * how they'd get there themselves.
+ */
+const PATH_LABELS: Record<string, string> = {
+  "/": "Workspace · Dashboard",
+  "/run": "Workspace · Run",
+  "/applications": "Workspace · Applications",
+  "/coach": "Prepwork · Coach",
+  "/config": "Setup · Config",
+};
 
 /**
  * Where the tour has to be standing before it starts. The opening step is
@@ -183,16 +210,21 @@ function toStep(def: TourStepDef): Step {
  * point: a dropped step would otherwise leave its neighbour navigating to a
  * page the tour no longer visits.
  */
-export function buildTour(ctx: TourContext): Step[] {
+export function buildTour(ctx: TourContext): TourStep[] {
   const kept = STEPS.filter((s) => s.when?.(ctx) ?? true);
 
-  return kept.map((def, i): Step => {
+  return kept.map((def, i): TourStep => {
     const nextPath = kept[i + 1]?.path;
     const prevPath = kept[i - 1]?.path;
+    // Only the first step of a fresh page gets the breadcrumb — the opening
+    // welcome step (i === 0) has nothing to compare against, and later steps
+    // on the same page already got it once.
+    const changedPage = i > 0 && def.path !== prevPath;
     return {
       ...toStep(def),
       ...(nextPath && nextPath !== def.path ? { nextRoute: nextPath } : {}),
       ...(prevPath && prevPath !== def.path ? { prevRoute: prevPath } : {}),
+      ...(changedPage ? { navHint: PATH_LABELS[def.path] } : {}),
     };
   });
 }

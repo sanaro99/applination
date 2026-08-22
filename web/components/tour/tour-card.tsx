@@ -5,6 +5,7 @@ import type { CardComponentProps } from "nextstepjs";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useIsDemo } from "@/components/demo-banner";
+import type { TourStep } from "@/components/tour/tour-steps";
 
 /**
  * The tour popover. Supplied to nextstepjs as `cardComponent`, which is the
@@ -23,6 +24,9 @@ export function TourCard({
   const isDemo = useIsDemo();
   const isFirst = currentStep === 0;
   const isLast = currentStep === totalSteps - 1;
+  // Only set on the first step of a page the tour just navigated to — see
+  // `buildTour` in tour-steps.ts.
+  const navHint = (step as TourStep).navHint;
 
   return (
     <div className="w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl shadow-black/25">
@@ -41,6 +45,12 @@ export function TourCard({
           </button>
         )}
       </div>
+
+      {navHint && (
+        <p className="mt-2.5 text-xs font-medium text-muted-foreground">
+          You got here via <span className="text-foreground">{navHint}</span>
+        </p>
+      )}
 
       <h2 className="mt-3 font-heading text-base font-semibold tracking-tight">
         {step.title}

@@ -2,6 +2,7 @@
 has to stay fictional -- this repository is public."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -104,6 +105,66 @@ def test_persona_employers_are_invented():
         assert entry["company"] in invented, entry["company"]
     for entry in _resume()["education"]:
         assert entry["school"] in invented, entry["school"]
+
+
+def _document_text(path: Path) -> str:
+    """Everything inside a committed document, including the parts nobody
+    looks at: docx is a zip, and a PDF carries its hyperlink targets as
+    annotations rather than as visible text."""
+    import zipfile
+
+    if path.suffix == ".docx":
+        try:
+            with zipfile.ZipFile(path) as z:
+                return "\n".join(
+                    z.read(n).decode("utf-8", "ignore") for n in z.namelist()
+                )
+        except zipfile.BadZipFile:
+            return ""
+    return path.read_bytes().decode("utf-8", "ignore")
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted(p for p in (DEMO / "output").rglob("*") if p.suffix in {".docx", ".pdf"}),
+    ids=lambda p: f"{p.parent.name}/{p.name}",
+)
+def test_committed_documents_carry_only_the_demo_persona(path):
+    """Every contact detail in a committed document must be the demo's.
+
+    This exists because a real leak got this far: `python -m src.tweak` without
+    `--user` defaults to the *owner*, so a regenerated resume embedded the
+    repository owner's real email, LinkedIn and GitHub as PDF hyperlink
+    annotations. The visible text still said John Doe, so reading the document
+    did not reveal it, and this repository is public.
+    """
+    text = _document_text(path)
+
+    # Hyperlink targets specifically, because that is where the leak was and
+    # because they survive in the clear: a PDF keeps them as `/URI(...)`
+    # annotations even when the visible text is a compressed stream, and .docx
+    # keeps them as relationship `Target="..."` entries. A looser scan over the
+    # whole byte stream matches compressed binary that happens to contain an
+    # "@" and reports it as an email address.
+    found = re.findall(r"/URI\s*\(([^)]*)\)", text)
+    found += re.findall(r'Target="([^"]*)"', text)
+    # Plus any strict, dotted email address in readable text.
+    found += re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text)
+    found = [
+        f for f in found
+        if "@" in f or "linkedin.com" in f or "github.com" in f
+    ]
+    allowed = {"demo@applination.app", "john-doe-demo"}
+    for item in found:
+        assert any(a in item for a in allowed), (
+            f"{path.name} carries a contact detail that is not the demo "
+            f"persona's: {item}"
+        )
+
+    # A resume with no contact details at all would pass the loop above
+    # vacuously, so require the demo's own on the documents that expose text.
+    if path.suffix == ".docx" and path.name.startswith("resume"):
+        assert "demo@applination.app" in text, f"{path.name} has no demo contact"
 
 
 def test_no_em_dashes_in_rendered_content():

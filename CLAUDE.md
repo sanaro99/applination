@@ -91,6 +91,45 @@ guarded is gone.
 - **CLI is owner-operated** and takes `--user <email|id>` (`server/cli.py`),
   resolving the same paths and decrypted keys the server uses.
 
+## Demo account
+
+A shared, committable demo account — persona **John Doe**, `demo@applination.app`
+— lets anyone try the product without signing up. Entry is `POST /api/auth/demo`
+(public, per-IP rate limited, seeds on first call); the login and signup pages
+offer it beside the form when `GET /api/health` reports `demo: true`.
+
+- **`demo_data/`** is the committed fixture: `config.yaml`, `master_data/`,
+  generated documents under `output/`, `seed.json` (runs, applications, ranked
+  pool, chat history, saved answers) and `llm/` (canned model responses).
+  Timestamps in `seed.json` are **relative offsets**, rebased at seed time —
+  absolute dates rot in public (deadlines go negative, `/stats` flatlines).
+- **`server/demo.py`** seeds that fixture into an ordinary `data/users/<id>/`
+  tree and the tenant tables. Idempotent. The account is identified by the
+  constant `DEMO_EMAIL`, **not a DB column** — there is no migration. Every
+  query carries `# noscope:` because the seeder runs outside any request.
+- **`src/providers/demo_provider.py`** answers every LLM call from
+  `demo_data/llm/`. `text_call` dispatches on cues in the system prompt;
+  `json_call` receives a schema and **no task name**, so it serves a fixture for
+  the tailored resume, returns *clean* results for the critique and line-fit
+  rescue (inventing findings there damages the output being checked), and
+  synthesises anything else from the schema itself. The demo config sets
+  `llm.primary: demo`, so **nothing else in `src/` knows the demo exists**.
+- **Regenerating the documents:** `python scripts/build_demo_output.py`. It
+  drives `process_job` over the postings in `seed.json` — deliberately *not*
+  `run_pipeline`, which fetches live postings whose folders would never match
+  the fixture.
+- **The demo is fully writable and restored nightly** by
+  `scripts/seed_demo.py` (cron wrapper: `scripts/seed_demo_cron.sh`, installed
+  per `docs/DEPLOY-SEATTLE.md`). A read-only demo of an interactive product
+  demonstrates nothing.
+- The demo user is **exempt from the per-user LLM rate limit** — simulated calls
+  cost nothing, and a per-user limit on a shared account is one visitor locking
+  out every other. Per-IP limits still apply.
+- `DEMO_ENABLED=0` disables the whole thing.
+- **Everything in `demo_data/` is fictional** — this repository is public. The
+  persona's employers and school are invented; real companies appear only as
+  public job postings.
+
 ## Commits & version control
 
 - Commit and push after every meaningful feature, fix, or doc change — don't batch unrelated changes.
@@ -176,7 +215,7 @@ Paths below are per-user, under `data/users/<id>/master_data/` (the repo's own
 - `user:` — contact info used in rendered documents
 - `search:` — keywords, `min_match_score` (default 55), `max_jobs_per_day` (default 50), location filters
 - `sources:` — enable/disable each scraper; Greenhouse slugs listed here
-- `llm:` — global `primary` + `fallbacks`; each provider block (`claude`/`gemini`/`ollama`/`nim`/`openrouter`/`deepseek`/`mistral`) has `api_key` + `model`. `llm.tasks.<task>` gives per-workflow overrides (`primary`/`fallbacks`/`models: {provider: model}`/`thinking: false`); task keys are `ranking`, `tailoring`, `tailoring_premium`, `cover_letter`, `critique`, `answer_questions`, `relinefit`, `coach`, `interview`, `essay`, `content_studio` (any omitted task inherits the global chain). `thinking: false` disables chain-of-thought for that task's DeepSeek v4 providers (v4-flash/pro **reason by default** and emit `reasoning_content` — recognized in `deepseek_provider._REASONING_MODEL_HINTS`, which reserves token headroom so CoT doesn't truncate the answer into "JSON parse failed" retries; disabling it via `extra_body={"thinking":{"type":"disabled"}}` is preferred for bounded structured tasks like ranking/critique — faster + cheaper). Most tasks default `thinking` **on**; tasks in `factory._THINKING_OFF_BY_DEFAULT` (currently `relinefit`, the Tier-2 line-fit bullet rescue in `tailor_graph`) default **off** because CoT eats the budget on that bounded mechanical rewrite and returns empty content — override with `thinking: true`. Ignored by non-DeepSeek providers. The `/workflows` page edits this visually via `PUT /api/llm-config`, which writes through **ruamel.yaml** to preserve comments + other sections (`server/deps.update_llm_config`). Also `critique_cover_letters`, `critique_top_n`, `tailoring_premium_top_n`.
+- `llm:` — global `primary` + `fallbacks`; each provider block (`claude`/`gemini`/`ollama`/`nim`/`openrouter`/`deepseek`/`mistral`) has `api_key` + `model`. `demo` is an eighth provider with no key and no config: it serves committed fixtures for the demo account (see **Demo account**). `llm.tasks.<task>` gives per-workflow overrides (`primary`/`fallbacks`/`models: {provider: model}`/`thinking: false`); task keys are `ranking`, `tailoring`, `tailoring_premium`, `cover_letter`, `critique`, `answer_questions`, `relinefit`, `coach`, `interview`, `essay`, `content_studio` (any omitted task inherits the global chain). `thinking: false` disables chain-of-thought for that task's DeepSeek v4 providers (v4-flash/pro **reason by default** and emit `reasoning_content` — recognized in `deepseek_provider._REASONING_MODEL_HINTS`, which reserves token headroom so CoT doesn't truncate the answer into "JSON parse failed" retries; disabling it via `extra_body={"thinking":{"type":"disabled"}}` is preferred for bounded structured tasks like ranking/critique — faster + cheaper). Most tasks default `thinking` **on**; tasks in `factory._THINKING_OFF_BY_DEFAULT` (currently `relinefit`, the Tier-2 line-fit bullet rescue in `tailor_graph`) default **off** because CoT eats the budget on that bounded mechanical rewrite and returns empty content — override with `thinking: true`. Ignored by non-DeepSeek providers. The `/workflows` page edits this visually via `PUT /api/llm-config`, which writes through **ruamel.yaml** to preserve comments + other sections (`server/deps.update_llm_config`). Also `critique_cover_letters`, `critique_top_n`, `tailoring_premium_top_n`.
 - `output:` — root dir, font, font size, margins, `produce_pdf` flag
 - `inbox:` — Close-the-loop inbox sync (disabled by default). `client_id`/`client_secret` (a Google Cloud OAuth client — connect from the Config page; the token itself lives in the `Setting` DB table, not here), `redirect_uri`, `scan_days`, `min_confidence` (status-change threshold), `auto_update_status`, `max_classifications` (per-sync LLM cost cap).
 - `reminders:` — `digest_enabled`, `digest_to` (defaults to `user.email`), `deadline_window_days`, `follow_up_days`. Digest sends via the same Gmail OAuth connection as inbox sync (`src/gmail_api.send_via_gmail_api`).

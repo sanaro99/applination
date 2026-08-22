@@ -115,7 +115,10 @@ export default function DashboardPage() {
         </div>
       </BlurFade>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        id="tour-dashboard-stats"
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+      >
         {stats.map((stat, i) => (
           <BlurFade key={stat.label} delay={0.1 + i * 0.05}>
             <Card className="overflow-hidden">
@@ -183,7 +186,9 @@ export default function DashboardPage() {
       )}
 
       <BlurFade delay={0.14}>
-        <RemindersCard />
+        <div id="tour-reminders">
+          <RemindersCard />
+        </div>
       </BlurFade>
 
       <div className="grid gap-4 lg:grid-cols-2">

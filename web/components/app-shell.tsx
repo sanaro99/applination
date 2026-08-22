@@ -38,6 +38,7 @@ import { RunActivityWatcher } from "@/components/run-activity-watcher";
 import { AuthGate } from "@/components/auth-gate";
 import { DemoBanner } from "@/components/demo-banner";
 import { OnboardingGate } from "@/components/onboarding-gate";
+import { TourRoot } from "@/components/tour/tour-root";
 import { UserMenu } from "@/components/user-menu";
 
 interface NavItem {
@@ -215,7 +216,7 @@ function Sidebar() {
         </div>
       </div>
       <ScrollArea className="flex-1 px-3 py-4">
-        <nav className="flex flex-col gap-6">
+        <nav id="tour-sidebar-nav" className="flex flex-col gap-6">
           {navSections.map((section) => (
             <div key={section.label} className="flex flex-col gap-1">
               <span
@@ -351,54 +352,61 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  // TourRoot wraps only the authenticated chrome: the tour points at the
+  // sidebar and the pages behind it, none of which exist on the bare routes
+  // that returned above.
   return (
-    <div className="flex h-svh overflow-hidden">
-      <Sidebar />
-      <div className="flex h-svh min-w-0 flex-1 flex-col overflow-hidden">
-        <DemoBanner />
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/70 px-4 backdrop-blur-xl sm:px-6">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="-ml-1 hidden size-8 text-muted-foreground hover:text-foreground md:inline-flex"
-              onClick={toggleSidebar}
-              title={sidebarCollapsed ? "Expand sidebar (⌘B)" : "Collapse sidebar (⌘B)"}
-              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {sidebarCollapsed ? (
-                <PanelLeftOpen className="size-4" />
-              ) : (
-                <PanelLeftClose className="size-4" />
-              )}
-            </Button>
-            <PageTitle />
-          </div>
-          <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 text-muted-foreground"
-              onClick={() => setCommandOpen(true)}
-            >
-              <Command className="size-3.5" />
-              <span className="hidden sm:inline">Search</span>
-              <kbd className="hidden rounded bg-muted px-1.5 py-0.5 text-[10px] sm:inline">
-                ⌘K
-              </kbd>
-            </Button>
-            <ThemeToggle />
-            <UserMenu />
-          </div>
-        </header>
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-          {children}
-        </main>
+    <TourRoot>
+      <div className="flex h-svh overflow-hidden">
+        <Sidebar />
+        <div className="flex h-svh min-w-0 flex-1 flex-col overflow-hidden">
+          <DemoBanner />
+          <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/70 px-4 backdrop-blur-xl sm:px-6">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="-ml-1 hidden size-8 text-muted-foreground hover:text-foreground md:inline-flex"
+                onClick={toggleSidebar}
+                title={sidebarCollapsed ? "Expand sidebar (⌘B)" : "Collapse sidebar (⌘B)"}
+                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                {sidebarCollapsed ? (
+                  <PanelLeftOpen className="size-4" />
+                ) : (
+                  <PanelLeftClose className="size-4" />
+                )}
+              </Button>
+              <PageTitle />
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 text-muted-foreground"
+                onClick={() => setCommandOpen(true)}
+              >
+                <Command className="size-3.5" />
+                <span className="hidden sm:inline">Search</span>
+                <kbd className="hidden rounded bg-muted px-1.5 py-0.5 text-[10px] sm:inline">
+                  ⌘K
+                </kbd>
+              </Button>
+              <ThemeToggle />
+              <span id="tour-user-menu">
+                <UserMenu />
+              </span>
+            </div>
+          </header>
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+            {children}
+          </main>
+        </div>
+        <CommandPalette />
+        <RunActivityWatcher />
+        <AuthGate />
+        <OnboardingGate />
       </div>
-      <CommandPalette />
-      <RunActivityWatcher />
-      <AuthGate />
-      <OnboardingGate />
-    </div>
+    </TourRoot>
   );
 }

@@ -148,6 +148,21 @@ offer it beside the form when `GET /api/health` reports `demo: true`.
 - **Prepwork (`server/chat.py` + `server/coach_context.py`)** — a profile-grounded conversational assistant. `ChatSession.mode` is `chat` (Coach) or `interview` (mock interview: one question at a time → coached feedback + model answer + next question; `POST /sessions/{id}/kickoff` seeds the first question). `coach_context.py` assembles `(system, user)` prompts from `bio.md` + `resume.yaml` + matched stories (`reference_loader.match_stories`), reusing the cover-letter voice + anti-fabrication "BINDING" language; it also builds the interview-kickoff and essay prompts. Essay drafter is one-shot (`POST /api/chat/essay`). Good replies save to the answer bank (`SavedAnswer`) and can attach to an application's `answers.md`. All three flows route through `_run_chain(task=...)` → the per-task provider chain (`coach`/`interview`/`essay`), falling back to the global chain. **Send-and-wait, no streaming** (no provider streams today).
 - **`src/pipeline.py`** — `run_pipeline(cfg, *, paths, dry_run, no_pdf, no_cache, on_event)` is the importable orchestrator. `paths` is required and says whose data the run reads and where it writes (a `PipelinePaths` Protocol, so `src/` never imports `server/`). CLI `python -m src.main` delegates to it. The `on_event` callback fans progress events through `server/events.py` to all SSE subscribers; it also emits a `rank_pool` event (full scored candidate list, capped at 200, selected jobs always included) used to populate the triage view — fires in dry-run too.
 - **`web/`** — Next.js 16 (App Router, Turbopack) + Tailwind v4 + shadcn/ui + MagicUI. Nav groups: **Workspace** (`/` dashboard + upcoming-deadlines + **Reminders** card (calendar/digest), `/run` live SSE progress, `/applications` table+kanban / detail + **Sync inbox** button, `/single` 3-step wizard), **Prepwork** (`/coach` chat, `/interview` mock interview, `/essay` drafter — `/coach` + `/interview` share `components/coach/conversation-workspace.tsx` parametrized by `mode`; assistant text rendered with `react-markdown`; per-conversation job grounding via a searchable `ground-picker.tsx`; answer-bank sheet), **Insights** (`/runs` + `/runs/[id]` history/log/event-timeline + **Ranked jobs** triage tab, `/runs/compare` two-run diff, `/stats` Recharts), **Setup** (`/config` raw config.yaml editor + provider tests + stored-key status, `/workflows` visual per-workflow LLM routing editor, `/master-data` resume.yaml + bio.md + stories with **"New story" from a description** and an **"Improve with AI"** panel on each tab via `components/ai-assist.tsx`). Application detail has a resume **version diff** (`lib/resume-diff.ts`) and inline cover-letter editing. Server state via TanStack Query, ephemeral UI via Zustand. Theme via next-themes (dark default; unified indigo accent — all chart/badge colors flow through CSS tokens in `globals.css`, light mode works). Cmd+K palette. A mounted `RunActivityWatcher` toasts when a background run finishes.
+- **Guided tour (`web/components/tour/`)** — a one-pass walkthrough that
+  spotlights one element per stop across Dashboard → Run → Applications →
+  Coach → Config, then leaves the user free to navigate. Built on
+  **`nextstepjs`**, chosen because it is the only maintained tour library with
+  built-in cross-route steps *and* a `cardComponent` hook, so the popover is
+  our own shadcn card and there is no vendor CSS to re-theme for dark and
+  light. `tour-steps.ts` holds every step as data and derives each step's
+  `nextRoute`/`prevRoute` from the `path` of its neighbours — hardcoding them
+  breaks as soon as a step is filtered out. Steps carry an optional `when`
+  predicate and are dropped when their data does not exist, because
+  nextstepjs strands the card at its previous position if a selector never
+  resolves. Anchors are plain `id="tour-*"` attributes on existing elements.
+  Auto-starts once per account (`localStorage`, keyed by user id, marked on
+  *start* so a mid-tour reload does not replay it) and only on the dashboard;
+  replayable from the user menu and the ⌘K palette.
 
 **Scheduling:**
 - Linux/macOS: `bash scripts/setup_cron.sh`

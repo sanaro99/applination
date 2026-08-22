@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  Compass,
   FileText,
   Gauge,
   LayoutDashboard,
@@ -24,10 +25,12 @@ import {
 } from "@/components/ui/command";
 import { useUI } from "@/lib/store";
 import { api } from "@/lib/api";
+import { useTourLauncher } from "@/components/tour/tour-root";
 
 export function CommandPalette() {
   const { commandOpen, setCommandOpen } = useUI();
   const router = useRouter();
+  const startTour = useTourLauncher();
   const { data: apps } = useQuery({
     queryKey: ["applications", "palette"],
     queryFn: () => api.listApplications(),
@@ -73,6 +76,17 @@ export function CommandPalette() {
           </CommandItem>
           <CommandItem onSelect={() => go("/stats")}>
             <Gauge className="size-4" /> Stats
+          </CommandItem>
+        </CommandGroup>
+        <CommandSeparator />
+        <CommandGroup heading="Help">
+          <CommandItem
+            onSelect={() => {
+              setCommandOpen(false);
+              startTour();
+            }}
+          >
+            <Compass className="size-4" /> Take the tour
           </CommandItem>
         </CommandGroup>
         {apps && apps.length > 0 && (

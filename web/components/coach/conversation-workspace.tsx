@@ -361,7 +361,10 @@ export function ConversationWorkspace({ mode }: { mode: ChatMode }) {
         </ScrollArea>
 
         {/* Composer */}
-        <div className="shrink-0 border-t border-border p-3">
+        <div
+          id="tour-coach-composer"
+          className="shrink-0 border-t border-border p-3"
+        >
           <div className="mx-auto flex max-w-3xl items-end gap-2">
             <Textarea
               value={draft}

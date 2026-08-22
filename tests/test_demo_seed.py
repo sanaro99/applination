@@ -213,4 +213,20 @@ def test_seeded_applications_point_at_real_documents(seeded_env):
     if not apps:
         pytest.skip("no documents committed yet; see scripts/build_demo_output.py")
     for app in apps:
-        assert (Path(app.folder_path) / app.resume_file).is_file(), app.folder_path
+        folder = Path(app.folder_path)
+        assert (folder / app.resume_file).is_file(), app.folder_path
+        assert (folder / app.cover_file).is_file(), app.folder_path
+        # The download buttons offer PDFs, so a docx-only folder is a 404 in
+        # the UI rather than a missing nicety.
+        assert (folder / "resume.pdf").is_file(), app.folder_path
+        assert (folder / "cover_letter.pdf").is_file(), app.folder_path
+
+
+def test_one_application_has_two_resume_versions(seeded_env):
+    """The application detail page renders a version diff. With a single
+    version it has nothing to compare and the feature looks broken."""
+    seeded_env.seed_demo()
+    with db.session() as s:
+        apps = s.exec(select(Application).where(Application.resume_file != "")).all()
+    versioned = [a for a in apps if (Path(a.folder_path) / "resume.v2.docx").is_file()]
+    assert versioned, "no demo application has a second resume version"

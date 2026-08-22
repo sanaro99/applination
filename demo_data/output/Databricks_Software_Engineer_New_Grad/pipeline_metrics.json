@@ -1,0 +1,48 @@
+{
+  "company": "Databricks",
+  "title": "Software Engineer, New Grad",
+  "quality_tier": "standard",
+  "steps": [
+    {
+      "name": "tailor",
+      "bullets": {
+        "single": 11,
+        "double": 0,
+        "forbidden": 3,
+        "short": 0,
+        "overlong": 0
+      }
+    },
+    {
+      "name": "line_fitter",
+      "bullets": {
+        "single": 11,
+        "double": 0,
+        "forbidden": 3,
+        "short": 0,
+        "overlong": 0
+      }
+    },
+    {
+      "name": "relinefit_rescue",
+      "bullets": {
+        "single": 11,
+        "double": 0,
+        "forbidden": 3,
+        "short": 0,
+        "overlong": 0
+      }
+    }
+  ],
+  "started_at": 1787373787.932362,
+  "llm_calls": 0,
+  "total_seconds": 7.35,
+  "final_band_counts": {
+    "single": 11,
+    "double": 0,
+    "forbidden": 3,
+    "short": 0,
+    "overlong": 0
+  },
+  "final_forbidden_count": 3
+}

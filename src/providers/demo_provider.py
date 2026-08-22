@@ -25,6 +25,7 @@ information:
 """
 from __future__ import annotations
 
+import json
 import logging
 import random
 import re
@@ -109,13 +110,70 @@ class DemoProvider(LLMProvider):
     ) -> dict:
         self._sleep()
         if schema is None:
-            # The ranker is the one caller that passes no schema: it asks for
-            # {"scores": [{"idx", "score", "reason"}]} in prose and reads that
-            # key directly (src/tailor.py rank_jobs -> _parse_scores).
+            # Two callers pass no schema and ask for different things.
+            # The ranker asks for {"scores": [...]} in prose and reads that key
+            # directly (src/tailor.py rank_jobs -> _parse_scores).
             if "scores" in (system or ""):
                 return self._ranking_response(user)
+            # src/tweak.py asks for an edited copy of a resume it embeds in the
+            # user prompt. Returning {} here silently emptied the tweak.
+            if "resume editor" in (system or "").lower():
+                return self._tweak_response(user)
             return {}
+
+        # The tailored resume is the demo's centrepiece, and it is the one
+        # output where schema-walked filler is not good enough: the walker
+        # cannot know that a GPA is "3.7/4.0" rather than a sentence, and it
+        # emits three identical education entries because the schema only says
+        # "at least one". So this one has a real fixture. The staleness risk
+        # that argues against fixtures elsewhere is covered by
+        # tests/test_demo_provider.py, which validates it against the schema.
+        if _looks_like_resume(schema):
+            fixture = self._json_fixture("resume.json")
+            if fixture is not None:
+                return fixture
+
+        # Review and repair steps must come back clean. Both of these ask "what
+        # is wrong with this draft", and a walker that answers by inventing
+        # something actively damages the output it was asked to check: the
+        # line-fitter rescue overwrote two good project bullets with the same
+        # generic sentence, and a fabricated critique can trigger a revise loop
+        # that rewrites a resume nobody complained about.
+        for keys, clean in _CLEAN_RESPONSES:
+            if keys <= set(schema.get("required") or ()):
+                return dict(clean)
+
         return _synthesise(schema, rng=self._rng)
+
+    def _json_fixture(self, filename: str) -> dict | None:
+        raw = self._fixture(filename)
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            LOG.warning("demo fixture %s is not valid JSON; synthesising", filename)
+            return None
+
+    def _tweak_response(self, user: str) -> dict:
+        """Return the resume the caller sent, with one visible edit.
+
+        A tweak that changes nothing renders an empty version diff, which reads
+        as broken rather than as simulated. Echoing the input back means
+        successive tweaks compose the way real ones do, instead of every
+        version reverting to the same fixture.
+        """
+        current = _embedded_json(user, "CURRENT RESUME JSON:")
+        if current is None:
+            current = self._json_fixture("resume.json") or {}
+        updated = dict(current)
+        if updated.get("summary") != _TWEAKED_SUMMARY:
+            updated["summary"] = _TWEAKED_SUMMARY
+        else:
+            # Already tweaked once: change something else so a second tweak is
+            # not a no-op diff.
+            updated["summary"] = _TWEAKED_SUMMARY_ALT
+        return updated
 
     def _ranking_response(self, user: str) -> dict:
         """Score every ``[idx]`` the batch prompt listed.
@@ -146,12 +204,67 @@ class DemoProvider(LLMProvider):
         return {"scores": scores}
 
 
-def _synthesise(schema: dict, *, rng: random.Random, depth: int = 0):
+# What a simulated resume tweak changes. Two of them so a second tweak in the
+# same session is not a no-op diff.
+_TWEAKED_SUMMARY = (
+    "Backend and data platform engineer, graduating June 2026. Took a batch "
+    "pipeline from 4% silent event loss to under 0.1% and raised throughput "
+    "30%, then built the alerting that would have caught it in a day. Strongest "
+    "on ingest reliability, backpressure and the unglamorous half of on-call."
+)
+_TWEAKED_SUMMARY_ALT = (
+    "Final-year CS student focused on ingest reliability. Cut silent event loss "
+    "in a Kafka-backed pipeline from 4% to under 0.1%, raised throughput 30%, "
+    "and halved on-call time to first useful signal with a dashboard built "
+    "around what responders already checked first."
+)
+
+
+def _embedded_json(text: str, marker: str) -> dict | None:
+    """Pull the first JSON object that follows ``marker`` in a prompt."""
+    start = (text or "").find(marker)
+    if start < 0:
+        return None
+    brace = text.find("{", start)
+    if brace < 0:
+        return None
+    try:
+        value, _ = json.JSONDecoder().raw_decode(text[brace:])
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+# Schemas whose honest simulated answer is "nothing to change", matched on
+# their required keys. RELINEFIT_SCHEMA first, then CRITIQUE_SCHEMA.
+_CLEAN_RESPONSES: tuple[tuple[frozenset[str], dict], ...] = (
+    (frozenset({"rewrites"}), {"rewrites": []}),
+    (
+        frozenset({"issues", "severity", "passed"}),
+        {"issues": [], "severity": "none", "passed": True},
+    ),
+)
+
+
+def _looks_like_resume(schema: dict) -> bool:
+    """Fingerprint RESUME_SCHEMA by its required keys rather than by identity,
+    so a copy or a light edit of the schema still matches."""
+    required = set(schema.get("required") or ())
+    return {"summary", "skills", "experience", "education"} <= required
+
+
+def _synthesise(schema: dict, *, rng: random.Random, depth: int = 0, context: str = ""):
     """Build a value that satisfies ``schema``.
 
     Strings are keyed off the property name so the output reads like a resume
     rather than like "string": a ``company`` gets a company, ``bullets`` get
     bullets of a plausible length.
+
+    ``context`` carries the nearest ancestor property name, because the leaf
+    name alone is ambiguous in ways that show up in the rendered document. An
+    ``education`` entry and an ``experience`` entry both have ``dates``, and
+    without the parent the education section of the demo resume was printed
+    with the internship's dates.
     """
     if depth > 12:  # pathological or recursive schema guard
         return {}
@@ -172,7 +285,9 @@ def _synthesise(schema: dict, *, rng: random.Random, depth: int = 0):
         out = {}
         for key in keys:
             sub = props.get(key, {"type": "string"})
-            out[key] = _synthesise_named(key, sub, rng=rng, depth=depth + 1)
+            out[key] = _synthesise_named(
+                key, sub, rng=rng, depth=depth + 1, context=context
+            )
         return out
 
     if kind == "array":
@@ -181,19 +296,24 @@ def _synthesise(schema: dict, *, rng: random.Random, depth: int = 0):
         if schema.get("maxItems"):
             count = min(count, int(schema["maxItems"]))
         return [
-            _synthesise(item_schema, rng=rng, depth=depth + 1) for _ in range(count)
+            _synthesise(item_schema, rng=rng, depth=depth + 1, context=context)
+            for _ in range(count)
         ]
 
     if kind == "integer":
-        return int(schema.get("minimum", 0)) or 3
+        # Not `minimum or 3`: a schema saying `minimum: 0` means zero is legal,
+        # and coercing it to 3 sent every rewrite in a list to index 3.
+        return int(schema["minimum"]) if "minimum" in schema else 3
     if kind == "number":
-        return float(schema.get("minimum", 0)) or 0.85
+        return float(schema["minimum"]) if "minimum" in schema else 0.85
     if kind == "boolean":
         return True
-    return _string_for("", schema)
+    return _string_for("", schema, context)
 
 
-def _synthesise_named(key: str, schema: dict, *, rng: random.Random, depth: int):
+def _synthesise_named(
+    key: str, schema: dict, *, rng: random.Random, depth: int, context: str = ""
+):
     """Same as :func:`_synthesise`, but allowed to look at the property name.
 
     The enum check has to come first: an enum-constrained string is still
@@ -211,15 +331,28 @@ def _synthesise_named(key: str, schema: dict, *, rng: random.Random, depth: int)
         and "enum" not in schema
     )
     if kind == "string" or scalarish:
-        return _string_for(key, schema)
+        return _string_for(key, schema, context)
     if kind == "array" and (schema.get("items") or {}).get("type") == "string":
         item = schema.get("items") or {}
         count = max(int(schema.get("minItems", 0)), 3)
         if schema.get("maxItems"):
             count = min(count, int(schema["maxItems"]))
-        return [_string_for(key, item) for _ in range(count)]
-    return _synthesise(schema, rng=rng, depth=depth)
+        return [_string_for(key, item, context) for _ in range(count)]
+    # Descending into a nested object or list of objects: this key becomes the
+    # context its children are read against.
+    return _synthesise(schema, rng=rng, depth=depth, context=key)
 
+
+# Hints that need the parent property to disambiguate, checked before the
+# name-only table below. Keyed (context substring, leaf-name substring).
+_CONTEXTUAL: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    ("education", ("dates", "date", "period"), "Sep 2022 - Jun 2026"),
+    ("education", ("company", "school", "institution"), "Cascadia State University"),
+    ("education", ("role", "title", "degree"), "BS Computer Science"),
+    ("project", ("dates", "date", "period"), "Jan 2026 - Jun 2026"),
+    ("project", ("company", "name", "title"), "Course Scheduler"),
+    ("project", ("role",), "Constraint solver for departmental timetabling"),
+)
 
 # Property-name hints, longest-intent first. Anything unmatched falls back to
 # filler padded to the schema's minLength, which is what keeps the generic
@@ -237,7 +370,10 @@ _STRINGS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("group", "category"), "Languages"),
     (
         ("summary", "objective", "bio", "one_liner"),
-        "Data platform engineer who likes the unglamorous half of reliability work.",
+        "Final-year CS student who has shipped production data infrastructure. "
+        "Cut silent event loss in a batch pipeline from 4% to under 0.1% and "
+        "raised throughput 30%. Looking for backend and platform work where "
+        "reliability is treated as part of the craft.",
     ),
     (
         ("keyword", "skill", "items", "tag", "ats"),
@@ -271,13 +407,19 @@ _FILLER = (
 )
 
 
-def _string_for(key: str, schema: dict) -> str:
+def _string_for(key: str, schema: dict, context: str = "") -> str:
     lowered = (key or "").lower()
+    parent = (context or "").lower()
     value = "Sample demo content."
-    for names, candidate in _STRINGS:
-        if any(n in lowered for n in names):
+    for ctx, names, candidate in _CONTEXTUAL:
+        if ctx in parent and any(n in lowered for n in names):
             value = candidate
             break
+    else:
+        for names, candidate in _STRINGS:
+            if any(n in lowered for n in names):
+                value = candidate
+                break
     minimum = int(schema.get("minLength", 0) or 0)
     maximum = int(schema.get("maxLength", 0) or 0)
     while len(value) < minimum:

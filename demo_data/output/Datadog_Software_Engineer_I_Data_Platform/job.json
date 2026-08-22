@@ -1,0 +1,17 @@
+{
+  "source": "greenhouse",
+  "company": "Datadog",
+  "title": "Software Engineer I, Data Platform",
+  "location": "Remote",
+  "url": "https://careers.datadoghq.com",
+  "description": "Work on the ingestion pipeline that handles trillions of events per day. Experience with Kafka, backpressure and exactly-once semantics is valued.",
+  "posted_at": "",
+  "remote": true,
+  "salary": "",
+  "external_id": "",
+  "match_score": 0,
+  "match_reason": "",
+  "additional_questions": "",
+  "specific_instructions": "",
+  "tailored_summary_preview": "Final-year CS student who has shipped production data infrastructure. Cut silent event loss in a batch pipeline from 4% to under 0.1% and raised throughput 30%,"
+}

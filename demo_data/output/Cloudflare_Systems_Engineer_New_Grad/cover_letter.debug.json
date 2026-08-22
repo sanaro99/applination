@@ -1,0 +1,21 @@
+{
+  "status": "ok",
+  "attempts": [
+    {
+      "attempt": 1,
+      "provider": "demo",
+      "max_tokens": 1600,
+      "hardened": false,
+      "raw_chars": 1429,
+      "cleaned_chars": 1429,
+      "prompt_leakage_kind": "none",
+      "cot_kind": "none",
+      "issues": []
+    },
+    {
+      "attempt": "critique",
+      "skipped": true,
+      "reason": "critique_disabled"
+    }
+  ]
+}

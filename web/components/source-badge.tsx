@@ -10,6 +10,7 @@ const SOURCE_DISPLAY_NAMES: Record<string, string> = {
   greenhouse: "Greenhouse",
   simplify_github: "SimplifyJobs",
   lever: "Lever",
+  himalayas: "Himalayas",
 };
 
 /** Base source id, stripped of any `:company`/`:country` qualifier. */

@@ -218,9 +218,9 @@ function TaskCard({
   const meta = TASK_META[name] ?? { label: name, hint: "" };
   return (
     <div className="rounded-xl border border-border p-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium">{meta.label}</span>
             <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
               {name}
@@ -228,7 +228,7 @@ function TaskCard({
           </div>
           <p className="text-xs text-muted-foreground">{meta.hint}</p>
         </div>
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+        <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
           Inherit global
           <Switch
             checked={state.inherit}

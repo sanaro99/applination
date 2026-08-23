@@ -148,7 +148,7 @@ export function TourOverlay({
 
   return (
     <>
-      {targetRect && !isNarrow ? (
+      {targetRect ? (
         <Spotlight target={targetRect} />
       ) : (
         <div

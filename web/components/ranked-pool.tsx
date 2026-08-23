@@ -71,7 +71,7 @@ export function RankedPool({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 overflow-x-auto">
         {FILTERS.map((f) => (
           <Button
             key={f.key}

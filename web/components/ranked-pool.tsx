@@ -11,6 +11,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScoreChip } from "@/components/status-badge";
+import { SourceBadge } from "@/components/source-badge";
 import { api } from "@/lib/api";
 
 type Filter = "all" | "selected" | "rejected" | "dismissed";
@@ -102,6 +103,7 @@ export function RankedPool({
                 <div className="flex items-center gap-2">
                   <ScoreChip score={r.match_score} />
                   <span className="truncate font-medium">{r.company}</span>
+                  <SourceBadge source={r.source} />
                   {r.selected && (
                     <Badge variant="outline" className="text-xs">
                       auto-selected

@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScoreChip, STATUSES, StatusBadge } from "@/components/status-badge";
+import { SourceBadge, sourceLabel } from "@/components/source-badge";
 
 function deadlineTone(deadline: string | null): string {
   if (!deadline) return "text-muted-foreground";
@@ -46,6 +47,7 @@ export function ApplicationsTable({
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">(
     "all",
   );
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const qc = useQueryClient();
 
@@ -67,16 +69,25 @@ export function ApplicationsTable({
     onError: (e) => toast.error(String(e)),
   });
 
+  const sources = useMemo(
+    () =>
+      Array.from(new Set(applications.map((a) => a.source).filter(Boolean))).sort(
+        (a, b) => sourceLabel(a).localeCompare(sourceLabel(b)),
+      ),
+    [applications],
+  );
+
   const term = q.trim().toLowerCase();
   const filtered = useMemo(
     () =>
       applications.filter((a) => {
         if (statusFilter !== "all" && a.status !== statusFilter) return false;
+        if (sourceFilter !== "all" && a.source !== sourceFilter) return false;
         if (!term) return true;
         const hay = `${a.company} ${a.title} ${a.location} ${a.tags.join(" ")}`;
         return hay.toLowerCase().includes(term);
       }),
-    [applications, statusFilter, term],
+    [applications, statusFilter, sourceFilter, term],
   );
 
   const allSelected = filtered.length > 0 && filtered.every((a) => selected.has(a.id));
@@ -135,6 +146,22 @@ export function ApplicationsTable({
             ))}
           </SelectContent>
         </Select>
+        <Select
+          value={sourceFilter}
+          onValueChange={(v) => setSourceFilter(v ?? "all")}
+        >
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Source" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All sources</SelectItem>
+            {sources.map((s) => (
+              <SelectItem key={s} value={s}>
+                {sourceLabel(s)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button variant="outline" onClick={exportCsv} className="ml-auto">
           <Download className="size-4" />
           Export {someSelected ? `(${selected.size})` : "all"} CSV
@@ -181,6 +208,7 @@ export function ApplicationsTable({
               <TableHead className="w-[5rem]">Score</TableHead>
               <TableHead>Company</TableHead>
               <TableHead>Title</TableHead>
+              <TableHead className="w-[9rem]">Source</TableHead>
               <TableHead>Tags</TableHead>
               <TableHead className="w-[8rem]">Status</TableHead>
               <TableHead className="w-[9rem]">Deadline</TableHead>
@@ -233,6 +261,9 @@ export function ApplicationsTable({
                   </Link>
                 </TableCell>
                 <TableCell>
+                  <SourceBadge source={a.source} />
+                </TableCell>
+                <TableCell>
                   <div className="flex flex-wrap gap-1">
                     {a.tags.slice(0, 4).map((t) => (
                       <Badge key={t} variant="secondary" className="text-xs">
@@ -275,7 +306,7 @@ export function ApplicationsTable({
             {filtered.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   className="h-24 text-center text-sm text-muted-foreground"
                 >
                   No applications match the current filters.

@@ -20,6 +20,7 @@ import type { Application, ApplicationStatus } from "@/lib/types";
 import { api } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { ScoreChip, STATUSES } from "@/components/status-badge";
+import { SourceBadge } from "@/components/source-badge";
 import { cn } from "@/lib/utils";
 
 const COLUMN_LABELS: Record<ApplicationStatus, string> = {
@@ -172,6 +173,9 @@ function KanbanCard({
         <p className="mt-1 truncate text-xs text-muted-foreground">
           {app.title}
         </p>
+        <div className="mt-1.5">
+          <SourceBadge source={app.source} />
+        </div>
       </Card>
     </div>
   );

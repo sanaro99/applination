@@ -20,7 +20,7 @@ from pathlib import Path
 import yaml
 
 from .scrapers import Job
-from .scrapers import remotive, themuse, greenhouse, adzuna, jsearch, simplify_github, lever
+from .scrapers import remotive, themuse, greenhouse, adzuna, jsearch, simplify_github, lever, himalayas
 from .providers import get_task_chains
 from .tailor import Tailor
 from .profile import derive_profile, role_is_above_level
@@ -164,6 +164,14 @@ def fetch_all(cfg: dict, log) -> list[Job]:
             srcs["lever"]["companies"],
             kws,
             last_n_hours=srcs["lever"].get("last_n_hours", 24 * 30),
+        )
+    # .get() with a default: existing per-user config.yaml files predate this
+    # source and won't have a `sources.himalayas` block until re-onboarded.
+    if srcs.get("himalayas", {}).get("enabled", False):
+        jobs += himalayas.fetch(
+            kws,
+            last_n_hours=hrs,
+            country=(countries[0].upper() if countries else "US"),
         )
 
     # Dedupe

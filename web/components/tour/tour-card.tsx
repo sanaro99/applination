@@ -1,44 +1,49 @@
 "use client";
 
 import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
-import type { CardComponentProps } from "nextstepjs";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useIsDemo } from "@/components/demo-banner";
 import type { TourStep } from "@/components/tour/tour-steps";
 
+interface TourCardProps {
+  step: TourStep;
+  stepNumber: number;
+  totalSteps: number;
+  onNext: () => void;
+  onPrev: () => void;
+  onSkip: () => void;
+}
+
 /**
- * The tour popover. Supplied to nextstepjs as `cardComponent`, which is the
- * reason for choosing that library: the card is ours, so it inherits the app's
- * tokens and reads correctly in both themes with no vendor CSS to override.
+ * The tour popover content. Positioned by `TourOverlay`, which passes down a
+ * fixed-position wrapper — this component only renders what's inside it, so
+ * it stays a plain function of its props and is easy to reason about
+ * independent of the positioning math.
  */
 export function TourCard({
   step,
-  currentStep,
+  stepNumber,
   totalSteps,
-  nextStep,
-  prevStep,
-  skipTour,
-  arrow,
-}: CardComponentProps) {
+  onNext,
+  onPrev,
+  onSkip,
+}: TourCardProps) {
   const isDemo = useIsDemo();
-  const isFirst = currentStep === 0;
-  const isLast = currentStep === totalSteps - 1;
-  // Only set on the first step of a page the tour just navigated to — see
-  // `buildTour` in tour-steps.ts.
-  const navHint = (step as TourStep).navHint;
+  const isFirst = stepNumber === 1;
+  const isLast = stepNumber === totalSteps;
 
   return (
     <div className="w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-2xl shadow-black/25">
       <div className="flex items-center justify-between gap-3">
         <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
           <Sparkles className="size-3" />
-          Step {currentStep + 1} of {totalSteps}
+          Step {stepNumber} of {totalSteps}
         </span>
         {!isLast && (
           <button
             type="button"
-            onClick={skipTour}
+            onClick={onSkip}
             className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
           >
             Skip tour
@@ -46,9 +51,9 @@ export function TourCard({
         )}
       </div>
 
-      {navHint && (
+      {step.navHint && (
         <p className="mt-2.5 text-xs font-medium text-muted-foreground">
-          You got here via <span className="text-foreground">{navHint}</span>
+          You got here via <span className="text-foreground">{step.navHint}</span>
         </p>
       )}
 
@@ -73,19 +78,16 @@ export function TourCard({
         {isFirst ? (
           <span />
         ) : (
-          <Button variant="ghost" size="sm" onClick={prevStep} className="gap-1.5">
+          <Button variant="ghost" size="sm" onClick={onPrev} className="gap-1.5">
             <ArrowLeft className="size-3.5" />
             Back
           </Button>
         )}
-        <Button size="sm" onClick={nextStep} className="gap-1.5">
+        <Button size="sm" onClick={onNext} className="gap-1.5">
           {isLast ? "Done" : "Next"}
           {!isLast && <ArrowRight className="size-3.5" />}
         </Button>
       </div>
-
-      {/* nextstepjs positions the caret; it must be rendered for it to show. */}
-      {arrow}
     </div>
   );
 }

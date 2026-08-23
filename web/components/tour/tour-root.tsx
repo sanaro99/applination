@@ -2,53 +2,98 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
-import { NextStep, NextStepProvider, useNextStep } from "nextstepjs";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { api } from "@/lib/api";
-import { TourCard } from "@/components/tour/tour-card";
-import {
-  TOUR_NAME,
-  TOUR_START_PATH,
-  buildTour,
-} from "@/components/tour/tour-steps";
-// buildTour's return type (TourStep[]) is structurally a Step[] with an
-// extra optional field, so it satisfies NextStep's `steps` prop as-is.
+import { TourOverlay } from "@/components/tour/tour-overlay";
+import { TOUR_START_PATH, buildTour, type TourStep } from "@/components/tour/tour-steps";
+import type { Rect } from "@/components/tour/tour-position";
 
 const SEEN_PREFIX = "applination.tour.v1.seen.";
+/** Gives up waiting for a step's element after roughly this long. */
+const SEARCH_TIMEOUT_MS = 2000;
 
-// Matches the sidebar's own collapse point (`md` in app-shell.tsx) — below
-// it the rail is 68px wide and content is cramped, so a side-anchored card
-// has nowhere to fit. See `TourContext.isNarrowViewport` in tour-steps.ts.
-const NARROW_VIEWPORT_QUERY = "(max-width: 767px)";
+function rectsEqual(a: Rect, b: DOMRect): boolean {
+  return a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height;
+}
 
-function useIsNarrowViewport(): boolean {
-  // Defaults to false (desktop layout) for SSR/first paint; corrected on
-  // mount below. The tour only ever opens after mount (a click, or the
-  // auto-start effect), so this never renders a step against a stale guess.
-  const [narrow, setNarrow] = useState(false);
-
-  useEffect(() => {
-    const mq = window.matchMedia(NARROW_VIEWPORT_QUERY);
-    const update = () => setNarrow(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
-
-  return narrow;
+function toRect(r: DOMRect): Rect {
+  return { top: r.top, left: r.left, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
 }
 
 /**
- * Per-user so switching accounts on one browser does not inherit someone
- * else's "already seen". Wrapped because private mode throws on access.
+ * Finds `selector` in the DOM (retrying while it mounts, e.g. behind a data
+ * fetch or a route transition), scrolls it into view once, then tracks its
+ * rect on every frame — one loop covers scroll, resize and layout shifts
+ * without wiring up separate listeners for each.
  */
+function useTargetRect(selector: string | undefined, scrollOffset: number | undefined) {
+  const [rect, setRect] = useState<Rect | null>(null);
+  const [searching, setSearching] = useState(!!selector);
+
+  useEffect(() => {
+    let raf = 0;
+    let cancelled = false;
+    let found = false;
+    const deadline = Date.now() + SEARCH_TIMEOUT_MS;
+
+    const measure = () => {
+      if (cancelled) return;
+      if (!selector) {
+        setRect(null);
+        setSearching(false);
+        return;
+      }
+      const el = document.querySelector(selector);
+      if (!el) {
+        setRect(null);
+        setSearching(Date.now() < deadline);
+        raf = requestAnimationFrame(measure);
+        return;
+      }
+      if (!found) {
+        found = true;
+        (el as HTMLElement).style.scrollMarginTop = `${scrollOffset ?? 0}px`;
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+      setSearching(false);
+      const r = el.getBoundingClientRect();
+      setRect((prev) => (prev && rectsEqual(prev, r) ? prev : toRect(r)));
+      raf = requestAnimationFrame(measure);
+    };
+
+    raf = requestAnimationFrame(measure);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [selector, scrollOffset]);
+
+  return { rect, searching };
+}
+
+interface TourState {
+  active: boolean;
+  start: () => void;
+  skip: () => void;
+}
+
+const TourStateContext = createContext<TourState | null>(null);
+
+/** Per-user so switching accounts on one browser does not inherit someone
+ * else's "already seen". Wrapped because private mode throws on access. */
 function hasSeenTour(userId: number): boolean {
   try {
     return localStorage.getItem(SEEN_PREFIX + userId) === "1";
   } catch {
-    // Unreadable storage: treat as seen. Auto-starting a tour on every single
-    // page load is far worse than never auto-starting it.
     return true;
   }
 }
@@ -63,31 +108,21 @@ function markTourSeen(userId: number) {
 
 /** Starts the tour from anywhere inside the provider (user menu, ⌘K). */
 export function useTourLauncher() {
-  const { startNextStep } = useNextStep();
+  const ctx = useContext(TourStateContext);
   const router = useRouter();
   const pathname = usePathname();
   const { data: user } = useQuery({ queryKey: ["me"], queryFn: api.me, retry: false });
 
   return () => {
-    // Replaying implies they have seen it, so it should not auto-start later.
+    if (!ctx) return;
     if (user) markTourSeen(user.id);
-    // The tour walks forward from the dashboard. Launching it from elsewhere
-    // has to land there first; the opening step is centered and unanchored, so
-    // it reads correctly while the route is still settling.
     if (pathname !== TOUR_START_PATH) router.push(TOUR_START_PATH);
-    startNextStep(TOUR_NAME);
+    ctx.start();
   };
 }
 
-/**
- * Fires the tour once for an account that has never seen it.
- *
- * Deliberately only on the dashboard: the tour's first step describes the
- * dashboard, and starting it wherever the user happened to land would mean
- * navigating them away from the page they asked for.
- */
-function TourAutoStart() {
-  const { startNextStep } = useNextStep();
+/** Fires the tour once for an account that has never seen it, on the dashboard only. */
+function useTourAutoStart(start: () => void) {
   const pathname = usePathname();
   const { data: user } = useQuery({ queryKey: ["me"], queryFn: api.me, retry: false });
   const { data: onboarding } = useQuery({
@@ -102,66 +137,73 @@ function TourAutoStart() {
     if (fired.current) return;
     if (pathname !== "/") return;
     if (!user) return;
-    // Not while OnboardingGate is about to redirect to the wizard.
     if (!onboarding?.onboarded) return;
     if (hasSeenTour(user.id)) return;
 
     fired.current = true;
-    // Marked on start, not on finish: a mid-tour reload loses the step index,
-    // and restarting from step one every reload is worse than ending early.
     markTourSeen(user.id);
-    startNextStep(TOUR_NAME);
-  }, [pathname, user, onboarding, startNextStep]);
-
-  return null;
+    start();
+  }, [pathname, user, onboarding, start]);
 }
 
-/**
- * Mounts the guided product tour around the authenticated app chrome.
- *
- * Steps are rebuilt whenever the account's data changes so that steps with
- * nothing to point at drop out — nextstepjs leaves the card stranded at its
- * previous position if a selector never resolves, so filtering up front is
- * what keeps an empty account from seeing a spotlight on nothing.
- */
+function TourRunner({ steps, onDone }: { steps: TourStep[]; onDone: () => void }) {
+  const [stepIndex, setStepIndex] = useState(0);
+  const router = useRouter();
+  const pathname = usePathname();
+  const step = steps[stepIndex];
+
+  useEffect(() => {
+    if (step && step.path !== pathname) router.push(step.path);
+  }, [step, pathname, router]);
+
+  const { rect, searching } = useTargetRect(step?.selector, step?.scrollOffset);
+
+  if (!step) return null;
+
+  const next = () => (stepIndex + 1 < steps.length ? setStepIndex(stepIndex + 1) : onDone());
+  const prev = () => setStepIndex(Math.max(0, stepIndex - 1));
+
+  return (
+    <TourOverlay
+      step={step}
+      stepNumber={stepIndex + 1}
+      totalSteps={steps.length}
+      targetRect={rect}
+      showCard={!searching}
+      onNext={next}
+      onPrev={prev}
+      onSkip={onDone}
+    />
+  );
+}
+
+/** Mounts the guided product tour around the authenticated app chrome. */
 export function TourRoot({ children }: { children: React.ReactNode }) {
-  // Cache-only: TourRoot mounts on every authenticated page, and it has no
-  // business adding a request to pages that never needed one. `enabled: false`
-  // still subscribes to this key, so the value arrives the moment the
-  // dashboard or the applications page fetches it — and the tour always passes
-  // through the dashboard before it reaches the step that depends on this.
+  // Cache-only: this has no business adding a request to pages that never
+  // needed one. `enabled: false` still subscribes, so the value arrives the
+  // moment the dashboard or applications page fetches it.
   const { data: apps } = useQuery({
     queryKey: ["applications"],
     queryFn: () => api.listApplications(),
     enabled: false,
   });
-  const isNarrowViewport = useIsNarrowViewport();
-
   const steps = useMemo(
-    () =>
-      buildTour({
-        hasApplications: (apps?.length ?? 0) > 0,
-        isNarrowViewport,
-      }),
-    [apps, isNarrowViewport],
+    () => buildTour({ hasApplications: (apps?.length ?? 0) > 0 }),
+    [apps],
   );
 
+  const [active, setActive] = useState(false);
+  const start = useCallback(() => setActive(true), []);
+  const stop = useCallback(() => setActive(false), []);
+
+  const value = useMemo<TourState>(() => ({ active, start, skip: stop }), [active, start, stop]);
+
+  useTourAutoStart(start);
+
   return (
-    <NextStepProvider>
-      <NextStep
-        steps={[{ tour: TOUR_NAME, steps }]}
-        cardComponent={TourCard}
-        // Indigo-tinted scrim rather than flat black, matching the accent.
-        shadowRgb="49, 46, 129"
-        shadowOpacity="0.65"
-        // The spotlight is an explanation, not a task: clicking the page
-        // mid-step would desync the tour from what is on screen.
-        clickThroughOverlay={false}
-        disableConsoleLogs
-      >
-        <TourAutoStart />
-        {children}
-      </NextStep>
-    </NextStepProvider>
+    <TourStateContext.Provider value={value}>
+      {children}
+      {active && <TourRunner steps={steps} onDone={stop} />}
+    </TourStateContext.Provider>
   );
 }

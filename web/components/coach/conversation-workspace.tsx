@@ -220,9 +220,9 @@ export function ConversationWorkspace({ mode }: { mode: ChatMode }) {
     mode === "interview" && session != null && messages.length === 0;
 
   return (
-    <div className="mx-auto flex h-full min-h-0 max-w-7xl gap-4">
+    <div className="mx-auto flex h-full min-h-0 max-w-7xl flex-col gap-4 md:flex-row">
       {/* Session sidebar */}
-      <aside className="flex w-60 min-h-0 shrink-0 flex-col rounded-xl border border-border bg-card">
+      <aside className="flex max-h-56 min-h-0 w-full shrink-0 flex-col rounded-xl border border-border bg-card md:h-full md:max-h-none md:w-60">
         <div className="border-b border-border p-3">
           <Button
             className="w-full justify-start gap-2"
@@ -304,7 +304,7 @@ export function ConversationWorkspace({ mode }: { mode: ChatMode }) {
 
       {/* Conversation */}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-border bg-card">
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <header className="flex shrink-0 flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 truncate font-heading text-sm font-semibold">
               <span className="truncate">{session?.title ?? copy.emptyTitle}</span>
@@ -314,7 +314,7 @@ export function ConversationWorkspace({ mode }: { mode: ChatMode }) {
               {copy.threadHint}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             {session && (
               <GroundPicker
                 apps={apps.data ?? []}

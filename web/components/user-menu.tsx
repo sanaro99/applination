@@ -68,13 +68,15 @@ export function UserMenu() {
           </DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={startTour}>
+        {/* This menu is base-ui's Menu.Item, not Radix — it only fires
+            `onClick`, not `onSelect`. */}
+        <DropdownMenuItem onClick={startTour}>
           <Compass className="mr-2 size-4" />
           Take the tour
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          onSelect={() => logout.mutate()}
+          onClick={() => logout.mutate()}
           disabled={logout.isPending}
         >
           <LogOut className="mr-2 size-4" />

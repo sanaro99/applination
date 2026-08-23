@@ -81,6 +81,11 @@ sources:
     last_n_hours: 720
     companies: []          # e.g. [mistral, plaid] — verify at jobs.lever.co/{slug}
 
+  # Himalayas — free public keyword-search API, no key needed, no company list
+  # to curate. Remote jobs only. https://himalayas.app/docs/remote-jobs-api
+  himalayas:
+    enabled: true
+
 # =====================================================================
 # LLM providers — primary + fallbacks.
 # Fill in the API key for at least ONE provider. The onboarding flow can

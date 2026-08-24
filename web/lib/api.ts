@@ -37,6 +37,8 @@ export type OnboardingStatus = {
   onboarded: boolean;
   marked_complete: boolean;
   can_run: boolean;
+  /** True while this account still holds values filled from the sample. */
+  sample_data: boolean;
   /** What the journey has captured so far, before any LLM has touched it. */
   intake: {
     notes: boolean;

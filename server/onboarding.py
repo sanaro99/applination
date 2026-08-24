@@ -102,6 +102,7 @@ def _compute_status(user: User) -> dict:
     can_run = contact_ok_ and provider_ok and resume_ok
     drafts = intake_store.list_drafts(paths)
     return {
+        "sample_data": _get_setting(user_id, "sample_data_used") == "1",
         "intake": {
             "notes": bool(intake_store.read_notes(paths).strip()),
             "resume_text": bool(intake_store.read_parked_resume(paths).strip()),
@@ -131,6 +132,30 @@ def status(user: User = Depends(require_user)) -> dict:
 @router.post("/complete")
 def complete(user: User = Depends(require_user)) -> dict:
     _set_setting(user.id, "onboarded", "1")
+    return {"ok": True, **_compute_status(user)}
+
+
+class SampleUsedBody(BaseModel):
+    used: bool = True
+
+
+@router.post("/sample-used")
+def set_sample_used(
+    body: SampleUsedBody, user: User = Depends(require_user)
+) -> dict:
+    """Record that this account holds sample values.
+
+    Server state, not localStorage: the warning has to survive a reload and
+    follow the account to another browser. Sample data quietly becoming
+    somebody's real cover letter is the failure this exists to prevent.
+    """
+    _set_setting(user.id, "sample_data_used", "1" if body.used else "0")
+    return {"ok": True, **_compute_status(user)}
+
+
+@router.delete("/sample-used")
+def clear_sample_used(user: User = Depends(require_user)) -> dict:
+    _set_setting(user.id, "sample_data_used", "0")
     return {"ok": True, **_compute_status(user)}
 
 

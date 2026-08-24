@@ -21,6 +21,8 @@ import { api } from "@/lib/api";
 import { anyRunActive } from "@/lib/use-latest-runs";
 import { cn } from "@/lib/utils";
 import { RemindersCard } from "@/components/reminders-card";
+import { ProfileStrengthCard } from "@/components/profile-strength-card";
+import { SampleDataBanner } from "@/components/sample-data-banner";
 
 export default function DashboardPage() {
   const { data: runs } = useQuery({
@@ -66,6 +68,8 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-8">
+      <SampleDataBanner />
+
       <BlurFade delay={0.05}>
         <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-8">
           <ShineBorder
@@ -184,6 +188,12 @@ export default function DashboardPage() {
           </Card>
         </BlurFade>
       )}
+
+      <BlurFade delay={0.13}>
+        <div id="tour-profile-strength">
+          <ProfileStrengthCard />
+        </div>
+      </BlurFade>
 
       <BlurFade delay={0.14}>
         <div id="tour-reminders">

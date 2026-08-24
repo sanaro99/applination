@@ -10,15 +10,21 @@ from __future__ import annotations
 
 import logging
 import os
+from functools import lru_cache
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlmodel import select
 
+from src.intake_extract import extract_search_terms, extract_threads, load_vocabulary
+from src.scrapers.greenhouse_companies import BUILT_IN_SLUGS
+
+from . import intake as intake_store
 from .db import Setting, User, session
 from .auth import require_user
 from .deps import load_config, paths_for, update_config
 from .studio import _call, _resolve_chain
+from .user_paths import GLOBAL_MASTER_DIR
 from .user_secrets import SECRET_PATHS, secret_names
 
 # Per-user as of PR 3. Each account onboards its own config.yaml and
@@ -98,6 +104,28 @@ def _count_stories(user: User) -> int:
     return sum(1 for p in stories_dir.glob("*.md") if not p.name.startswith("_"))
 
 
+@lru_cache(maxsize=1)
+def _vocabulary() -> frozenset[str]:
+    """The committed tag taxonomy, parsed once.
+
+    Safe to cache, unlike per-user paths: this file is global, committed and
+    identical for every account.
+    """
+    index = GLOBAL_MASTER_DIR / "stories" / "_INDEX.md"
+    if not index.exists():
+        return frozenset()
+    return frozenset(load_vocabulary(index.read_text(encoding="utf-8")))
+
+
+def _intake_corpus(paths) -> tuple[str, str]:
+    """Everything the user has told us so far: (typed text, resume text)."""
+    told = intake_store.read_notes(paths)
+    drafts = intake_store.list_drafts(paths)
+    if drafts:
+        told = "\n\n".join([told, *(d["body"] for d in drafts)]).strip()
+    return told, intake_store.read_parked_resume(paths)
+
+
 def _compute_status(user: User) -> dict:
     user_id = user.id
     cfg = load_config(user) or {}
@@ -115,7 +143,13 @@ def _compute_status(user: User) -> dict:
 
     marked = _get_setting(user_id, "onboarded") == "1"
     can_run = contact_ok and provider_ok and resume_ok
+    drafts = intake_store.list_drafts(paths)
     return {
+        "intake": {
+            "notes": bool(intake_store.read_notes(paths).strip()),
+            "resume_text": bool(intake_store.read_parked_resume(paths).strip()),
+            "drafts": len(drafts),
+        },
         "onboarded": marked or can_run,
         "marked_complete": marked,
         "can_run": can_run,
@@ -310,3 +344,76 @@ def resume_import_text(
 ) -> dict:
     """Same as resume-import but from pasted text (and optional provider pick)."""
     return _do_import(user, body.text, body.provider)
+
+
+# --- Intake: raw capture, no LLM ---------------------------------------------
+#
+# Every endpoint below must work with no provider configured. The journey
+# collects material before asking for an API key, so a provider call here would
+# break the first chapter for exactly the users it exists to serve.
+
+
+class NotesBody(BaseModel):
+    text: str
+
+
+@router.post("/intake/notes")
+def save_intake_notes(
+    body: NotesBody, user: User = Depends(require_user)
+) -> dict:
+    intake_store.save_notes(paths_for(user), body.text)
+    return {"ok": True}
+
+
+@router.post("/intake/resume")
+async def park_intake_resume(
+    file: UploadFile | None = File(default=None),
+    user: User = Depends(require_user),
+) -> dict:
+    """Extract text from an uploaded resume and park it — no LLM.
+
+    ``resume-import`` above does the structured extraction and needs a key; this
+    one deliberately does not, so the resume is never a wall.
+    """
+    if file is None:
+        raise HTTPException(400, "no file uploaded")
+    data = await file.read()
+    text = _extract_text(file.filename or "resume", data)
+    if not text.strip():
+        raise HTTPException(400, "could not read any text from that file")
+    intake_store.park_resume(paths_for(user), text)
+    return {"ok": True, "chars": len(text)}
+
+
+class DraftStoryBody(BaseModel):
+    title: str
+    body: str
+
+
+@router.post("/intake/story")
+def save_intake_story(
+    body: DraftStoryBody, user: User = Depends(require_user)
+) -> dict:
+    if not body.body.strip():
+        raise HTTPException(400, "story body is empty")
+    path = intake_store.save_draft_story(paths_for(user), body.title, body.body)
+    return {"ok": True, "slug": path.stem}
+
+
+@router.get("/intake/threads")
+def intake_threads(user: User = Depends(require_user)) -> dict:
+    told, resume_text = _intake_corpus(paths_for(user))
+    threads = extract_threads(
+        told,
+        resume_text,
+        vocabulary=set(_vocabulary()),
+        companies=BUILT_IN_SLUGS,
+    )
+    return {"threads": [{"label": t.label, "kind": t.kind} for t in threads]}
+
+
+@router.get("/intake/search-terms")
+def intake_search_terms(user: User = Depends(require_user)) -> dict:
+    told, resume_text = _intake_corpus(paths_for(user))
+    terms = extract_search_terms(told, resume_text, vocabulary=set(_vocabulary()))
+    return {"keywords": list(terms.keywords), "guessed": terms.guessed}

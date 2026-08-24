@@ -530,6 +530,18 @@ export const api = {
       "/api/onboarding/intake/search-terms",
     ),
 
+  /**
+   * "This account holds sample values" is server state, not localStorage: the
+   * warning has to survive a reload and follow the account to another browser.
+   */
+  markSampleUsed: () =>
+    http<{ ok: boolean }>("/api/onboarding/sample-used", {
+      method: "POST",
+      body: JSON.stringify({ used: true }),
+    }),
+  clearSampleUsed: () =>
+    http<{ ok: boolean }>("/api/onboarding/sample-used", { method: "DELETE" }),
+
   startJobPreview: () =>
     http<{ state: string }>("/api/onboarding/preview-jobs", { method: "POST" }),
   jobPreview: () => http<JobPreview>("/api/onboarding/preview-jobs"),

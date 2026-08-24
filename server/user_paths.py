@@ -88,6 +88,34 @@ class UserPaths:
         return self.master_dir / "stories"
 
     @cached_property
+    def intake_dir(self) -> Path:
+        """Raw material captured during onboarding, before any LLM has touched
+        it. Underscore-prefixed like ``stories/_INDEX.md``, and deliberately
+        *outside* ``stories/``: ``reference_loader`` and
+        ``onboarding._count_stories`` glob ``stories/*.md``, so a draft parked
+        there would be matched into a real cover letter as though the user had
+        written and approved it."""
+        return self.master_dir / "_intake"
+
+    @cached_property
+    def intake_stories_dir(self) -> Path:
+        return self.intake_dir / "stories"
+
+    @cached_property
+    def intake_consumed_dir(self) -> Path:
+        """Drafts are moved here after enrichment rather than deleted, so a
+        failed or unsatisfying enrichment never destroys the user's own words."""
+        return self.intake_dir / "consumed"
+
+    @cached_property
+    def intake_resume_path(self) -> Path:
+        return self.intake_dir / "resume_raw.txt"
+
+    @cached_property
+    def intake_notes_path(self) -> Path:
+        return self.intake_dir / "notes.md"
+
+    @cached_property
     def cover_letter_examples_dir(self) -> Path:
         return self.master_dir / "cover_letters" / "examples"
 
@@ -125,6 +153,8 @@ class UserPaths:
             self.stories_dir,
             self.cover_letter_examples_dir,
             self.default_output_dir,
+            self.intake_stories_dir,
+            self.intake_consumed_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)
         if not self.config_path.exists() and EXAMPLE_CONFIG_PATH.exists():

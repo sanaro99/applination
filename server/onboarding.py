@@ -9,17 +9,26 @@ bio/stories reuses studio.py.
 from __future__ import annotations
 
 import logging
-import os
+from functools import lru_cache
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlmodel import select
 
+from src.intake_extract import extract_search_terms, extract_threads, load_vocabulary
+from src.scrapers.greenhouse_companies import BUILT_IN_SLUGS
+
+from . import intake as intake_store
 from .db import Setting, User, session
 from .auth import require_user
 from .deps import load_config, paths_for, update_config
+from .profile_strength import (
+    chosen_keywords,
+    contact_ok,
+    count_stories,
+    provider_ready,
+)
 from .studio import _call, _resolve_chain
-from .user_secrets import SECRET_PATHS, secret_names
+from .user_paths import GLOBAL_MASTER_DIR
 
 # Per-user as of PR 3. Each account onboards its own config.yaml and
 # master_data/, so there is nothing here for one user to reach in another's
@@ -28,17 +37,10 @@ from .user_secrets import SECRET_PATHS, secret_names
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 log = logging.getLogger("server.onboarding")
 
-# Provider -> env var that can supply its key (mirrors the providers layer).
-_PROVIDER_ENV = {
-    "claude": "ANTHROPIC_API_KEY",
-    "gemini": "GOOGLE_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-    "deepseek": "DEEPSEEK_API_KEY",
-    "mistral": "MISTRAL_API_KEY",
-    "nim": "NVIDIA_API_KEY",
-}
-
-_PLACEHOLDER_NAMES = {"", "your name"}
+# The "is this part of the profile done?" predicates live in profile_strength.py
+# and are imported above. They used to be duplicated here, which is exactly the
+# kind of pair that drifts: the wizard and the dashboard would disagree about
+# whether the same account was set up.
 
 
 def _get_setting(user_id: int, key: str) -> str | None:
@@ -62,66 +64,56 @@ def _set_setting(user_id: int, key: str, value: str) -> None:
         s.commit()
 
 
-def _provider_ready(llm: dict, user_id: int) -> bool:
-    """True if at least one LLM provider can actually be called.
+@lru_cache(maxsize=1)
+def _vocabulary() -> frozenset[str]:
+    """The committed tag taxonomy, parsed once.
 
-    ``load_config`` has already merged this user's stored keys into ``llm``, so
-    a plain check of the config covers BYOK. The stored-name check behind it
-    catches the case where the Fernet key is missing or rotated: the secret
-    exists but could not be decrypted, and reporting "no provider" would send
-    the user back through the wizard to re-enter a key that is already there.
-
-    The env-var fallback only counts when ALLOW_ENV_API_KEYS is on. Otherwise
-    the providers layer refuses to use it, and reporting the user as ready would
-    be a lie that surfaces as a provider auth error mid-run.
+    Safe to cache, unlike per-user paths: this file is global, committed and
+    identical for every account.
     """
-    from src.providers import env_api_keys_allowed
-
-    allow_env = env_api_keys_allowed()
-    for name, env in _PROVIDER_ENV.items():
-        block = llm.get(name) or {}
-        if str(block.get("api_key") or "").strip():
-            return True
-        if allow_env and os.environ.get(env):
-            return True
-    ollama = llm.get("ollama") or {}
-    if str(ollama.get("base_url") or "").strip():
-        return True
-    stored = set(secret_names(user_id))
-    return any(p in stored for p in SECRET_PATHS if p.endswith(".api_key"))
+    index = GLOBAL_MASTER_DIR / "stories" / "_INDEX.md"
+    if not index.exists():
+        return frozenset()
+    return frozenset(load_vocabulary(index.read_text(encoding="utf-8")))
 
 
-def _count_stories(user: User) -> int:
-    stories_dir = paths_for(user).stories_dir
-    if not stories_dir.exists():
-        return 0
-    return sum(1 for p in stories_dir.glob("*.md") if not p.name.startswith("_"))
+def _intake_corpus(paths) -> tuple[str, str]:
+    """Everything the user has told us so far: (typed text, resume text)."""
+    told = intake_store.read_notes(paths)
+    drafts = intake_store.list_drafts(paths)
+    if drafts:
+        told = "\n\n".join([told, *(d["body"] for d in drafts)]).strip()
+    return told, intake_store.read_parked_resume(paths)
 
 
 def _compute_status(user: User) -> dict:
     user_id = user.id
     cfg = load_config(user) or {}
     paths = paths_for(user)
-    contact = cfg.get("user") or {}
     llm = cfg.get("llm") or {}
 
-    name = str(contact.get("full_name") or "").strip()
-    email = str(contact.get("email") or "").strip()
-    contact_ok = name.lower() not in _PLACEHOLDER_NAMES and bool(email) and "example.com" not in email
-    provider_ok = _provider_ready(llm, user_id)
+    contact_ok_ = contact_ok(cfg)
+    provider_ok = provider_ready(llm, user_id)
     resume_ok = paths.resume_path.exists()
     bio_ok = paths.bio_path.exists()
-    stories = _count_stories(user)
+    stories = count_stories(paths)
 
     marked = _get_setting(user_id, "onboarded") == "1"
-    can_run = contact_ok and provider_ok and resume_ok
+    can_run = contact_ok_ and provider_ok and resume_ok
+    drafts = intake_store.list_drafts(paths)
     return {
+        "sample_data": _get_setting(user_id, "sample_data_used") == "1",
+        "intake": {
+            "notes": bool(intake_store.read_notes(paths).strip()),
+            "resume_text": bool(intake_store.read_parked_resume(paths).strip()),
+            "drafts": len(drafts),
+        },
         "onboarded": marked or can_run,
         "marked_complete": marked,
         "can_run": can_run,
         "steps": {
             "provider": provider_ok,
-            "contact": contact_ok,
+            "contact": contact_ok_,
             "resume": resume_ok,
             "bio": bio_ok,
             "stories": stories,
@@ -140,6 +132,30 @@ def status(user: User = Depends(require_user)) -> dict:
 @router.post("/complete")
 def complete(user: User = Depends(require_user)) -> dict:
     _set_setting(user.id, "onboarded", "1")
+    return {"ok": True, **_compute_status(user)}
+
+
+class SampleUsedBody(BaseModel):
+    used: bool = True
+
+
+@router.post("/sample-used")
+def set_sample_used(
+    body: SampleUsedBody, user: User = Depends(require_user)
+) -> dict:
+    """Record that this account holds sample values.
+
+    Server state, not localStorage: the warning has to survive a reload and
+    follow the account to another browser. Sample data quietly becoming
+    somebody's real cover letter is the failure this exists to prevent.
+    """
+    _set_setting(user.id, "sample_data_used", "1" if body.used else "0")
+    return {"ok": True, **_compute_status(user)}
+
+
+@router.delete("/sample-used")
+def clear_sample_used(user: User = Depends(require_user)) -> dict:
+    _set_setting(user.id, "sample_data_used", "0")
     return {"ok": True, **_compute_status(user)}
 
 
@@ -310,3 +326,141 @@ def resume_import_text(
 ) -> dict:
     """Same as resume-import but from pasted text (and optional provider pick)."""
     return _do_import(user, body.text, body.provider)
+
+
+# --- Intake: raw capture, no LLM ---------------------------------------------
+#
+# Every endpoint below must work with no provider configured. The journey
+# collects material before asking for an API key, so a provider call here would
+# break the first chapter for exactly the users it exists to serve.
+
+
+class NotesBody(BaseModel):
+    text: str
+
+
+@router.post("/intake/notes")
+def save_intake_notes(
+    body: NotesBody, user: User = Depends(require_user)
+) -> dict:
+    intake_store.save_notes(paths_for(user), body.text)
+    return {"ok": True}
+
+
+@router.post("/intake/resume")
+async def park_intake_resume(
+    file: UploadFile | None = File(default=None),
+    user: User = Depends(require_user),
+) -> dict:
+    """Extract text from an uploaded resume and park it — no LLM.
+
+    ``resume-import`` above does the structured extraction and needs a key; this
+    one deliberately does not, so the resume is never a wall.
+    """
+    if file is None:
+        raise HTTPException(400, "no file uploaded")
+    data = await file.read()
+    text = _extract_text(file.filename or "resume", data)
+    if not text.strip():
+        raise HTTPException(400, "could not read any text from that file")
+    intake_store.park_resume(paths_for(user), text)
+    return {"ok": True, "chars": len(text)}
+
+
+class DraftStoryBody(BaseModel):
+    title: str
+    body: str
+
+
+@router.post("/intake/story")
+def save_intake_story(
+    body: DraftStoryBody, user: User = Depends(require_user)
+) -> dict:
+    if not body.body.strip():
+        raise HTTPException(400, "story body is empty")
+    path = intake_store.save_draft_story(paths_for(user), body.title, body.body)
+    return {"ok": True, "slug": path.stem}
+
+
+@router.get("/intake/threads")
+def intake_threads(user: User = Depends(require_user)) -> dict:
+    told, resume_text = _intake_corpus(paths_for(user))
+    threads = extract_threads(
+        told,
+        resume_text,
+        vocabulary=set(_vocabulary()),
+        companies=BUILT_IN_SLUGS,
+    )
+    return {"threads": [{"label": t.label, "kind": t.kind} for t in threads]}
+
+
+@router.get("/intake/search-terms")
+def intake_search_terms(user: User = Depends(require_user)) -> dict:
+    told, resume_text = _intake_corpus(paths_for(user))
+    terms = extract_search_terms(told, resume_text, vocabulary=set(_vocabulary()))
+    return {"keywords": list(terms.keywords), "guessed": terms.guessed}
+
+
+# --- Chapter 5: live job inventory, no LLM ------------------------------------
+
+
+def _preview_keywords(user: User) -> list[str]:
+    """What "jobs that look like you" is allowed to mean.
+
+    The user's own confirmed keywords when they have any; otherwise the terms
+    derived from what they typed. Deliberately not the raw config value:
+    ``UserPaths.ensure`` seeds every account from config.example.yaml, so a
+    user who has not reached chapter 4 yet still "has" three keywords — written
+    by us, about nobody. Counting postings against those and calling the result
+    a match would be the one dishonest number in the whole journey.
+    """
+    cfg = load_config(user) or {}
+    keywords = chosen_keywords(cfg)
+    if keywords:
+        return keywords
+    told, resume_text = _intake_corpus(paths_for(user))
+    return list(
+        extract_search_terms(told, resume_text, vocabulary=set(_vocabulary())).keywords
+    )
+
+
+@router.post("/preview-jobs")
+def start_preview_jobs(user: User = Depends(require_user)) -> dict:
+    """Kick off the LLM-free scrape behind chapter 5.
+
+    Fires while the user is still in chapter 4, so the count is usually ready by
+    the time they arrive. Returns immediately either way; the client polls.
+    """
+    from . import job_preview
+
+    cfg = load_config(user) or {}
+    job_preview.start(user.id, cfg, _preview_keywords(user))
+    return {"state": "running"}
+
+
+@router.get("/preview-jobs")
+def get_preview_jobs(user: User = Depends(require_user)) -> dict:
+    from . import job_preview
+
+    return job_preview.status(user.id)
+
+
+# --- Chapter 6: the enrichment cascade ---------------------------------------
+
+@router.get("/enrich/plan")
+def enrich_plan(user: User = Depends(require_user)) -> dict:
+    from . import enrichment
+
+    return {"steps": enrichment.plan(user)}
+
+
+class EnrichStepBody(BaseModel):
+    step_id: str
+    force: bool = False
+
+
+@router.post("/enrich/step")
+def enrich_step(body: EnrichStepBody, user: User = Depends(require_user)) -> dict:
+    from . import enrichment
+
+    return enrichment.run_step(user, body.step_id, force=body.force)

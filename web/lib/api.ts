@@ -37,6 +37,14 @@ export type OnboardingStatus = {
   onboarded: boolean;
   marked_complete: boolean;
   can_run: boolean;
+  /** True while this account still holds values filled from the sample. */
+  sample_data: boolean;
+  /** What the journey has captured so far, before any LLM has touched it. */
+  intake: {
+    notes: boolean;
+    resume_text: boolean;
+    drafts: number;
+  };
   steps: {
     provider: boolean;
     contact: boolean;
@@ -44,6 +52,63 @@ export type OnboardingStatus = {
     bio: boolean;
     stories: number;
   };
+};
+
+/** One ridge of the profile fingerprint. `partial` means a draft exists. */
+export type Ridge = {
+  id: string;
+  label: string;
+  hint: string;
+  state: "empty" | "partial" | "filled";
+};
+
+export type ProfileStrength = {
+  phase: "formation" | "depth";
+  filled: number;
+  partial: number;
+  total: number;
+  score: number;
+  ridges: Ridge[];
+  next: { id: string; label: string; hint: string } | null;
+  coverage: { covered: string[]; gaps: string[] };
+};
+
+export type ProviderSetup = {
+  id: string;
+  label: string;
+  recommended: boolean;
+  why: string;
+  model: string;
+  console_url: string;
+  steps: string[];
+  key_shape: { prefix: string; min_len: number };
+  cost_note: string;
+  needs_key: boolean;
+  verified_on: string;
+  /** Set once the steps are old enough that only the deep link is trustworthy. */
+  stale: boolean;
+};
+
+export type IntakeThread = { label: string; kind: "company" | "topic" | "phrase" };
+
+export type JobPreview = {
+  state: "idle" | "running" | "ready" | "error";
+  total: number;
+  matched: number;
+  sources_ok: number;
+  sources_total: number;
+  sample: { title: string; company: string; location: string; url: string }[];
+  error: string | null;
+};
+
+export type EnrichStep = { id: string; label: string; ridge: string };
+
+export type EnrichStepResult = {
+  id: string;
+  done: boolean;
+  skipped: boolean;
+  ridge: string;
+  result: unknown;
 };
 
 /** Thrown on any non-2xx so callers can branch on the status code. */
@@ -78,13 +143,18 @@ const AUTH_PATHS = [
 ];
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
+  // A multipart body must set its own Content-Type: the boundary is generated
+  // by the browser, so forcing application/json here makes the upload
+  // unparseable on the server.
+  const isForm =
+    typeof FormData !== "undefined" && init?.body instanceof FormData;
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     // Send the session cookie. Without this the API sees every request as
     // anonymous and 401s it.
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      ...(isForm ? {} : { "Content-Type": "application/json" }),
       ...(init?.headers ?? {}),
     },
     cache: "no-store",
@@ -430,6 +500,60 @@ export const api = {
     }
     return res.json() as Promise<{ text: string; fields: unknown }>;
   },
+
+  // ----- The journey: profile strength, intake capture, preview, enrichment ---
+  profileStrength: () => http<ProfileStrength>("/api/profile/strength"),
+  providerSetup: () =>
+    http<{ providers: ProviderSetup[] }>("/api/providers/setup"),
+
+  saveIntakeNotes: (text: string) =>
+    http<{ ok: boolean }>("/api/onboarding/intake/notes", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
+  /** Extract-and-park only: deliberately no LLM, so a resume is never a wall. */
+  parkIntakeResume: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return http<{ ok: boolean; chars: number }>(
+      "/api/onboarding/intake/resume",
+      { method: "POST", body: form },
+    );
+  },
+  saveIntakeStory: (title: string, body: string) =>
+    http<{ ok: boolean; slug: string }>("/api/onboarding/intake/story", {
+      method: "POST",
+      body: JSON.stringify({ title, body }),
+    }),
+  intakeThreads: () =>
+    http<{ threads: IntakeThread[] }>("/api/onboarding/intake/threads"),
+  intakeSearchTerms: () =>
+    http<{ keywords: string[]; guessed: boolean }>(
+      "/api/onboarding/intake/search-terms",
+    ),
+
+  /**
+   * "This account holds sample values" is server state, not localStorage: the
+   * warning has to survive a reload and follow the account to another browser.
+   */
+  markSampleUsed: () =>
+    http<{ ok: boolean }>("/api/onboarding/sample-used", {
+      method: "POST",
+      body: JSON.stringify({ used: true }),
+    }),
+  clearSampleUsed: () =>
+    http<{ ok: boolean }>("/api/onboarding/sample-used", { method: "DELETE" }),
+
+  startJobPreview: () =>
+    http<{ state: string }>("/api/onboarding/preview-jobs", { method: "POST" }),
+  jobPreview: () => http<JobPreview>("/api/onboarding/preview-jobs"),
+
+  enrichPlan: () => http<{ steps: EnrichStep[] }>("/api/onboarding/enrich/plan"),
+  enrichStep: (step_id: string, force = false) =>
+    http<EnrichStepResult>("/api/onboarding/enrich/step", {
+      method: "POST",
+      body: JSON.stringify({ step_id, force }),
+    }),
 
   getConfig: () => http<{ text: string }>("/api/config"),
   // Masked only — the API never returns a usable credential.

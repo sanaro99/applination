@@ -107,3 +107,45 @@ def test_reads_the_resume_as_well_as_the_typed_text():
 
 def test_empty_input_yields_no_chips():
     assert extract_threads("") == []
+
+
+from src.intake_extract import SearchTerms, extract_search_terms
+
+
+def test_picks_up_a_role_title_from_the_text():
+    terms = extract_search_terms("I'm a backend engineer these days")
+    assert "backend engineer" in terms.keywords
+    assert terms.guessed is False
+
+
+def test_picks_up_role_titles_from_the_resume():
+    terms = extract_search_terms("", resume_text="Senior Data Scientist, Acme")
+    assert any("data scientist" in k for k in terms.keywords)
+
+
+def test_includes_vocabulary_terms():
+    terms = extract_search_terms(
+        "backend engineer working in python", vocabulary={"python"}
+    )
+    assert "python" in terms.keywords
+
+
+def test_falls_back_to_defaults_and_says_so():
+    terms = extract_search_terms("")
+    assert terms.guessed is True
+    assert terms.keywords
+
+
+def test_keywords_are_capped_and_unique():
+    terms = extract_search_terms(
+        "python python typescript rust go java scala kotlin",
+        vocabulary={"python", "typescript", "rust", "go", "java", "scala", "kotlin"},
+        limit=4,
+    )
+    assert len(terms.keywords) == 4
+    assert len(set(terms.keywords)) == 4
+
+
+def test_is_hashable_so_it_can_be_cached():
+    assert isinstance(extract_search_terms("backend engineer"), SearchTerms)
+    hash(extract_search_terms("backend engineer"))

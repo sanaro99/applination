@@ -135,3 +135,74 @@ def extract_threads(
         found.append(Thread(label=obj, kind="phrase"))
 
     return _dedupe(found)[:limit]
+
+
+_ROLE_WORDS = (
+    "engineer", "developer", "scientist", "analyst", "designer", "manager",
+    "researcher", "architect", "administrator", "consultant",
+)
+
+# Up to two qualifying words before the role noun: "senior data scientist",
+# "backend engineer", "engineer".
+#
+# Qualifiers need two or more characters (``+`` not ``*``). With ``*``, the "m"
+# left over from "I'm" is a valid qualifier and "I'm a backend engineer" yields
+# "m backend engineer".
+_ROLE_TITLE = re.compile(
+    r"\b((?:[A-Za-z][\w+#.-]+\s+){0,2}(?:" + "|".join(_ROLE_WORDS) + r"))\b",
+    re.IGNORECASE,
+)
+
+# Qualifiers that are grammatical filler rather than part of a job title.
+_TITLE_NOISE = frozenset({"a", "an", "the", "am", "im", "i'm", "as", "was", "is", "and", "or"})
+
+_DEFAULT_KEYWORDS = ("software engineer", "backend engineer")
+
+
+@dataclass(frozen=True)
+class SearchTerms:
+    """What we would go looking for, offered to the user for correction.
+
+    ``guessed`` is True when nothing could be derived and defaults were used, so
+    the UI can hedge rather than present a guess as a finding.
+    """
+
+    keywords: tuple[str, ...]
+    guessed: bool
+
+
+def _clean_title(raw: str) -> str:
+    words = [w for w in raw.split() if w.lower() not in _TITLE_NOISE]
+    return " ".join(words).lower().strip()
+
+
+def extract_search_terms(
+    text: str,
+    resume_text: str = "",
+    *,
+    vocabulary: set[str] | None = None,
+    limit: int = 6,
+) -> SearchTerms:
+    """Derive job-search keywords from what the user already told us.
+
+    The user never fills in a search form: we propose from their own words and
+    they correct us.
+    """
+    haystack = f"{text}\n{resume_text}"
+    low = haystack.lower()
+    keywords: list[str] = []
+
+    for match in _ROLE_TITLE.finditer(haystack):
+        title = _clean_title(match.group(1))
+        if title and title not in keywords:
+            keywords.append(title)
+
+    for term in sorted(vocabulary or set()):
+        if term in _STOPLIST:
+            continue
+        if re.search(rf"\b{re.escape(term)}\b", low) and term not in keywords:
+            keywords.append(term)
+
+    if not keywords:
+        return SearchTerms(keywords=_DEFAULT_KEYWORDS, guessed=True)
+    return SearchTerms(keywords=tuple(keywords[:limit]), guessed=False)

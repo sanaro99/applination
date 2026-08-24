@@ -21,7 +21,12 @@ from . import intake as intake_store
 from .db import Setting, User, session
 from .auth import require_user
 from .deps import load_config, paths_for, update_config
-from .profile_strength import contact_ok, count_stories, provider_ready
+from .profile_strength import (
+    chosen_keywords,
+    contact_ok,
+    count_stories,
+    provider_ready,
+)
 from .studio import _call, _resolve_chain
 from .user_paths import GLOBAL_MASTER_DIR
 
@@ -369,3 +374,47 @@ def intake_search_terms(user: User = Depends(require_user)) -> dict:
     told, resume_text = _intake_corpus(paths_for(user))
     terms = extract_search_terms(told, resume_text, vocabulary=set(_vocabulary()))
     return {"keywords": list(terms.keywords), "guessed": terms.guessed}
+
+
+# --- Chapter 5: live job inventory, no LLM ------------------------------------
+
+
+def _preview_keywords(user: User) -> list[str]:
+    """What "jobs that look like you" is allowed to mean.
+
+    The user's own confirmed keywords when they have any; otherwise the terms
+    derived from what they typed. Deliberately not the raw config value:
+    ``UserPaths.ensure`` seeds every account from config.example.yaml, so a
+    user who has not reached chapter 4 yet still "has" three keywords — written
+    by us, about nobody. Counting postings against those and calling the result
+    a match would be the one dishonest number in the whole journey.
+    """
+    cfg = load_config(user) or {}
+    keywords = chosen_keywords(cfg)
+    if keywords:
+        return keywords
+    told, resume_text = _intake_corpus(paths_for(user))
+    return list(
+        extract_search_terms(told, resume_text, vocabulary=set(_vocabulary())).keywords
+    )
+
+
+@router.post("/preview-jobs")
+def start_preview_jobs(user: User = Depends(require_user)) -> dict:
+    """Kick off the LLM-free scrape behind chapter 5.
+
+    Fires while the user is still in chapter 4, so the count is usually ready by
+    the time they arrive. Returns immediately either way; the client polls.
+    """
+    from . import job_preview
+
+    cfg = load_config(user) or {}
+    job_preview.start(user.id, cfg, _preview_keywords(user))
+    return {"state": "running"}
+
+
+@router.get("/preview-jobs")
+def get_preview_jobs(user: User = Depends(require_user)) -> dict:
+    from . import job_preview
+
+    return job_preview.status(user.id)

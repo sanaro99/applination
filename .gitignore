@@ -66,3 +66,8 @@ testsprite_tests/tmp/
 /logs/
 
 testsprite_tests\tmp\config.json
+
+# Local secrets (never commit - this repo is public)
+.env
+.env.*
+!.env.example

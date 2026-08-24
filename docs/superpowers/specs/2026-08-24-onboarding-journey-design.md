@@ -154,9 +154,66 @@ justification:
 > To put your name on a document I need your details. To actually write it, I
 > need a provider.
 
-Contact fields pre-fill from the parked resume text where possible. The key
-screen carries the honest cost note (cents per run), a direct signup link, and a
-live connection test.
+Contact fields pre-fill from the parked resume text where possible.
+
+#### Provider choice
+
+The user picks a provider before being asked for a key. **Gemini is the
+recommended default** — it has a genuine free tier with no card required, and
+most people already have a Google account and no reason to distrust it. This is
+already the shipped default (`config.example.yaml:90`, and the wizard's picker
+initialises to `gemini`); the journey keeps it and makes the reasoning visible
+rather than implicit.
+
+DeepSeek stays available but is **not** offered first. It is the cheapest paid
+path and a fine choice for someone who has decided to pay, but presenting it as
+the default to a stranger asks them to hand card details and prompts to a
+provider many will not recognise, at the exact moment they have least reason to
+trust us. Cheapness is not the right default when the user has no trust yet.
+
+Note: `CLAUDE.md` still describes DeepSeek as "the default provider," which
+contradicts `config.example.yaml`. That doc line should be corrected.
+
+#### Setup instructions, and keeping them fresh
+
+Each provider gets real setup instructions, not a bare hostname hint (today's
+`PROVIDERS` array carries one-liners like `"platform.deepseek.com"`). Provider
+metadata moves out of the frontend array into `server/provider_setup.py`, served
+by `GET /api/providers/setup`, so the CLI, the Config page and the journey all
+read one source:
+
+```
+id, label, recommended, why, model,
+console_url      deep link straight to the key-creation page
+steps            at most three lines describing what they will see
+key_shape        prefix + length, for a client-side sanity check before we
+                 spend a real call on an obviously malformed key
+cost_note        qualitative only
+verified_on      ISO date
+```
+
+Staleness is the stated risk, so it is designed against directly:
+
+1. **Deep link over transcription.** The primary control is a button to
+   `console_url`, not a click path. Steps stay at three shallow lines describing
+   what the user will *see*; shallow instructions survive a vendor redesign,
+   nine-step click paths do not.
+2. **Never quote numeric limits or prices.** "Has a free tier, no card needed"
+   is durable; "1,500 requests/day" is wrong within a quarter — Gemini's free
+   tier has already narrowed to Flash-only while this design was being written.
+   Numbers belong on the vendor's page, which is one click away.
+3. **`verified_on` is shown in the UI** ("Checked 24 Aug 2026"). Past ~90 days
+   the card softens its own wording to note the steps may have moved and the
+   link is authoritative. The UI degrades honestly instead of lying confidently.
+4. **`scripts/check_provider_links.py`** asserts each `console_url` still
+   resolves and has not been redirected to a marketing homepage or a 404. Run
+   manually or on a schedule and **not** as a unit test — network flake must
+   never break the build. A green run is what licenses bumping `verified_on`.
+5. **Failure feeds back.** When the live connection test returns an auth error,
+   the message links back to that provider's setup card. A spike of failures on
+   one provider is the signal that its instructions have rotted.
+
+The live connection test stays, and runs before the cascade.
 
 On success, the **enrichment cascade** runs, client-driven and step-by-step so
 that each completed step visibly fills its ridge: parked resume text becomes
@@ -289,6 +346,7 @@ new DB query goes through `server/scoping.py` or carries an explicit
 | `GET` | `/api/onboarding/enrich/plan` | ordered list of pending enrichment steps |
 | `POST` | `/api/onboarding/enrich/step` | run one step by id; idempotent |
 | `GET` | `/api/profile/strength` | ridges + phase + coverage (new `server/profile_strength.py`) |
+| `GET` | `/api/providers/setup` | provider metadata + setup steps (new `server/provider_setup.py`) |
 
 ### Changed
 
@@ -378,6 +436,7 @@ feature, not polish on it.
 | `fetch_all` slow or partially failing in chapter 5 | Degrade to partial counts, never block. |
 | Sample data leaking into real documents | Visible marking, persistent banner, one-click wipe. |
 | Enrichment fails mid-cascade | Per-step, idempotent, retryable; drafts preserved in `consumed/`. |
+| Provider setup instructions rot | Deep links over click paths, no numeric limits, visible `verified_on` that degrades its own wording, link checker, auth-failure feedback loop. |
 
 ## Testing
 

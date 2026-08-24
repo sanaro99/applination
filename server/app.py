@@ -26,6 +26,7 @@ from .ops import router as ops_router
 from .chat import router as chat_router
 from .studio import router as studio_router
 from .onboarding import router as onboarding_router
+from .profile_strength import router as profile_router
 from .files import router as files_router
 from .inbox import router as inbox_router
 from .reminders import (
@@ -180,6 +181,7 @@ def create_app() -> FastAPI:
         chat_router,
         studio_router,
         onboarding_router,
+        profile_router,
         files_router,
         inbox_router,
         reminders_router,

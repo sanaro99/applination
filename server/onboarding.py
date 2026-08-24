@@ -9,12 +9,10 @@ bio/stories reuses studio.py.
 from __future__ import annotations
 
 import logging
-import os
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlmodel import select
 
 from src.intake_extract import extract_search_terms, extract_threads, load_vocabulary
 from src.scrapers.greenhouse_companies import BUILT_IN_SLUGS
@@ -23,9 +21,9 @@ from . import intake as intake_store
 from .db import Setting, User, session
 from .auth import require_user
 from .deps import load_config, paths_for, update_config
+from .profile_strength import contact_ok, count_stories, provider_ready
 from .studio import _call, _resolve_chain
 from .user_paths import GLOBAL_MASTER_DIR
-from .user_secrets import SECRET_PATHS, secret_names
 
 # Per-user as of PR 3. Each account onboards its own config.yaml and
 # master_data/, so there is nothing here for one user to reach in another's
@@ -34,17 +32,10 @@ from .user_secrets import SECRET_PATHS, secret_names
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 log = logging.getLogger("server.onboarding")
 
-# Provider -> env var that can supply its key (mirrors the providers layer).
-_PROVIDER_ENV = {
-    "claude": "ANTHROPIC_API_KEY",
-    "gemini": "GOOGLE_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-    "deepseek": "DEEPSEEK_API_KEY",
-    "mistral": "MISTRAL_API_KEY",
-    "nim": "NVIDIA_API_KEY",
-}
-
-_PLACEHOLDER_NAMES = {"", "your name"}
+# The "is this part of the profile done?" predicates live in profile_strength.py
+# and are imported above. They used to be duplicated here, which is exactly the
+# kind of pair that drifts: the wizard and the dashboard would disagree about
+# whether the same account was set up.
 
 
 def _get_setting(user_id: int, key: str) -> str | None:
@@ -66,42 +57,6 @@ def _set_setting(user_id: int, key: str, value: str) -> None:
             row = Setting(user_id=user_id, key=key, value=value)
         s.add(row)
         s.commit()
-
-
-def _provider_ready(llm: dict, user_id: int) -> bool:
-    """True if at least one LLM provider can actually be called.
-
-    ``load_config`` has already merged this user's stored keys into ``llm``, so
-    a plain check of the config covers BYOK. The stored-name check behind it
-    catches the case where the Fernet key is missing or rotated: the secret
-    exists but could not be decrypted, and reporting "no provider" would send
-    the user back through the wizard to re-enter a key that is already there.
-
-    The env-var fallback only counts when ALLOW_ENV_API_KEYS is on. Otherwise
-    the providers layer refuses to use it, and reporting the user as ready would
-    be a lie that surfaces as a provider auth error mid-run.
-    """
-    from src.providers import env_api_keys_allowed
-
-    allow_env = env_api_keys_allowed()
-    for name, env in _PROVIDER_ENV.items():
-        block = llm.get(name) or {}
-        if str(block.get("api_key") or "").strip():
-            return True
-        if allow_env and os.environ.get(env):
-            return True
-    ollama = llm.get("ollama") or {}
-    if str(ollama.get("base_url") or "").strip():
-        return True
-    stored = set(secret_names(user_id))
-    return any(p in stored for p in SECRET_PATHS if p.endswith(".api_key"))
-
-
-def _count_stories(user: User) -> int:
-    stories_dir = paths_for(user).stories_dir
-    if not stories_dir.exists():
-        return 0
-    return sum(1 for p in stories_dir.glob("*.md") if not p.name.startswith("_"))
 
 
 @lru_cache(maxsize=1)
@@ -130,19 +85,16 @@ def _compute_status(user: User) -> dict:
     user_id = user.id
     cfg = load_config(user) or {}
     paths = paths_for(user)
-    contact = cfg.get("user") or {}
     llm = cfg.get("llm") or {}
 
-    name = str(contact.get("full_name") or "").strip()
-    email = str(contact.get("email") or "").strip()
-    contact_ok = name.lower() not in _PLACEHOLDER_NAMES and bool(email) and "example.com" not in email
-    provider_ok = _provider_ready(llm, user_id)
+    contact_ok_ = contact_ok(cfg)
+    provider_ok = provider_ready(llm, user_id)
     resume_ok = paths.resume_path.exists()
     bio_ok = paths.bio_path.exists()
-    stories = _count_stories(user)
+    stories = count_stories(paths)
 
     marked = _get_setting(user_id, "onboarded") == "1"
-    can_run = contact_ok and provider_ok and resume_ok
+    can_run = contact_ok_ and provider_ok and resume_ok
     drafts = intake_store.list_drafts(paths)
     return {
         "intake": {
@@ -155,7 +107,7 @@ def _compute_status(user: User) -> dict:
         "can_run": can_run,
         "steps": {
             "provider": provider_ok,
-            "contact": contact_ok,
+            "contact": contact_ok_,
             "resume": resume_ok,
             "bio": bio_ok,
             "stories": stories,

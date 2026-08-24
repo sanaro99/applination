@@ -51,3 +51,59 @@ def test_ignores_the_bold_label_text_itself():
 
 def test_missing_taxonomy_section_yields_empty_set():
     assert load_vocabulary("# Stories Index\n\nNo taxonomy here.\n") == set()
+
+
+from src.intake_extract import Thread, extract_threads
+
+
+def test_finds_a_known_company_by_name():
+    threads = extract_threads("I was at Stripe for two years", companies=["stripe"])
+    assert Thread(label="Stripe", kind="company") in threads
+
+
+def test_finds_vocabulary_topics():
+    threads = extract_threads(
+        "mostly backend work, a lot of python",
+        vocabulary={"backend", "python", "frontend"},
+    )
+    labels = [t.label for t in threads]
+    assert "backend" in labels
+    assert "python" in labels
+    assert "frontend" not in labels
+
+
+def test_finds_verb_anchored_phrases():
+    threads = extract_threads("I built the payments migration last year")
+    assert Thread(label="payments migration", kind="phrase") in threads
+
+
+def test_phrases_stop_at_two_words_so_they_do_not_swallow_the_sentence():
+    threads = extract_threads("I built the payments migration last year")
+    assert all("last year" not in t.label for t in threads)
+
+
+def test_corporate_noise_is_dropped():
+    threads = extract_threads("I worked on Inc and shipped Ltd")
+    assert [t for t in threads if t.label.lower() in {"inc", "ltd"}] == []
+
+
+def test_duplicates_are_collapsed_case_insensitively():
+    threads = extract_threads(
+        "python, Python, PYTHON everywhere", vocabulary={"python"}
+    )
+    assert len([t for t in threads if t.label.lower() == "python"]) == 1
+
+
+def test_result_is_capped():
+    vocab = {f"tag{i}" for i in range(30)}
+    text = " ".join(sorted(vocab))
+    assert len(extract_threads(text, vocabulary=vocab, limit=8)) == 8
+
+
+def test_reads_the_resume_as_well_as_the_typed_text():
+    threads = extract_threads("", resume_text="Senior Engineer, Figma", companies=["figma"])
+    assert Thread(label="Figma", kind="company") in threads
+
+
+def test_empty_input_yields_no_chips():
+    assert extract_threads("") == []

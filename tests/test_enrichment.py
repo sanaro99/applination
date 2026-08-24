@@ -107,3 +107,84 @@ def test_every_step_names_the_ridge_it_fills(client, paths):
     for step in client.get("/api/onboarding/enrich/plan").json()["steps"]:
         assert step["ridge"]
         assert step["label"]
+
+
+def _run(client, step_id, force=False):
+    r = client.post(
+        "/api/onboarding/enrich/step",
+        json={"step_id": step_id, "force": force},
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_resume_step_writes_resume_yaml(client, paths):
+    park_resume(paths, "Jane Doe\nSenior Backend Engineer\nAcme, 2020-2024")
+    out = _run(client, "resume")
+    assert out["done"] is True
+    assert paths.resume_path.exists()
+
+
+def test_resume_step_is_idempotent(client, paths):
+    park_resume(paths, "Jane Doe\nSenior Backend Engineer")
+    _run(client, "resume")
+    paths.resume_path.write_text("name: Untouched\n", encoding="utf-8")
+    out = _run(client, "resume")
+    assert out["skipped"] is True
+    assert "Untouched" in paths.resume_path.read_text(encoding="utf-8")
+
+
+def test_force_reruns_a_completed_step(client, paths):
+    park_resume(paths, "Jane Doe\nSenior Backend Engineer")
+    _run(client, "resume")
+    paths.resume_path.write_text("name: Untouched\n", encoding="utf-8")
+    out = _run(client, "resume", force=True)
+    assert out["skipped"] is False
+    assert "Untouched" not in paths.resume_path.read_text(encoding="utf-8")
+
+
+def test_story_step_writes_a_real_story(client, paths):
+    save_draft_story(paths, "One", "we shipped it on a Friday")
+    out = _run(client, "story:one")
+    assert out["done"] is True
+    real = [p for p in paths.stories_dir.glob("*.md") if not p.name.startswith("_")]
+    assert len(real) == 1
+
+
+def test_story_step_moves_the_draft_to_consumed_rather_than_deleting_it(client, paths):
+    save_draft_story(paths, "One", "we shipped it on a Friday")
+    _run(client, "story:one")
+    assert list(paths.intake_stories_dir.glob("*.md")) == []
+    consumed = list(paths.intake_consumed_dir.glob("*.md"))
+    assert len(consumed) == 1
+    assert "we shipped it on a Friday" in consumed[0].read_text(encoding="utf-8")
+
+
+def test_bio_step_writes_bio_md(client, paths):
+    save_notes(paths, "I care about shipping things people use.")
+    out = _run(client, "bio")
+    assert out["done"] is True
+    assert paths.bio_path.exists()
+
+
+def test_search_step_proposes_without_writing_config(client, paths):
+    save_notes(paths, "backend work in python")
+    before = client.get("/api/config").json()["text"]
+    out = _run(client, "search")
+    assert out["result"]["keywords"]
+    after = client.get("/api/config").json()["text"]
+    assert before == after
+
+
+def test_an_unknown_step_id_is_a_400(client):
+    r = client.post(
+        "/api/onboarding/enrich/step", json={"step_id": "nonsense", "force": False}
+    )
+    assert r.status_code == 400
+
+
+def test_a_missing_draft_is_a_404(client):
+    r = client.post(
+        "/api/onboarding/enrich/step", json={"step_id": "story:ghost", "force": False}
+    )
+    assert r.status_code == 404

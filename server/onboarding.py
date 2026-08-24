@@ -427,3 +427,15 @@ def enrich_plan(user: User = Depends(require_user)) -> dict:
     from . import enrichment
 
     return {"steps": enrichment.plan(user)}
+
+
+class EnrichStepBody(BaseModel):
+    step_id: str
+    force: bool = False
+
+
+@router.post("/enrich/step")
+def enrich_step(body: EnrichStepBody, user: User = Depends(require_user)) -> dict:
+    from . import enrichment
+
+    return enrichment.run_step(user, body.step_id, force=body.force)

@@ -167,7 +167,7 @@ offer it beside the form when `GET /api/health` reports `demo: true`.
 **Scheduling:**
 - Linux/macOS: `bash scripts/setup_cron.sh`
 - Windows: `.\scripts\setup_task_scheduler.ps1` (omit `-Time` to auto-default into off-peak; `-Time "HH:mm"` to override)
-- **Off-peak default:** DeepSeek (the default provider) bills ~50% less during 16:30–00:30 GMT. Both scripts default the daily run to the local equivalent of 20:00 GMT so it lands in that window automatically, and warn if you pick a peak-hour time (`-FullPrice` silences the PS1 warning).
+- **Off-peak default (premise is stale — verify before relying on it):** both scripts default the daily run to the local equivalent of 20:00 GMT and warn if you pick a peak-hour time (`-FullPrice` silences the PS1 warning). That behaviour was built for DeepSeek's ~50% off-peak discount during 16:30–00:30 GMT, which has since **ended** — V4 is flat-rate. The scheduling default is therefore harmless but no longer buys anything, and it does nothing at all for Gemini, which is the default provider. Re-check DeepSeek's current pricing page before repeating the discount claim anywhere.
 
 ## Architecture
 
@@ -247,4 +247,5 @@ Requires Microsoft Word (Windows/macOS) or LibreOffice (`soffice` on PATH for Li
 
 - Claude Haiku: ~$0.10–0.30/run (30 jobs)
 - Gemini Flash / Ollama: effectively free
-- DeepSeek (default): cheapest cloud path; ranking cost is ~fixed per run (scales with jobs *fetched*, not `max_jobs_per_day`), tailoring+cover scale with selected count. **Off-peak (16:30–00:30 GMT): ~50% off** — the scheduler scripts default into this window. No async batch API; use off-peak + prefix caching instead (batch APIs on Claude/Gemini/Mistral give the same 50% but with up to 24h latency, which conflicts with same-run document output).
+- **Gemini (default, `config.example.yaml:90`)**: has a real free tier with no card required, which is why it is what a new account is pointed at — a stranger should not have to trust us with card details on day one. The free tier covers Flash models only and its quotas change often, so never quote a number: link to Google's rate-limit page instead. Note `config.example.yaml:129` still pins the legacy `gemini-2.5-flash`; the current GA model is `gemini-3.5-flash`, but bumping it is **not** a one-line change — 3.5 drops `temperature`/`top_p`, which `src/providers/gemini_provider.py:58,78` still sends, and replaces `thinking_budget` with `thinking_level`.
+- DeepSeek: cheapest paid cloud path; ranking cost is ~fixed per run (scales with jobs *fetched*, not `max_jobs_per_day`), tailoring+cover scale with selected count. Its ~50% off-peak discount **has ended** — do not repeat that claim without re-checking. No async batch API (batch APIs on Claude/Gemini/Mistral give ~50% off but with up to 24h latency, which conflicts with same-run document output); prefix caching still applies.

@@ -418,3 +418,12 @@ def get_preview_jobs(user: User = Depends(require_user)) -> dict:
     from . import job_preview
 
     return job_preview.status(user.id)
+
+
+# --- Chapter 6: the enrichment cascade ---------------------------------------
+
+@router.get("/enrich/plan")
+def enrich_plan(user: User = Depends(require_user)) -> dict:
+    from . import enrichment
+
+    return {"steps": enrichment.plan(user)}

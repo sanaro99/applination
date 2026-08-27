@@ -16,6 +16,7 @@ from pathlib import Path
 
 import yaml
 
+from .master_resume import normalize_skills
 from .schemas import STORY_SCHEMA, MASTER_RESUME_SCHEMA, KEYWORDS_SCHEMA
 
 # Frontmatter key order matching the existing story files.
@@ -171,11 +172,11 @@ def _coerce_master_resume(data: dict) -> dict:
     out["core_skills"] = [str(s).strip() for s in _list(data.get("core_skills")) if str(s).strip()]
     out["ats_adjacent_skills"] = [str(s).strip() for s in _list(data.get("ats_adjacent_skills")) if str(s).strip()]
 
-    skills = []
-    for g in _list(data.get("skills")):
-        if isinstance(g, dict) and g.get("group") and g.get("items"):
-            skills.append({"group": str(g["group"]).strip(), "items": [str(i).strip() for i in _list(g["items"])]})
-    out["skills"] = skills
+    # The schema asks for a {group, items} list because structured output is
+    # more reliable with fixed keys, but resume.yaml's canonical shape is a
+    # mapping — see src/master_resume.py. Fold it here, at the write boundary,
+    # so nothing downstream ever meets the list form.
+    out["skills"] = normalize_skills(data.get("skills"))
 
     def _entries(key, fields):
         rows = []

@@ -26,7 +26,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import yaml  # noqa: E402
 
 from server.demo import DEMO_DATA, seed_demo  # noqa: E402
 from server.deps import load_config, paths_for  # noqa: E402
@@ -43,6 +42,7 @@ def main() -> int:
     log = logging.getLogger("build_demo_output")
 
     from src.main import process_job
+    from src.master_resume import load_master
     from src.providers import get_task_chains
     from src.reference_loader import (
         load_example_letters,
@@ -66,7 +66,7 @@ def main() -> int:
         log.error("the demo config must route to the demo provider, not a real one")
         return 1
 
-    master = yaml.safe_load(paths.resume_path.read_text(encoding="utf-8"))
+    master = load_master(paths.resume_path)
     bio = paths.bio_path.read_text(encoding="utf-8")
     stories = load_stories(paths.stories_dir)
     examples = load_example_letters(paths.cover_letter_examples_dir)

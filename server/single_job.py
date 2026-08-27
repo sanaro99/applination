@@ -15,6 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import select
 
+from src.master_resume import load_master
+
 from .auth import require_user
 from .db import (
     Application,
@@ -138,10 +140,7 @@ def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
         try:
             cfg = load_config(user_id)
             paths = paths_for(user_id)
-            import yaml
-            master = yaml.safe_load(
-                paths.resume_path.read_text(encoding="utf-8")
-            ) if paths.resume_path.exists() else {}
+            master = load_master(paths.resume_path)
             bio = (
                 paths.bio_path.read_text(encoding="utf-8")
                 if paths.bio_path.exists()

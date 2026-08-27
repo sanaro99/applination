@@ -13,8 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import yaml
-
+from src.master_resume import load_master
 from src.profile import profile_summary_block
 from src.reference_loader import BIO_CAP, STORY_BODY_CAP, load_stories
 
@@ -43,9 +42,7 @@ def load_profile_bundle(paths: "UserPaths") -> dict:
     A missing resume.yaml yields an empty master rather than raising: a user
     who has not finished onboarding should get a thin answer, not a 500.
     """
-    master: dict = {}
-    if paths.resume_path.exists():
-        master = yaml.safe_load(paths.resume_path.read_text(encoding="utf-8")) or {}
+    master = load_master(paths.resume_path)
     bio = (
         paths.bio_path.read_text(encoding="utf-8")
         if paths.bio_path.exists()

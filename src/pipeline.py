@@ -32,6 +32,7 @@ from .main import (
     user_profile_blurb,
 )
 from .profile import derive_profile
+from .master_resume import load_master
 
 EventCallback = Callable[[dict[str, Any]], None]
 
@@ -145,7 +146,7 @@ def run_pipeline(
         root_log.addHandler(handler)
 
     try:
-        master = _load_yaml(paths.resume_path)
+        master = load_master(paths.resume_path)
         user = cfg["user"]
         out_cfg = dict(cfg["output"])
         if no_pdf:
@@ -467,7 +468,3 @@ def run_pipeline(
             logging.getLogger().removeHandler(handler)
 
 
-def _load_yaml(path: Path) -> dict:
-    import yaml
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)

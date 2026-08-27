@@ -105,7 +105,7 @@ def test_every_step_names_the_ridge_it_fills(client, paths):
     park_resume(paths, "Jane Doe")
     save_draft_story(paths, "One", "body")
     for step in client.get("/api/onboarding/enrich/plan").json()["steps"]:
-        assert step["ridge"]
+        assert step["part"]
         assert step["label"]
 
 

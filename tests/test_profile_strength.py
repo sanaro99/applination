@@ -1,4 +1,4 @@
-"""The fingerprint's data model.
+"""The profile meter's data model.
 
 Two phases, both honest: formation genuinely completes at 100%, and only then
 does the card switch to story coverage. A bar engineered never to fill is a
@@ -45,7 +45,7 @@ def test_a_fresh_account_has_nine_empty_ridges(client):
     assert out["total"] == 9
     assert out["filled"] == 0
     assert out["phase"] == "formation"
-    assert [r["id"] for r in out["ridges"]] == [
+    assert [r["id"] for r in out["parts"]] == [
         "contact", "material", "resume", "story_1", "story_2",
         "story_3", "voice", "search", "provider",
     ]
@@ -54,7 +54,7 @@ def test_a_fresh_account_has_nine_empty_ridges(client):
 def test_a_draft_story_is_a_partial_ridge_not_a_filled_one(client):
     save_draft_story(UserPaths(user_id=1).ensure(), "A story", "body text")
     out = compute(_user())
-    states = {r["id"]: r["state"] for r in out["ridges"]}
+    states = {r["id"]: r["state"] for r in out["parts"]}
     assert states["story_1"] == "partial"
     assert states["material"] == "filled"
     assert 0 < out["score"] < 1
@@ -66,7 +66,7 @@ def test_a_real_story_fills_the_ridge(client):
         '---\ntitle: "Real"\ntags: [backend, python]\n---\n\nBody.\n', encoding="utf-8"
     )
     out = compute(_user())
-    states = {r["id"]: r["state"] for r in out["ridges"]}
+    states = {r["id"]: r["state"] for r in out["parts"]}
     assert states["story_1"] == "filled"
 
 
@@ -90,6 +90,23 @@ def test_coverage_reports_tags_the_stories_actually_carry(client):
     assert "backend" in out["coverage"]["covered"]
     assert "python" in out["coverage"]["covered"]
     assert "backend" not in out["coverage"]["gaps"]
+
+
+def test_coverage_names_the_size_of_the_taxonomy_it_measures_against(client):
+    """Gaps are a capped sample, so covered + gaps is not the whole vocabulary.
+
+    Without the total the card can only say "2 tags covered" — a number with no
+    denominator, which tells the user nothing about whether that is most of the
+    taxonomy or a corner of it.
+    """
+    paths = UserPaths(user_id=1).ensure()
+    (paths.stories_dir / "real.md").write_text(
+        '---\ntitle: "Real"\ntags: [backend, python]\n---\n\nBody.\n', encoding="utf-8"
+    )
+    out = compute(_user())
+    coverage = out["coverage"]
+    assert coverage["total"] > 0
+    assert coverage["total"] >= len(coverage["covered"]) + len(coverage["gaps"])
 
 
 def test_coverage_on_an_empty_account_is_empty_not_an_error(client):
@@ -118,12 +135,12 @@ def test_onboarding_status_still_works_after_the_refactor(client):
 #
 # ``UserPaths.ensure`` seeds every new account from config.example.yaml, which
 # ships example search keywords and an Ollama base_url. Counting either as
-# evidence would hand a brand-new account two filled ridges it never earned.
+# evidence would hand a brand-new account two filled parts it never earned.
 
 
 def test_seeded_example_keywords_do_not_fill_the_search_ridge(client):
     out = compute(_user())
-    states = {r["id"]: r["state"] for r in out["ridges"]}
+    states = {r["id"]: r["state"] for r in out["parts"]}
     assert states["search"] == "empty"
 
 
@@ -133,13 +150,13 @@ def test_the_users_own_keywords_do_fill_it(client):
         json={"keywords": ["backend engineer", "platform engineer"]},
     )
     assert r.status_code == 200, r.text
-    states = {r["id"]: r["state"] for r in compute(_user())["ridges"]}
+    states = {r["id"]: r["state"] for r in compute(_user())["parts"]}
     assert states["search"] == "filled"
 
 
 def test_seeded_ollama_base_url_does_not_fill_the_provider_ridge(client):
     out = compute(_user())
-    states = {r["id"]: r["state"] for r in out["ridges"]}
+    states = {r["id"]: r["state"] for r in out["parts"]}
     assert states["provider"] == "empty"
 
 
@@ -149,7 +166,7 @@ def test_choosing_ollama_fills_the_provider_ridge(client):
         json={"provider": "ollama", "base_url": "http://localhost:11434"},
     )
     assert r.status_code == 200, r.text
-    states = {r["id"]: r["state"] for r in compute(_user())["ridges"]}
+    states = {r["id"]: r["state"] for r in compute(_user())["parts"]}
     assert states["provider"] == "filled"
 
 
@@ -159,5 +176,5 @@ def test_a_stored_api_key_fills_the_provider_ridge(client):
         json={"provider": "gemini", "api_key": "AIza-not-a-real-key-000000000"},
     )
     assert r.status_code == 200, r.text
-    states = {r["id"]: r["state"] for r in compute(_user())["ridges"]}
+    states = {r["id"]: r["state"] for r in compute(_user())["parts"]}
     assert states["provider"] == "filled"

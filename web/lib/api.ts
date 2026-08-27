@@ -54,8 +54,8 @@ export type OnboardingStatus = {
   };
 };
 
-/** One ridge of the profile fingerprint. `partial` means a draft exists. */
-export type Ridge = {
+/** One part of the profile. `partial` means a draft exists. */
+export type ProfilePart = {
   id: string;
   label: string;
   hint: string;
@@ -68,9 +68,10 @@ export type ProfileStrength = {
   partial: number;
   total: number;
   score: number;
-  ridges: Ridge[];
+  parts: ProfilePart[];
   next: { id: string; label: string; hint: string } | null;
-  coverage: { covered: string[]; gaps: string[] };
+  /** `gaps` is a capped sample, so `covered + gaps` falls short of `total`. */
+  coverage: { covered: string[]; gaps: string[]; total: number };
 };
 
 export type ProviderSetup = {
@@ -101,13 +102,13 @@ export type JobPreview = {
   error: string | null;
 };
 
-export type EnrichStep = { id: string; label: string; ridge: string };
+export type EnrichStep = { id: string; label: string; part: string };
 
 export type EnrichStepResult = {
   id: string;
   done: boolean;
   skipped: boolean;
-  ridge: string;
+  part: string;
   result: unknown;
 };
 

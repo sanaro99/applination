@@ -8,12 +8,14 @@
  * owns its own copy, state and requests, and this file only decides which one
  * is on screen.
  *
- * The fingerprint stays pinned while chapters change, because it is the one
- * thing being built — the chapters are the means, not the object.
+ * The profile meter stays pinned while chapters change, because it is the one
+ * thing being built — the chapters are the means, not the object. Its segments
+ * name themselves on hover but go nowhere: a link here would eject you from the
+ * chapter you are in the middle of answering.
  */
 import { useQuery } from "@tanstack/react-query";
 
-import { Fingerprint } from "@/components/onboarding/fingerprint";
+import { ProfileMeter } from "@/components/profile-meter";
 import { useJourneyStore } from "@/components/onboarding/use-journey-store";
 import { ChapterFrame } from "@/components/onboarding/chapters/01-frame";
 import { ChapterTalk } from "@/components/onboarding/chapters/02-talk";
@@ -40,12 +42,12 @@ export default function OnboardingPage() {
 
   return (
     <div className="relative flex min-h-svh flex-col">
-      <div className="pointer-events-none absolute right-6 top-6 z-10">
-        <Fingerprint
-          ridges={strength?.ridges ?? []}
+      <div className="absolute right-6 top-6 z-10 w-40 sm:w-48">
+        <ProfileMeter
+          parts={strength?.parts ?? []}
           filled={strength?.filled ?? 0}
           total={strength?.total ?? 9}
-          size={96}
+          caption="Your profile"
         />
       </div>
 

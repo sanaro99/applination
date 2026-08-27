@@ -8,7 +8,7 @@
  * actually write it I need a provider.
  *
  * Then the enrichment cascade runs, client-driven and step by step, so each
- * completed step visibly fills its ridge. That cascade *is* the celebration —
+ * completed step visibly fills its part of the profile meter. That cascade *is* the celebration —
  * the reward for having deferred the key rather than an apology for it — which
  * is why a single failing step is retryable in place and never abandons the
  * rest.
@@ -246,7 +246,7 @@ export function ChapterIgnition({ onBack }: { onBack: () => void }) {
 
 /**
  * The cascade. One step at a time, each invalidating the strength query so the
- * fingerprint re-reads real state rather than animating on a timer.
+ * profile meter re-reads real state rather than animating on a timer.
  */
 function Cascade({
   steps,

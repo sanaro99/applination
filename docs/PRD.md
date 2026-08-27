@@ -154,7 +154,7 @@ Full master resume in structured YAML. Contains experience, education, skills, p
 Voice and tone reference. Injected into cover letter and Coach prompts so the LLM writes in the candidate's authentic style.
 
 **Stories (`master_data/stories/*.md`):**  
-Narrative STAR-format stories with YAML frontmatter (`tags`, `role_fit`, `company_fit`, `one_liner`). Selected by semantic scoring (tag overlap × 2 + keyword hits × 1) per job. Used in cover letters, answer generation, and Coach responses.
+Narrative STAR-format stories with YAML frontmatter (`tags`, `role_fit`, `company_fit`, `one_liner`). Selected per job by `reference_loader._score`, which weights tag and `role_fit` overlap far above body keywords (+5/+2 for a tag hit against +0.25 for a keyword), so tagging a story is what makes it findable. Used in cover letters, answer generation, and Coach responses.
 
 **Cover letter examples (`master_data/cover_letters/examples/`):**  
 Past cover letters as `.md` files with YAML frontmatter; matched by overlap for tone reference.

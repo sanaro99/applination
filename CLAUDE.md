@@ -208,7 +208,7 @@ build_tracker() → output/YYYY-MM-DD/apps_YYYY-MM-DD.xlsx
 
 **`src/scrapers/`** — All scrapers return the unified `Job` dataclass from `schema.py`. `simplify_github.py` pulls the Pitt CSC GitHub list (~1100 roles). `greenhouse.py` queries 20+ hardcoded company slugs.
 
-**`src/reference_loader.py`** — Loads `master_data/stories/*.md` (YAML frontmatter + body) and example cover letters. `match_stories()` scores by tag overlap (×2) + keyword hits (×1), returns top-k.
+**`src/reference_loader.py`** — Loads `master_data/stories/*.md` (YAML frontmatter + body) and example cover letters. `match_stories()` ranks by `_score()` and returns top-k. Tags are meant to dominate so a long body can't outweigh signal: **+5** per tag/`role_fit` matching a detected role category, **+2** per tag whose tokens overlap the JD, **+1.5** per `role_fit` matching the role title, **+1** per `company_fit` matching the company, **+0.25** per body keyword found in the JD, then **×0.4** when a people-first story is up against a pure tech role. A body keyword is worth an eighth of a tag hit, not half — an untagged story is not merely a weaker match, it is a much weaker one, which is what makes the `/master-data` tag taxonomy worth filling.
 
 **`src/tweak.py`** — Interactive CLI for post-generation resume adjustments. Reads `resume.json` + `job.json` from output folder, applies LLM instruction, saves versioned output (`resume.v2.docx`, etc.).
 

@@ -1,6 +1,6 @@
 """How complete is this user's profile, and what is worth doing next.
 
-Two phases. **Formation** is a finite set of nine ridges that genuinely
+Two phases. **Formation** is a finite set of nine parts that genuinely
 completes at 100% — a progress indicator engineered never to fill is a dark
 pattern, and this one fills. **Depth**, afterwards, drops the percentage
 entirely and reports story coverage against the committed tag taxonomy.
@@ -45,7 +45,7 @@ _PROVIDER_ENV = {
     "nim": "NVIDIA_API_KEY",
 }
 
-RIDGES: tuple[tuple[str, str, str], ...] = (
+PARTS: tuple[tuple[str, str, str], ...] = (
     ("contact", "Contact details", "Your name and email, for the top of your documents."),
     ("material", "Something about you", "Tell me what you have been working on, or drop your resume."),
     ("resume", "Structured resume", "Connect a provider and I will turn your resume into structured data."),
@@ -64,7 +64,7 @@ RIDGES: tuple[tuple[str, str, str], ...] = (
 # ``UserPaths.ensure`` seeds every new account from the committed
 # config.example.yaml, so a brand-new config already carries example search
 # keywords and an Ollama base_url. Reading either as evidence would hand a user
-# two filled ridges they never earned — and, worse, would have chapter 5 count
+# two filled parts they never earned — and, worse, would have chapter 5 count
 # "jobs that look like you" against keywords a stranger wrote.
 # --------------------------------------------------------------------------
 
@@ -181,6 +181,11 @@ def _coverage(paths: UserPaths) -> dict:
     Gaps are alphabetical and capped: there is no signal available for ranking
     them, so the cap keeps the UI honest about showing a sample rather than
     implying these five are the most important five.
+
+    ``total`` is the size of the whole taxonomy, and it is not recoverable from
+    the other two — the cap means ``covered + gaps`` falls short of it. Without
+    it the card can only report a bare count, and "two tags covered" says
+    nothing about whether that is most of the taxonomy or a corner of it.
     """
     covered: set[str] = set()
     if paths.stories_dir.exists():
@@ -188,7 +193,7 @@ def _coverage(paths: UserPaths) -> dict:
             covered.update(str(t).lower() for t in (story.get("tags") or []))
     vocab = _vocabulary()
     gaps = sorted(vocab - covered)[:5]
-    return {"covered": sorted(covered & vocab), "gaps": gaps}
+    return {"covered": sorted(covered & vocab), "gaps": gaps, "total": len(vocab)}
 
 
 def compute(user: User) -> dict:
@@ -221,14 +226,14 @@ def compute(user: User) -> dict:
         "provider": "filled" if provider_ready(llm, user.id) else "empty",
     }
 
-    ridges = [
+    parts = [
         {"id": rid, "label": label, "hint": hint, "state": states[rid]}
-        for rid, label, hint in RIDGES
+        for rid, label, hint in PARTS
     ]
-    filled = sum(1 for r in ridges if r["state"] == "filled")
-    partial = sum(1 for r in ridges if r["state"] == "partial")
-    total = len(ridges)
-    nxt = next((r for r in ridges if r["state"] != "filled"), None)
+    filled = sum(1 for r in parts if r["state"] == "filled")
+    partial = sum(1 for r in parts if r["state"] == "partial")
+    total = len(parts)
+    nxt = next((r for r in parts if r["state"] != "filled"), None)
 
     return {
         "phase": "depth" if filled == total else "formation",
@@ -236,7 +241,7 @@ def compute(user: User) -> dict:
         "partial": partial,
         "total": total,
         "score": (filled + 0.5 * partial) / total,
-        "ridges": ridges,
+        "parts": parts,
         "next": (
             {"id": nxt["id"], "label": nxt["label"], "hint": nxt["hint"]}
             if nxt

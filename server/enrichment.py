@@ -5,9 +5,9 @@ transformation lands here instead of inline at capture time. That separation
 also means capture never fails because a model was down, a key was wrong or a
 quota was hit — and each step below is independently retryable.
 
-The client drives the steps one at a time so that ridge animation reflects real
-progress rather than a timed fake, and so a single failure is retryable in place
-without restarting the cascade.
+The client drives the steps one at a time so that the profile meter fills
+against real state rather than a timed fake, and so a single failure is
+retryable in place without restarting the cascade.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def plan(user: User) -> list[dict]:
     parked = intake_store.read_parked_resume(paths).strip()
     if parked and not paths.resume_path.exists():
         steps.append(
-            {"id": "resume", "label": "Reading your resume", "ridge": "resume"}
+            {"id": "resume", "label": "Reading your resume", "part": "resume"}
         )
 
     drafts = intake_store.list_drafts(paths)
@@ -56,17 +56,17 @@ def plan(user: User) -> list[dict]:
             {
                 "id": f"story:{draft['slug']}",
                 "label": f"Shaping “{draft['title']}”",
-                "ridge": f"story_{min(index, 3)}",
+                "part": f"story_{min(index, 3)}",
             }
         )
 
     notes = intake_store.read_notes(paths).strip()
     if notes and not paths.bio_path.exists():
-        steps.append({"id": "bio", "label": "Learning your voice", "ridge": "voice"})
+        steps.append({"id": "bio", "label": "Learning your voice", "part": "voice"})
 
     if parked or notes or drafts:
         steps.append(
-            {"id": "search", "label": "Working out what to look for", "ridge": "search"}
+            {"id": "search", "label": "Working out what to look for", "part": "search"}
         )
 
     return steps
@@ -105,13 +105,13 @@ def run_step(user: User, step_id: str, *, force: bool = False) -> dict:
 
     if step_id == "resume":
         if paths.resume_path.exists() and not force:
-            return {"id": step_id, "done": True, "skipped": True, "ridge": "resume", "result": None}
+            return {"id": step_id, "done": True, "skipped": True, "part": "resume", "result": None}
         parked = intake_store.read_parked_resume(paths).strip()
         if not parked:
             raise HTTPException(404, "no parked resume to import")
         data = _call(chain, lambda p: import_resume(parked, provider=p))
         paths.resume_path.write_text(master_resume_to_yaml(data), encoding="utf-8")
-        return {"id": step_id, "done": True, "skipped": False, "ridge": "resume", "result": None}
+        return {"id": step_id, "done": True, "skipped": False, "part": "resume", "result": None}
 
     if step_id.startswith("story:"):
         slug = step_id.split(":", 1)[1]
@@ -142,13 +142,13 @@ def run_step(user: User, step_id: str, *, force: bool = False) -> dict:
             "id": step_id,
             "done": True,
             "skipped": False,
-            "ridge": "story_1",
+            "part": "story_1",
             "result": {"title": story.get("title"), "file": target.name},
         }
 
     if step_id == "bio":
         if paths.bio_path.exists() and not force:
-            return {"id": step_id, "done": True, "skipped": True, "ridge": "voice", "result": None}
+            return {"id": step_id, "done": True, "skipped": True, "part": "voice", "result": None}
         notes = intake_store.read_notes(paths).strip()
         if not notes:
             raise HTTPException(404, "no notes to derive a voice from")
@@ -164,7 +164,7 @@ def run_step(user: User, step_id: str, *, force: bool = False) -> dict:
             ),
         )
         paths.bio_path.write_text(text, encoding="utf-8")
-        return {"id": step_id, "done": True, "skipped": False, "ridge": "voice", "result": None}
+        return {"id": step_id, "done": True, "skipped": False, "part": "voice", "result": None}
 
     if step_id == "search":
         told = intake_store.read_notes(paths)
@@ -181,7 +181,7 @@ def run_step(user: User, step_id: str, *, force: bool = False) -> dict:
             "id": step_id,
             "done": True,
             "skipped": False,
-            "ridge": "search",
+            "part": "search",
             "result": {"keywords": keywords},
         }
 

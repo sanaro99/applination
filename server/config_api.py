@@ -20,7 +20,6 @@ from pydantic import BaseModel
 from .auth import require_user
 from .db import User
 from .deps import load_config, paths_for, update_config
-from .user_paths import UserPaths
 from .user_secrets import extract_secrets, secrets_status
 
 router = APIRouter(prefix="/api", tags=["config"])
@@ -39,17 +38,6 @@ def _read(path: Path) -> str:
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-
-
-def _check_story_name(name: str) -> None:
-    """Reject anything that could leave the user's stories directory.
-
-    Kept from the single-tenant version and still load-bearing: ``paths.ensure()``
-    creates the directory, but nothing else stops ``../../2/master_data`` from
-    being appended to it.
-    """
-    if "/" in name or "\\" in name or name.startswith("."):
-        raise HTTPException(400, "invalid story name")
 
 
 @router.get("/config")
@@ -125,62 +113,3 @@ def put_search_keywords(body: KeywordsBody, user: User = Depends(require_user)) 
 def get_secrets(user: User = Depends(require_user)) -> dict:
     """Which API keys are stored, masked. Never returns a usable credential."""
     return secrets_status(user.id)  # type: ignore[arg-type]
-
-
-def _paths(user: User) -> UserPaths:
-    return paths_for(user)
-
-
-@router.get("/master-data/resume")
-def get_resume(user: User = Depends(require_user)) -> dict:
-    return {"text": _read(_paths(user).resume_path)}
-
-
-@router.put("/master-data/resume")
-def put_resume(body: TextBody, user: User = Depends(require_user)) -> dict:
-    try:
-        yaml.safe_load(body.text)
-    except yaml.YAMLError as e:
-        raise HTTPException(400, f"invalid YAML: {e}") from e
-    _write(_paths(user).resume_path, body.text)
-    return {"ok": True}
-
-
-@router.get("/master-data/bio")
-def get_bio(user: User = Depends(require_user)) -> dict:
-    return {"text": _read(_paths(user).bio_path)}
-
-
-@router.put("/master-data/bio")
-def put_bio(body: TextBody, user: User = Depends(require_user)) -> dict:
-    _write(_paths(user).bio_path, body.text)
-    return {"ok": True}
-
-
-@router.get("/master-data/stories")
-def list_stories(user: User = Depends(require_user)) -> list[dict]:
-    stories_dir = _paths(user).stories_dir
-    if not stories_dir.exists():
-        return []
-    out: list[dict] = []
-    for p in sorted(stories_dir.glob("*.md")):
-        if p.name.startswith("_"):
-            continue
-        out.append({"name": p.stem, "size": p.stat().st_size})
-    return out
-
-
-@router.get("/master-data/stories/{name}")
-def get_story(name: str, user: User = Depends(require_user)) -> dict:
-    _check_story_name(name)
-    p = _paths(user).stories_dir / f"{name}.md"
-    if not p.exists():
-        raise HTTPException(404, "story not found")
-    return {"name": name, "text": _read(p)}
-
-
-@router.put("/master-data/stories/{name}")
-def put_story(name: str, body: TextBody, user: User = Depends(require_user)) -> dict:
-    _check_story_name(name)
-    _write(_paths(user).stories_dir / f"{name}.md", body.text)
-    return {"ok": True}

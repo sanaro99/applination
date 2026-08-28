@@ -89,3 +89,101 @@ def test_structured_get_requires_a_session(app_env):
     with TestClient(app_env) as anon:
         r = anon.get("/api/master-data/resume/structured")
         assert r.status_code == 401
+
+
+VALID = {
+    "summary_options": ["Engineer"],
+    "core_skills": ["Python"],
+    "skills": {"languages": ["Python"]},
+    "experience": [
+        {"company": "X", "role": "Software Engineer", "bullets_all": ["Shipped a thing."]}
+    ],
+    "education": [{"school": "U", "degree": "BS CS"}],
+}
+
+
+def test_structured_put_writes_the_file(client):
+    r = client.put("/api/master-data/resume/structured", json={"data": VALID})
+    assert r.status_code == 200, r.text
+    on_disk = yaml.safe_load(
+        UserPaths(user_id=1).resume_path.read_text(encoding="utf-8")
+    )
+    assert on_disk["core_skills"] == ["Python"]
+    assert on_disk["skills"] == {"languages": ["Python"]}
+
+
+def test_a_no_op_save_neither_reorders_nor_drops_keys(client):
+    client.put("/api/master-data/resume/structured", json={"data": VALID})
+    first = client.get("/api/master-data/resume/structured").json()["data"]
+    client.put("/api/master-data/resume/structured", json={"data": first})
+    second = client.get("/api/master-data/resume/structured").json()["data"]
+    assert second == first
+    assert list(second) == list(first)
+
+
+def test_structured_put_preserves_a_comment_added_through_the_text_editor(client):
+    client.put(
+        "/api/master-data/resume",
+        json={"text": "# hands off\ncore_skills:\n  - Python\nprivate: yes\n"},
+    )
+    client.put("/api/master-data/resume/structured", json={"data": VALID})
+    on_disk = UserPaths(user_id=1).resume_path.read_text(encoding="utf-8")
+    assert "# hands off" in on_disk
+    assert yaml.safe_load(on_disk)["private"] is True
+
+
+def test_a_missing_required_field_is_rejected_by_name(client):
+    broken = {
+        **VALID,
+        "experience": [{"role": "Software Engineer", "bullets_all": ["x"]}],
+    }
+    r = client.put("/api/master-data/resume/structured", json={"data": broken})
+    assert r.status_code == 400
+    assert "experience[0]" in r.json()["detail"]
+    assert "company" in r.json()["detail"]
+
+
+def test_a_wrong_type_is_rejected_by_path(client):
+    broken = {**VALID, "core_skills": "Python"}
+    r = client.put("/api/master-data/resume/structured", json={"data": broken})
+    assert r.status_code == 400
+    assert "core_skills" in r.json()["detail"]
+
+
+def test_a_rejected_save_does_not_touch_the_file(client):
+    client.put("/api/master-data/resume", json={"text": "core_skills:\n  - Original\n"})
+    client.put(
+        "/api/master-data/resume/structured",
+        json={"data": {**VALID, "core_skills": "not a list"}},
+    )
+    on_disk = yaml.safe_load(
+        UserPaths(user_id=1).resume_path.read_text(encoding="utf-8")
+    )
+    assert on_disk["core_skills"] == ["Original"]
+
+
+def test_structured_and_text_views_agree_on_the_same_file(client):
+    client.put("/api/master-data/resume/structured", json={"data": VALID})
+    text = client.get("/api/master-data/resume").json()["text"]
+    structured = client.get("/api/master-data/resume/structured").json()["data"]
+    assert yaml.safe_load(text)["core_skills"] == structured["core_skills"]
+
+
+def test_structured_put_requires_a_session(app_env):
+    with TestClient(app_env) as anon:
+        r = anon.put("/api/master-data/resume/structured", json={"data": VALID})
+        assert r.status_code == 401
+
+
+def test_mapping_shaped_skills_are_accepted_even_though_the_schema_wants_a_list(client):
+    """The schema and the disk format disagree about `skills` on purpose. If
+    this fails, someone has "fixed" one of the two shapes and broken the other."""
+    r = client.put(
+        "/api/master-data/resume/structured",
+        json={"data": {**VALID, "skills": {"languages": ["Python"], "data": ["SQL"]}}},
+    )
+    assert r.status_code == 200, r.text
+    on_disk = yaml.safe_load(
+        UserPaths(user_id=1).resume_path.read_text(encoding="utf-8")
+    )
+    assert on_disk["skills"] == {"languages": ["Python"], "data": ["SQL"]}

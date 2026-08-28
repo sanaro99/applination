@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { ChangeReview } from "@/components/change-review";
 import { cn } from "@/lib/utils";
 
 interface TextEditorProps {
@@ -62,9 +63,6 @@ export function TextEditor({
             : language === "markdown"
               ? "Markdown"
               : "Text"}
-          {dirty && (
-            <span className="ml-2 text-amber-400">· unsaved changes</span>
-          )}
         </span>
         <div className="flex gap-2">
           <Button
@@ -89,6 +87,9 @@ export function TextEditor({
           </Button>
         </div>
       </div>
+      {dirty ? (
+        <ChangeReview before={base.split("\n")} after={val.split("\n")} />
+      ) : null}
       <Textarea
         value={val}
         onChange={(e) => setVal(e.target.value)}

@@ -20,6 +20,7 @@ from .auth import require_user
 from .db import User
 from .deps import paths_for
 from .user_paths import UserPaths
+from src.master_resume import load_master
 
 router = APIRouter(prefix="/api/master-data", tags=["master-data"])
 
@@ -106,3 +107,14 @@ def put_story(name: str, body: TextBody, user: User = Depends(require_user)) -> 
     _check_story_name(name)
     _write(_paths(user).stories_dir / f"{name}.md", body.text)
     return {"ok": True}
+
+
+@router.get("/resume/structured")
+def get_resume_structured(user: User = Depends(require_user)) -> dict:
+    """The resume as a dict, normalized.
+
+    Tolerant by design: a half-finished or slightly wrong file still loads, so
+    the form can render what is there instead of refusing to open. Strictness
+    belongs on the way out, in PUT.
+    """
+    return {"data": load_master(_paths(user).resume_path)}

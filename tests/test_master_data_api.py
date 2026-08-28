@@ -56,3 +56,36 @@ def test_the_text_put_still_rejects_broken_yaml(client):
 def test_master_data_requires_a_session(app_env):
     with TestClient(app_env) as anon:
         assert anon.get("/api/master-data/resume").status_code == 401
+
+
+def test_structured_get_returns_the_parsed_document(client):
+    client.put(
+        "/api/master-data/resume",
+        json={"text": "core_skills:\n  - Python\nsummary_options:\n  - Engineer\n"},
+    )
+    r = client.get("/api/master-data/resume/structured")
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["core_skills"] == ["Python"]
+
+
+def test_structured_get_normalizes_the_old_skills_list(client):
+    """Guards PR #57: a file written before the shape was settled must still
+    load, not crash the form."""
+    client.put(
+        "/api/master-data/resume",
+        json={"text": "skills:\n  - group: languages\n    items:\n      - Python\n"},
+    )
+    r = client.get("/api/master-data/resume/structured")
+    assert r.json()["data"]["skills"] == {"languages": ["Python"]}
+
+
+def test_structured_get_on_an_account_with_no_resume_is_empty_not_404(client):
+    r = client.get("/api/master-data/resume/structured")
+    assert r.status_code == 200
+    assert r.json()["data"] == {}
+
+
+def test_structured_get_requires_a_session(app_env):
+    with TestClient(app_env) as anon:
+        r = anon.get("/api/master-data/resume/structured")
+        assert r.status_code == 401

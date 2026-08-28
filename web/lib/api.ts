@@ -123,6 +123,41 @@ export type MasterResume = {
   education?: EducationEntry[];
 };
 
+/** One scraper's on/off switch, keyed by its `sources.<key>` block. */
+export type SourceToggle = { key: string; enabled: boolean };
+
+/**
+ * The four config.yaml sections the /config forms own. `llm` is edited on
+ * /workflows, `inbox` by the Gmail card, `user` during onboarding, `pricing`
+ * only in the raw YAML — none of them appear here.
+ */
+export type ConfigSections = {
+  search: {
+    keywords: string[];
+    min_match_score: number;
+    max_jobs_per_day: number;
+    remote_ok: boolean;
+    onsite_cities: string[];
+    countries: string[];
+  };
+  sources: {
+    toggles: SourceToggle[];
+    greenhouse_extra_companies: string[];
+  };
+  output: {
+    produce_pdf: boolean;
+    font_name: string;
+    base_font_size: number;
+    margins_inches: number;
+  };
+  reminders: {
+    digest_enabled: boolean;
+    digest_to: string;
+    deadline_window_days: number;
+    follow_up_days: number;
+  };
+};
+
 export type ProviderSetup = {
   id: string;
   label: string;
@@ -612,6 +647,14 @@ export const api = {
     http<{ ok: boolean }>("/api/config", {
       method: "PUT",
       body: JSON.stringify({ text }),
+    }),
+
+  getConfigStructured: () =>
+    http<{ data: ConfigSections }>("/api/config/structured"),
+  putConfigStructured: (data: ConfigSections) =>
+    http<{ ok: boolean }>("/api/config/structured", {
+      method: "PUT",
+      body: JSON.stringify({ data }),
     }),
 
   getSearchKeywords: () =>

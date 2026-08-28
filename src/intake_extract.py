@@ -19,7 +19,22 @@ from dataclasses import dataclass
 _TAG = re.compile(r"^[a-z][a-z0-9.+-]{1,29}$")
 
 
-def load_vocabulary(index_md: str) -> set[str]:
+@dataclass(frozen=True)
+class TagGroup:
+    """One ``**Label:** a, b, c`` block of the taxonomy.
+
+    ``field`` is the story frontmatter key the group belongs to, taken from the
+    label's own parenthetical (``Role types (role_fit)``). The file already
+    says which list each group feeds; reading it here means the picker does not
+    have to carry a second copy of that mapping.
+    """
+
+    label: str
+    field: str
+    tags: list[str]
+
+
+def load_vocabulary_groups(index_md: str) -> list[TagGroup]:
     """Parse the ``## Tag taxonomy`` section of a stories ``_INDEX.md``.
 
     The section is a series of ``**Label:** a, b, c`` lines whose lists may wrap
@@ -27,33 +42,60 @@ def load_vocabulary(index_md: str) -> set[str]:
     file, the bold labels themselves, and the heading's own parenthetical are
     all excluded, because any of them becoming a "tag" would surface as a
     nonsense chip in front of the user.
+
+    Order — of the groups and of the tags inside them — is the file's, because
+    the file is hand-curated and its order is the closest thing to a ranking
+    this taxonomy has.
     """
     _, _, tail = index_md.partition("## Tag taxonomy")
     if not tail:
-        return set()
+        return []
 
-    payloads: list[str] = []
+    groups: list[TagGroup] = []
+    payloads: list[list[str]] = []
     capturing = False
     for line in tail.splitlines():
         stripped = line.strip()
         if ":**" in stripped:
             capturing = True
-            payloads.append(stripped.split(":**", 1)[1])
+            head, payload = stripped.split(":**", 1)
+            groups.append(_group_header(head))
+            payloads.append([payload])
             continue
         if not stripped:
             capturing = False
             continue
         if capturing:
-            payloads.append(stripped)
+            payloads[-1].append(stripped)
 
-    vocab: set[str] = set()
-    for chunk in payloads:
-        chunk = re.sub(r"\([^)]*\)", " ", chunk)
-        for raw in chunk.split(","):
-            token = raw.strip().strip(".").lower()
-            if _TAG.match(token):
-                vocab.add(token)
-    return vocab
+    out: list[TagGroup] = []
+    for group, chunks in zip(groups, payloads):
+        tags: list[str] = []
+        for chunk in chunks:
+            chunk = re.sub(r"\([^)]*\)", " ", chunk)
+            for raw in chunk.split(","):
+                token = raw.strip().strip(".").lower()
+                if _TAG.match(token) and token not in tags:
+                    tags.append(token)
+        if tags:
+            out.append(TagGroup(label=group.label, field=group.field, tags=tags))
+    return out
+
+
+def _group_header(head: str) -> TagGroup:
+    """Split ``**Role types (role_fit)`` into a display label and a field."""
+    label = head.strip().lstrip("*").strip()
+    field = "tags"
+    match = re.search(r"\(([a-z_]+)\)", label)
+    if match:
+        field = match.group(1)
+        label = label[: match.start()].strip()
+    return TagGroup(label=label, field=field, tags=[])
+
+
+def load_vocabulary(index_md: str) -> set[str]:
+    """The whole taxonomy as one flat set, for membership checks."""
+    return {tag for group in load_vocabulary_groups(index_md) for tag in group.tags}
 
 
 # Words that are technically nouns in the right place but always read as noise

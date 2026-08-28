@@ -97,3 +97,100 @@ def load_master(path: str | Path) -> dict:
         return {}
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     return normalize_master(raw)
+
+
+# The top-level keys the structured editor owns. Anything else in the file —
+# a comment, a key the schema does not model — belongs to the user and is
+# copied through untouched.
+FORM_KEYS: tuple[str, ...] = (
+    "profile",
+    "summary_options",
+    "core_skills",
+    "ats_adjacent_skills",
+    "skills",
+    "experience",
+    "projects",
+    "education",
+)
+
+
+def render_master(existing_text: str, data: dict) -> str:
+    """Merge ``data`` into ``existing_text`` and return the YAML to write.
+
+    Round-trips through ruamel rather than dumping a fresh document, so
+    comments, key order and unmodelled keys survive. Only keys present in
+    ``data`` are replaced: a section the caller omitted is left exactly as it
+    was, because the form saves what it renders and must not erase what it
+    does not.
+    """
+    from io import StringIO
+
+    from ruamel.yaml import YAML
+    from ruamel.yaml.comments import CommentedMap, CommentedSeq
+
+    rt = YAML()
+    rt.preserve_quotes = True
+    # ruamel wraps at 80 by default, which would fold a long bullet into a
+    # multi-line scalar and surface as a phantom change in the next diff.
+    rt.width = 4096
+
+    doc = rt.load(existing_text) if existing_text.strip() else None
+    if not isinstance(doc, (dict, CommentedMap)):
+        doc = CommentedMap()
+
+    incoming = normalize_master(data)
+    for key in FORM_KEYS:
+        if key not in incoming:
+            continue
+        existing = doc.get(key) if isinstance(doc, CommentedMap) else None
+        if isinstance(existing, (CommentedMap, CommentedSeq)):
+            _merge_into(existing, incoming[key])
+        else:
+            doc[key] = incoming[key]
+
+    buf = StringIO()
+    rt.dump(doc, buf)
+    return buf.getvalue()
+
+
+def _merge_into(old, new):
+    """Update a ruamel container in place so its value equals ``new``.
+
+    A plain ``doc[key] = new_value`` replaces the whole ruamel node, which
+    discards any comment ruamel attached to that node (e.g. a comment sitting
+    between a list's last item and the next map key is stored as a trailing
+    comment on that item, not on the following key — replacing the list wholesale
+    loses it). Assigning by index/key instead mutates the existing node, so
+    ruamel's comment map — keyed by index/key — keeps pointing at the right
+    place. Falls back to plain replacement when the container types don't match
+    (nothing to preserve) or when a nested value isn't a container.
+    """
+    from ruamel.yaml.comments import CommentedMap, CommentedSeq
+
+    if isinstance(old, CommentedSeq) and isinstance(new, list):
+        while len(old) > len(new):
+            del old[-1]
+        for i, item in enumerate(new):
+            if i < len(old):
+                if isinstance(old[i], (CommentedMap, CommentedSeq)) and isinstance(
+                    item, (dict, list)
+                ):
+                    _merge_into(old[i], item)
+                else:
+                    old[i] = item
+            else:
+                old.append(item)
+        return
+    if isinstance(old, CommentedMap) and isinstance(new, dict):
+        for k in list(old.keys()):
+            if k not in new:
+                del old[k]
+        for k, v in new.items():
+            existing = old.get(k)
+            if isinstance(existing, (CommentedMap, CommentedSeq)) and isinstance(
+                v, (dict, list)
+            ):
+                _merge_into(existing, v)
+            else:
+                old[k] = v
+        return

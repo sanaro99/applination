@@ -16,17 +16,11 @@ from pathlib import Path
 
 import yaml
 
-from .master_resume import normalize_skills
+from .master_resume import FORM_KEYS, normalize_skills
 from .schemas import STORY_SCHEMA, MASTER_RESUME_SCHEMA, KEYWORDS_SCHEMA
 
 # Frontmatter key order matching the existing story files.
 _STORY_KEYS = ("title", "tags", "role_fit", "company_fit", "one_liner")
-
-# Top-level key order matching master_data/resume.yaml when dumping an import.
-_MASTER_RESUME_KEYS = (
-    "profile", "summary_options", "core_skills", "ats_adjacent_skills",
-    "skills", "experience", "projects", "education",
-)
 
 _GROUNDING = (
     "Ground everything in the candidate's REAL experience described to you. "
@@ -204,7 +198,7 @@ def _coerce_master_resume(data: dict) -> dict:
 def master_resume_to_yaml(data: dict) -> str:
     """Render an imported master-resume dict to YAML in the conventional key
     order, with a short header comment."""
-    ordered = {k: data[k] for k in _MASTER_RESUME_KEYS if k in data and data[k] not in (None, [], {})}
+    ordered = {k: data[k] for k in FORM_KEYS if k in data and data[k] not in (None, [], {})}
     body = yaml.safe_dump(ordered, sort_keys=False, allow_unicode=True, default_flow_style=False, width=100)
     header = (
         "# MASTER RESUME: your everything file. The LLM selects and trims per "

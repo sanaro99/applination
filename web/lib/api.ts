@@ -74,6 +74,55 @@ export type ProfileStrength = {
   coverage: { covered: string[]; gaps: string[]; total: number };
 };
 
+/** One job. `bullets_all` is the full pool the tailor selects from per job. */
+export type ExperienceEntry = {
+  company: string;
+  role: string;
+  location?: string;
+  start_date?: string;
+  end_date?: string;
+  bullets_all: string[];
+};
+
+export type ProjectEntry = {
+  name: string;
+  tech?: string;
+  link?: string;
+  bullets_all: string[];
+};
+
+export type EducationEntry = {
+  school: string;
+  degree: string;
+  location?: string;
+  start_date?: string;
+  end_date?: string;
+  gpa?: string;
+  coursework?: string[];
+};
+
+export type MasterProfile = {
+  identity_titles: string[];
+  seniority: "student" | "new-grad" | "professional";
+};
+
+/**
+ * The master resume as the structured editor sees it. Hand-written against
+ * MASTER_RESUME_SCHEMA; the server validates, so drift shows up as a 400 with a
+ * named field rather than a corrupt file. `skills` is a mapping — canonical
+ * since PR #57, never the old {group, items} list.
+ */
+export type MasterResume = {
+  profile?: MasterProfile;
+  summary_options?: string[];
+  core_skills?: string[];
+  ats_adjacent_skills?: string[];
+  skills?: Record<string, string[]>;
+  experience?: ExperienceEntry[];
+  projects?: ProjectEntry[];
+  education?: EducationEntry[];
+};
+
 export type ProviderSetup = {
   id: string;
   label: string;
@@ -578,6 +627,14 @@ export const api = {
     http<{ ok: boolean }>("/api/master-data/resume", {
       method: "PUT",
       body: JSON.stringify({ text }),
+    }),
+
+  getResumeStructured: () =>
+    http<{ data: MasterResume }>("/api/master-data/resume/structured"),
+  putResumeStructured: (data: MasterResume) =>
+    http<{ ok: boolean }>("/api/master-data/resume/structured", {
+      method: "PUT",
+      body: JSON.stringify({ data }),
     }),
 
   getBio: () => http<{ text: string }>("/api/master-data/bio"),

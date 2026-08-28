@@ -19,6 +19,7 @@ from .user_paths import USERS_DIR
 from .runs import router as runs_router
 from .single_job import router as single_job_router
 from .config_api import router as config_router
+from .master_data import router as master_data_router
 from .tweak import router as tweak_router
 from .stats import router as stats_router
 from .ranked import router as ranked_router
@@ -175,6 +176,7 @@ def create_app() -> FastAPI:
         applications_router,
         single_job_router,
         config_router,
+        master_data_router,
         tweak_router,
         stats_router,
         ranked_router,

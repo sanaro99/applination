@@ -30,6 +30,7 @@ import {
 import { TextEditor } from "@/components/text-editor";
 import { AiAssist } from "@/components/ai-assist";
 import { ProviderSelect } from "@/components/provider-select";
+import { ResumeForm } from "@/components/master-data/resume-form";
 import { api } from "@/lib/api";
 
 type Kind = "story" | "bio" | "resume";
@@ -121,6 +122,23 @@ function EditableDoc({
 }
 
 function ResumeEditor() {
+  return (
+    <Tabs defaultValue="form">
+      <TabsList>
+        <TabsTrigger value="form">Form</TabsTrigger>
+        <TabsTrigger value="raw">Advanced: YAML</TabsTrigger>
+      </TabsList>
+      <TabsContent value="form" className="mt-4">
+        <ResumeForm />
+      </TabsContent>
+      <TabsContent value="raw" className="mt-4">
+        <RawResumeEditor />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function RawResumeEditor() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["resume"],
@@ -137,6 +155,7 @@ function ResumeEditor() {
       onSave={async (text) => {
         await api.putResume(text);
         await qc.invalidateQueries({ queryKey: ["resume"] });
+        await qc.invalidateQueries({ queryKey: ["resume-structured"] });
       }}
     />
   );

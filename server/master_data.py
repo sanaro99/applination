@@ -11,6 +11,7 @@ endpoints in this same file are strict. Tolerant on read, strict on write.
 """
 from __future__ import annotations
 import re
+from functools import lru_cache
 from pathlib import Path
 
 import yaml
@@ -21,9 +22,11 @@ from pydantic import BaseModel
 from .auth import require_user
 from .db import User
 from .deps import paths_for
-from .user_paths import UserPaths
+from .user_paths import GLOBAL_MASTER_DIR, UserPaths
+from src.intake_extract import load_vocabulary_groups
 from src.master_resume import FORM_KEYS, load_master, render_master
 from src.schemas import MASTER_RESUME_SCHEMA
+from src.story_doc import FRONTMATTER_KEYS, LIST_KEYS, parse_story, render_story
 
 router = APIRouter(prefix="/api/master-data", tags=["master-data"])
 
@@ -196,4 +199,89 @@ def put_resume_structured(
 
     path = _paths(user).resume_path
     _write(path, render_master(_read(path), payload))
+    return {"ok": True}
+
+
+@lru_cache(maxsize=1)
+def _taxonomy() -> list[dict]:
+    """The committed tag taxonomy, grouped as ``_INDEX.md`` groups it.
+
+    Global and read-only, so it is cached for the process: it is a committed
+    file that only changes on deploy. Served rather than copied into the
+    browser because the file says "expand as needed", and a second copy would
+    go stale the first time somebody does.
+    """
+    index = GLOBAL_MASTER_DIR / "stories" / "_INDEX.md"
+    if not index.exists():
+        return []
+    return [
+        {"label": g.label, "field": g.field, "tags": g.tags}
+        for g in load_vocabulary_groups(index.read_text(encoding="utf-8"))
+    ]
+
+
+@router.get("/story-taxonomy")
+def get_story_taxonomy(user: User = Depends(require_user)) -> dict:
+    return {"groups": _taxonomy()}
+
+
+@router.get("/stories/{name}/structured")
+def get_story_structured(name: str, user: User = Depends(require_user)) -> dict:
+    """One story as frontmatter fields plus body.
+
+    Tolerant like its resume sibling: a broken header still opens, because the
+    body is the part the user cannot regenerate.
+    """
+    _check_story_name(name)
+    p = _paths(user).stories_dir / f"{name}.md"
+    if not p.exists():
+        raise HTTPException(404, "story not found")
+    return {"name": name, "data": parse_story(_read(p))}
+
+
+def _story_errors(data: dict) -> list[str]:
+    """Type errors only, named by field.
+
+    Deliberately not ``STORY_SCHEMA``: that schema constrains what the *model*
+    must produce (a body of at least 400 characters, at least three tags), and
+    holding a person to it would refuse to save a story they were halfway
+    through writing. What actually breaks a consumer is a type — ``_score``
+    iterates ``tags``, and a bare string there iterates characters — so that is
+    what is enforced.
+    """
+    errors: list[str] = []
+    for key in FRONTMATTER_KEYS:
+        if key not in data:
+            continue
+        value = data[key]
+        if key in LIST_KEYS:
+            if not isinstance(value, list) or any(
+                not isinstance(v, str) for v in value
+            ):
+                errors.append(f"{key} must be a list of tags")
+        elif not isinstance(value, str):
+            errors.append(f"{key} must be text")
+    if "body" in data and not isinstance(data["body"], str):
+        errors.append("body must be text")
+    return errors
+
+
+@router.put("/stories/{name}/structured")
+def put_story_structured(
+    name: str, body: StructuredBody, user: User = Depends(require_user)
+) -> dict:
+    """Validate, then merge into the story the user already has.
+
+    Off-taxonomy tags are accepted on purpose. ``_INDEX.md`` calls its own list
+    "expand as needed", and a picker that refused anything outside it would be
+    a cage; the editor marks such a tag instead, since it misses the +5
+    role-category bonus in ``reference_loader._score``.
+    """
+    _check_story_name(name)
+    errors = _story_errors(body.data)
+    if errors:
+        raise HTTPException(400, "; ".join(errors[:3]))
+
+    p = _paths(user).stories_dir / f"{name}.md"
+    _write(p, render_story(_read(p), body.data))
     return {"ok": True}

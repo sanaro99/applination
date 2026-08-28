@@ -187,3 +187,147 @@ def test_mapping_shaped_skills_are_accepted_even_though_the_schema_wants_a_list(
         UserPaths(user_id=1).resume_path.read_text(encoding="utf-8")
     )
     assert on_disk["skills"] == {"languages": ["Python"], "data": ["SQL"]}
+
+
+# --------------------------------------------------------------------------- #
+# The tag taxonomy
+#
+# Served rather than duplicated in TypeScript: `_INDEX.md` is a committed file
+# that says "expand as needed", and a copy in the browser would go stale the
+# first time somebody takes it up on that.
+# --------------------------------------------------------------------------- #
+
+
+def test_the_taxonomy_is_served_grouped_and_labelled(client):
+    r = client.get("/api/master-data/story-taxonomy")
+    assert r.status_code == 200, r.text
+    groups = r.json()["groups"]
+    assert groups, "the committed _INDEX.md should parse into groups"
+    assert {"label", "field", "tags"} <= set(groups[0])
+
+
+def test_the_taxonomy_says_which_field_each_group_feeds(client):
+    groups = client.get("/api/master-data/story-taxonomy").json()["groups"]
+    fields = {g["field"] for g in groups}
+    assert "role_fit" in fields
+    assert "company_fit" in fields
+    assert "tags" in fields
+
+
+def test_the_taxonomy_requires_a_session(app_env):
+    with TestClient(app_env) as anon:
+        assert anon.get("/api/master-data/story-taxonomy").status_code == 401
+
+
+# --------------------------------------------------------------------------- #
+# Stories, structured
+# --------------------------------------------------------------------------- #
+
+STORY = """---
+title: "Monitoring dashboard"
+tags: [platform, devtools]
+role_fit: [swe]
+company_fit: [enterprise]
+one_liner: "Cut detection time by 60% for 30+ teams."
+---
+
+**Context**: teams had no shared view.
+"""
+
+
+def test_structured_story_get_splits_frontmatter_from_body(client):
+    client.put("/api/master-data/stories/dash", json={"text": STORY})
+    r = client.get("/api/master-data/stories/dash/structured")
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["tags"] == ["platform", "devtools"]
+    assert data["body"].startswith("**Context**")
+
+
+def test_structured_story_get_404s_on_a_story_that_does_not_exist(client):
+    assert client.get("/api/master-data/stories/nope/structured").status_code == 404
+
+
+def test_structured_story_put_writes_a_file_the_matcher_can_read(client):
+    client.put("/api/master-data/stories/dash", json={"text": STORY})
+    r = client.put(
+        "/api/master-data/stories/dash/structured",
+        json={"data": {"tags": ["sre", "observability"], "body": "New body."}},
+    )
+    assert r.status_code == 200, r.text
+    text = client.get("/api/master-data/stories/dash").json()["text"]
+    fm = yaml.safe_load(text.split("---", 2)[1])
+    assert fm["tags"] == ["sre", "observability"]
+    assert fm["title"] == "Monitoring dashboard"
+    assert "New body." in text
+
+
+def test_an_off_taxonomy_tag_is_accepted(client):
+    """The taxonomy says "expand as needed". Refusing a tag it does not list
+    would make the picker a cage; the UI marks it instead."""
+    client.put("/api/master-data/stories/dash", json={"text": STORY})
+    r = client.put(
+        "/api/master-data/stories/dash/structured",
+        json={"data": {"tags": ["quantum-annealing"]}},
+    )
+    assert r.status_code == 200, r.text
+    assert (
+        client.get("/api/master-data/stories/dash/structured").json()["data"]["tags"]
+        == ["quantum-annealing"]
+    )
+
+
+def test_a_wrong_type_is_rejected_by_name(client):
+    client.put("/api/master-data/stories/dash", json={"text": STORY})
+    r = client.put(
+        "/api/master-data/stories/dash/structured", json={"data": {"tags": 3}}
+    )
+    assert r.status_code == 400
+    assert "tags" in r.json()["detail"]
+
+
+def test_a_rejected_story_save_does_not_touch_the_file(client):
+    client.put("/api/master-data/stories/dash", json={"text": STORY})
+    client.put(
+        "/api/master-data/stories/dash/structured", json={"data": {"title": ["a"]}}
+    )
+    text = client.get("/api/master-data/stories/dash").json()["text"]
+    assert "Monitoring dashboard" in text
+
+
+def test_structured_and_text_story_views_agree(client):
+    client.put("/api/master-data/stories/dash", json={"text": STORY})
+    client.put(
+        "/api/master-data/stories/dash/structured",
+        json={"data": {"one_liner": "A new hook."}},
+    )
+    text = client.get("/api/master-data/stories/dash").json()["text"]
+    data = client.get("/api/master-data/stories/dash/structured").json()["data"]
+    assert data["one_liner"] == "A new hook."
+    assert "A new hook." in text
+
+
+def test_structured_story_endpoints_reject_a_traversing_name(client):
+    """A forward slash never reaches the handler — the router sees extra path
+    segments and 404s. A backslash does, and only `_check_story_name` stops it
+    from writing outside the account's own stories directory."""
+    assert (
+        client.get("/api/master-data/stories/..%5C..%5Cx/structured").status_code == 400
+    )
+    assert (
+        client.put(
+            "/api/master-data/stories/..%5C..%5Cx/structured", json={"data": {}}
+        ).status_code
+        == 400
+    )
+
+
+def test_structured_story_endpoints_require_a_session(app_env):
+    with TestClient(app_env) as anon:
+        assert anon.get("/api/master-data/stories/dash/structured").status_code == 401
+        assert (
+            anon.put(
+                "/api/master-data/stories/dash/structured", json={"data": {}}
+            ).status_code
+            == 401
+        )

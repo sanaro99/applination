@@ -123,6 +123,28 @@ export type MasterResume = {
   education?: EducationEntry[];
 };
 
+/**
+ * One story, as the structured editor sees it: frontmatter fields plus the
+ * prose body. The three tag lists are what `reference_loader._score` actually
+ * weighs, which is why they get a picker instead of a line of YAML.
+ */
+export type StoryDoc = {
+  title: string;
+  tags: string[];
+  role_fit: string[];
+  company_fit: string[];
+  one_liner: string;
+  body: string;
+};
+
+/** One `**Label:** a, b, c` block of the committed stories/_INDEX.md taxonomy. */
+export type TagGroup = {
+  label: string;
+  /** The frontmatter list this group feeds: tags, role_fit or company_fit. */
+  field: string;
+  tags: string[];
+};
+
 export type ProviderSetup = {
   id: string;
   label: string;
@@ -644,6 +666,9 @@ export const api = {
       body: JSON.stringify({ text }),
     }),
 
+  getStoryTaxonomy: () =>
+    http<{ groups: TagGroup[] }>("/api/master-data/story-taxonomy"),
+
   listStories: () =>
     http<{ name: string; size: number }[]>("/api/master-data/stories"),
   getStory: (name: string) =>
@@ -656,6 +681,19 @@ export const api = {
       {
         method: "PUT",
         body: JSON.stringify({ text }),
+      },
+    ),
+
+  getStoryStructured: (name: string) =>
+    http<{ name: string; data: StoryDoc }>(
+      `/api/master-data/stories/${encodeURIComponent(name)}/structured`,
+    ),
+  putStoryStructured: (name: string, data: Partial<StoryDoc>) =>
+    http<{ ok: boolean }>(
+      `/api/master-data/stories/${encodeURIComponent(name)}/structured`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ data }),
       },
     ),
 

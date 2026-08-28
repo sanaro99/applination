@@ -149,3 +149,47 @@ def test_keywords_are_capped_and_unique():
 def test_is_hashable_so_it_can_be_cached():
     assert isinstance(extract_search_terms("backend engineer"), SearchTerms)
     hash(extract_search_terms("backend engineer"))
+
+
+# --------------------------------------------------------------------------- #
+# Grouped taxonomy
+#
+# The tag picker offers the taxonomy back to the user, and a flat set of 60
+# tags is not something anyone browses. The groups the file already writes are
+# the only grouping that exists, so they are what gets parsed.
+# --------------------------------------------------------------------------- #
+from src.intake_extract import load_vocabulary_groups  # noqa: E402
+
+
+def test_groups_keep_the_files_own_order_and_labels():
+    groups = load_vocabulary_groups(SAMPLE_INDEX)
+    assert [g.label for g in groups] == ["Technical areas", "Specific tech", "Role types"]
+
+
+def test_a_groups_tags_keep_the_files_own_order():
+    groups = load_vocabulary_groups(SAMPLE_INDEX)
+    assert groups[0].tags == [
+        "ai", "llm", "rag", "backend", "platform", "devtools", "security",
+    ]
+
+
+def test_the_parenthetical_says_which_frontmatter_field_a_group_belongs_to():
+    groups = load_vocabulary_groups(SAMPLE_INDEX)
+    assert [g.field for g in groups] == ["tags", "tags", "role_fit"]
+
+
+def test_company_types_bind_to_company_fit():
+    groups = load_vocabulary_groups(
+        SAMPLE_INDEX + "\n**Company types (company_fit):** finance, startup\n"
+    )
+    assert groups[-1].field == "company_fit"
+    assert groups[-1].tags == ["finance", "startup"]
+
+
+def test_the_flat_vocabulary_is_the_union_of_the_groups():
+    groups = load_vocabulary_groups(SAMPLE_INDEX)
+    assert load_vocabulary(SAMPLE_INDEX) == {t for g in groups for t in g.tags}
+
+
+def test_missing_taxonomy_section_yields_no_groups():
+    assert load_vocabulary_groups("# Stories Index\n\nNo taxonomy here.\n") == []

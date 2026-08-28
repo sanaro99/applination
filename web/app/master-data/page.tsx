@@ -31,6 +31,8 @@ import { TextEditor } from "@/components/text-editor";
 import { AiAssist } from "@/components/ai-assist";
 import { ProviderSelect } from "@/components/provider-select";
 import { ResumeForm } from "@/components/master-data/resume-form";
+import { StoryForm } from "@/components/master-data/story-form";
+import { BioGuidance } from "@/components/master-data/bio-guidance";
 import { api } from "@/lib/api";
 
 type Kind = "story" | "bio" | "resume";
@@ -169,17 +171,20 @@ function BioEditor() {
   });
   if (isLoading || !data) return <Skeleton className="h-[60svh] w-full" />;
   return (
-    <EditableDoc
-      key="bio"
-      disk={data.text}
-      kind="bio"
-      language="markdown"
-      aiPlaceholder="e.g. make the tone a little warmer; add a line about teaching"
-      onSave={async (text) => {
-        await api.putBio(text);
-        await qc.invalidateQueries({ queryKey: ["bio"] });
-      }}
-    />
+    <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
+      <EditableDoc
+        key="bio"
+        disk={data.text}
+        kind="bio"
+        language="markdown"
+        aiPlaceholder="e.g. make the tone a little warmer; add a line about teaching"
+        onSave={async (text) => {
+          await api.putBio(text);
+          await qc.invalidateQueries({ queryKey: ["bio"] });
+        }}
+      />
+      <BioGuidance />
+    </div>
   );
 }
 
@@ -226,21 +231,37 @@ function StoriesEditor() {
           No stories yet. Click <strong>New story</strong> to draft one from a
           short description.
         </p>
-      ) : isLoading || !story ? (
-        <Skeleton className="h-[55svh] w-full" />
       ) : (
-        <EditableDoc
-          key={effectiveSelected}
-          disk={story.text}
-          kind="story"
-          language="markdown"
-          minHeight="min-h-[55svh]"
-          aiPlaceholder="e.g. add more technical detail about the LangGraph validation loop"
-          onSave={async (text) => {
-            await api.putStory(effectiveSelected, text);
-            await qc.invalidateQueries({ queryKey: ["story", effectiveSelected] });
-          }}
-        />
+        <Tabs defaultValue="form">
+          <TabsList>
+            <TabsTrigger value="form">Form</TabsTrigger>
+            <TabsTrigger value="raw">Advanced: Markdown</TabsTrigger>
+          </TabsList>
+          <TabsContent value="form" className="mt-4">
+            <StoryForm key={effectiveSelected} name={effectiveSelected} />
+          </TabsContent>
+          <TabsContent value="raw" className="mt-4">
+            {isLoading || !story ? (
+              <Skeleton className="h-[55svh] w-full" />
+            ) : (
+              <EditableDoc
+                key={effectiveSelected}
+                disk={story.text}
+                kind="story"
+                language="markdown"
+                minHeight="min-h-[55svh]"
+                aiPlaceholder="e.g. add more technical detail about the LangGraph validation loop"
+                onSave={async (text) => {
+                  await api.putStory(effectiveSelected, text);
+                  await qc.invalidateQueries({ queryKey: ["story", effectiveSelected] });
+                  await qc.invalidateQueries({
+                    queryKey: ["story-structured", effectiveSelected],
+                  });
+                }}
+              />
+            )}
+          </TabsContent>
+        </Tabs>
       )}
 
       <NewStoryDialog

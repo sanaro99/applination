@@ -5,10 +5,8 @@ Get a free key at https://openrouter.ai/keys.
 Set it in config.yaml under llm.openrouter.api_key, or as OPENROUTER_API_KEY env var.
 
 Recommended free models (2026):
-  tencent/hunyuan-a13b-instruct:free  — Hunyuan A13B (Hy3 preview), good at structured JSON
-  google/gemma-3-27b-it:free          — Gemma 3 27B instruction-tuned
-  meta-llama/llama-4-scout:free       — Llama 4 Scout
-  mistralai/mistral-7b-instruct:free  — Mistral 7B (fast, lightweight)
+  nex-agi/nex-n2.5-mini:free          — current free general-purpose option
+  nex-agi/nex-n2.5-pro:free           — larger current free option
 
 JSON mode compatibility: OpenRouter passes response_format through to the upstream
 model if it supports it; silently falls back to a text parse when it doesn't.

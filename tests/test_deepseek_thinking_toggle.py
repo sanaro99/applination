@@ -7,7 +7,7 @@ from src.providers.factory import get_task_chains
 
 
 def test_disable_thinking_sets_toggle_and_skips_budget_headroom():
-    p = DeepSeekProvider(api_key="x", model="deepseek-v4-flash", disable_thinking=True)
+    p = DeepSeekProvider(api_key="x", model="deepseek-flash", disable_thinking=True)
     assert p._extra == {"extra_body": {"thinking": {"type": "disabled"}}}
     # No CoT to make room for -> the raw request stands.
     assert p._budget(3000) == 3000
@@ -15,7 +15,7 @@ def test_disable_thinking_sets_toggle_and_skips_budget_headroom():
 
 
 def test_thinking_on_by_default_keeps_reasoning_headroom():
-    p = DeepSeekProvider(api_key="x", model="deepseek-v4-flash")
+    p = DeepSeekProvider(api_key="x", model="deepseek-flash")
     assert p._extra == {}
     # v4-flash reasons by default -> budget expanded (capped) so content survives.
     assert p._budget(6000) == _REASONING_MAX_CAP
@@ -26,7 +26,7 @@ def test_task_thinking_false_propagates_to_deepseek_chain():
     cfg = {
         "primary": "deepseek",
         "fallbacks": [],
-        "deepseek": {"api_key": "x", "model": "deepseek-v4-flash"},
+        "deepseek": {"api_key": "x", "model": "deepseek-flash"},
         "tasks": {"ranking": {"thinking": False}, "tailoring": {}},
     }
     chains = get_task_chains(cfg)
@@ -41,7 +41,7 @@ def test_relinefit_defaults_to_thinking_off_but_is_overridable():
     base = {
         "primary": "deepseek",
         "fallbacks": [],
-        "deepseek": {"api_key": "x", "model": "deepseek-v4-flash"},
+        "deepseek": {"api_key": "x", "model": "deepseek-flash"},
     }
     chains = get_task_chains({**base, "tasks": {}})
     assert chains["relinefit"][0].disable_thinking is True   # off by default

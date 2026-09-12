@@ -5,13 +5,14 @@ Get a key at https://platform.deepseek.com/api_keys.
 Set it in config.yaml under llm.deepseek.api_key, or as DEEPSEEK_API_KEY env var.
 
 Recommended models:
-  deepseek-v4-flash  — fast + very cheap; default for all tasks. Dual-mode: reasons
+  deepseek-flash     — DeepSeek-V4.1-Flash, fast + very cheap; default for all
+                       tasks. Dual-mode: reasons
                        (emits reasoning_content) by default, like v4-pro; disable
                        chain-of-thought per-task via config `thinking: false`.
   deepseek-v4-pro    — reasoning model, ~3x pricier; chain-of-thought (thinking tags stripped automatically)
 
-NOTE: the legacy names deepseek-chat / deepseek-reasoner are deprecated and retired
-2026-07-24 15:59 UTC (they mapped to v4-flash non-thinking / thinking). Use the v4-* names.
+NOTE: ``deepseek-v4-flash`` remains accepted but now routes to
+DeepSeek-V4.1-Flash. Use the canonical ``deepseek-flash`` name for new config.
 """
 from __future__ import annotations
 import logging
@@ -38,9 +39,9 @@ _RETRY_DELAYS = [5, 15]
 # treated as a plain chat model, so it got no token headroom; short-budget
 # calls (e.g. critique at max_tokens=500, cover-letter attempt 1 at 1600) had
 # their entire budget eaten by CoT and returned empty/truncated content, which
-# surfaced as recurring "JSON parse failed" retries. Match "v4-flash" (not the
-# bare "flash", which would misclassify e.g. gemini-2.5-flash).
-_REASONING_MODEL_HINTS = ("pro", "reasoner", "-r1", "thinking", "v4-pro", "v4-flash")
+# surfaced as recurring "JSON parse failed" retries. Match the full DeepSeek
+# Flash identifier (not the bare "flash", which would misclassify Gemini Flash).
+_REASONING_MODEL_HINTS = ("deepseek-flash", "pro", "reasoner", "-r1", "thinking", "v4-pro", "v4-flash")
 # Multiplier applied to max_tokens when calling a reasoning model. CoT budgets
 # of 2-5K tokens are normal, so 6x gives the model room to think AND emit JSON.
 _REASONING_TOKEN_MULTIPLIER = 6
@@ -118,7 +119,7 @@ class DeepSeekProvider(LLMProvider):
     def __init__(
         self,
         api_key: str,
-        model: str = "deepseek-v4-flash",
+        model: str = "deepseek-flash",
         *,
         disable_thinking: bool = False,
     ):

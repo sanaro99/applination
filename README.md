@@ -219,7 +219,7 @@ Seven providers, any of which can be primary or fallback. Keys are entered in th
 |---|---|
 | **Claude** (Anthropic) | Haiku ~$0.10–0.30/run; Sonnet ~$1–3/run |
 | **Gemini** (Google) | Flash is effectively free |
-| **DeepSeek** | Cheapest cloud path; `deepseek-v4-flash` standard, `deepseek-v4-pro` premium |
+| **DeepSeek** | Cheapest cloud path; `deepseek-flash` (DeepSeek-V4.1-Flash) standard, `deepseek-v4-pro` premium |
 | **Mistral** | Solid mid-tier |
 | **OpenRouter** | Many models behind one key |
 | **Ollama** (local) | Free; requires `ollama serve` |

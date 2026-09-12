@@ -72,7 +72,7 @@ def get_provider(
     """Construct a provider by name.
 
     `model_override` lets a per-task config swap the default model for that
-    provider on a single call site (e.g., critique uses deepseek-v4-flash while
+    provider on a single call site (e.g., critique uses deepseek-flash while
     tailoring keeps deepseek-v4-pro).
 
     `disable_thinking` turns off chain-of-thought for providers that support a
@@ -95,7 +95,7 @@ def get_provider(
         from .gemini_provider import GeminiProvider
         return GeminiProvider(
             api_key=sub.get("api_key", ""),
-            model=_model("gemini-2.0-flash"),
+            model=_model("gemini-3.8-flash"),
         )
 
     if name == "ollama":
@@ -117,7 +117,7 @@ def get_provider(
         from .openrouter_provider import OpenRouterProvider
         return OpenRouterProvider(
             api_key=sub.get("api_key", ""),
-            model=_model("tencent/hunyuan-a13b-instruct:free"),
+            model=_model("nex-agi/nex-n2.5-mini:free"),
             site_url=sub.get("site_url", ""),
             site_name=sub.get("site_name", "internship_bot"),
         )
@@ -126,7 +126,7 @@ def get_provider(
         from .deepseek_provider import DeepSeekProvider
         return DeepSeekProvider(
             api_key=sub.get("api_key", ""),
-            model=_model("deepseek-v4-flash"),
+            model=_model("deepseek-flash"),
             disable_thinking=disable_thinking,
         )
 
@@ -257,7 +257,7 @@ def get_task_chains(llm_cfg: dict) -> dict[str, list[LLMProvider]]:
         primary = task_cfg.get("primary", global_primary)
         fallbacks = task_cfg.get("fallbacks", global_fallbacks) or []
         # `models: {provider_name: model_id}` lets a task pin a non-default model
-        # for one or more providers (e.g. use deepseek-v4-flash for critique while
+        # for one or more providers (e.g. use deepseek-flash for critique while
         # tailoring keeps the slower deepseek-v4-pro). Falls back to the
         # top-level llm.<provider>.model when unset.
         model_overrides = task_cfg.get("models", {}) or {}

@@ -94,7 +94,7 @@ def test_put_llm_config_preserves_comments_and_blocks(client):
                 "coach": {
                     "primary": "gemini",
                     "fallbacks": ["deepseek"],
-                    "models": {"gemini": "gemini-2.5-flash"},
+                    "models": {"gemini": "gemini-3.8-flash"},
                 }
             },
         },
@@ -109,7 +109,7 @@ def test_put_llm_config_preserves_comments_and_blocks(client):
     parsed = yaml.safe_load(text)
     assert "deepseek" in parsed["llm"] and "api_key" in parsed["llm"]["deepseek"]
     assert parsed["llm"]["tasks"]["coach"]["primary"] == "gemini"
-    assert parsed["llm"]["tasks"]["coach"]["models"]["gemini"] == "gemini-2.5-flash"
+    assert parsed["llm"]["tasks"]["coach"]["models"]["gemini"] == "gemini-3.8-flash"
 
     # GET reflects the new state.
     cfg = client.get("/api/llm-config").json()

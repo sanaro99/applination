@@ -40,11 +40,11 @@ const GROUPS = ["Pipeline", "Prepwork & editing"];
 
 // Curated model suggestions per provider (a free-text field covers the rest).
 const CURATED_MODELS: Record<string, string[]> = {
-  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"],
-  mistral: ["mistral-small-latest", "mistral-medium-latest", "open-mixtral-8x22b"],
-  gemini: ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-pro"],
+  deepseek: ["deepseek-flash", "deepseek-v4-pro"],
+  mistral: ["mistral-small-latest", "mistral-medium-latest"],
+  gemini: ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview"],
   claude: ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-8"],
-  openrouter: ["tencent/hunyuan-a13b-instruct:free"],
+  openrouter: ["nex-agi/nex-n2.5-mini:free", "nex-agi/nex-n2.5-pro:free"],
   nim: ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"],
   ollama: ["llama3.2", "qwen2.5"],
 };

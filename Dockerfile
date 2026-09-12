@@ -25,6 +25,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+ARG APPLINATION_VERSION=0.1.1
+ARG APPLINATION_BUILD_SHA=dev
+ENV APPLINATION_VERSION=$APPLINATION_VERSION \
+    APPLINATION_BUILD_SHA=$APPLINATION_BUILD_SHA
+
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 

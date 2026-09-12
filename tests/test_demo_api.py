@@ -31,6 +31,15 @@ def test_health_advertises_the_demo(anon):
     assert body["demo"] is True
 
 
+def test_version_exposes_the_deployment_identity(anon, monkeypatch):
+    monkeypatch.setenv("APPLINATION_VERSION", "0.1.1")
+    monkeypatch.setenv("APPLINATION_BUILD_SHA", "abcdef0123456789")
+
+    body = anon.get("/api/version").json()
+
+    assert body == {"version": "0.1.1", "revision": "abcdef012345"}
+
+
 def test_demo_login_needs_no_credentials(anon):
     res = anon.post("/api/auth/demo")
     assert res.status_code == 200, res.text

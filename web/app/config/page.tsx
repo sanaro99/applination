@@ -10,6 +10,7 @@ import { ProvidersPanel } from "@/components/providers-panel";
 import { GmailConnectCard } from "@/components/gmail-connect-card";
 import { StoredSecretsCard } from "@/components/stored-secrets-card";
 import { ConfigForm } from "@/components/config/config-form";
+import { DeploymentVersion } from "@/components/deployment-version";
 import { api } from "@/lib/api";
 
 export default function ConfigPage() {
@@ -39,6 +40,9 @@ export default function ConfigPage() {
           </Tabs>
         </CardContent>
       </Card>
+      <div className="px-1 pb-2">
+        <DeploymentVersion />
+      </div>
     </div>
   );
 }

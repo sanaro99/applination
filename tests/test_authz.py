@@ -509,6 +509,7 @@ def test_files_endpoint_requires_authentication(app_env):
 def test_public_paths_are_reachable_without_a_session(app_env):
     with TestClient(app_env) as anon:
         assert anon.get("/api/health").status_code == 200
+        assert anon.get("/api/version").status_code == 200
         # Wrong credentials, but reached the handler rather than the middleware.
         assert anon.post(
             "/api/auth/login", json={"email": "nobody@example.com", "password": "x"}

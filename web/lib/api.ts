@@ -303,9 +303,15 @@ export type CurrentUser = {
   created_at: string;
 };
 
+export type DeploymentVersion = {
+  version: string;
+  revision: string;
+};
+
 export const api = {
   // `demo` tells the unauthenticated login page whether to offer the demo.
   health: () => http<{ ok: boolean; demo: boolean }>("/api/health"),
+  version: () => http<DeploymentVersion>("/api/version"),
 
   me: () => http<CurrentUser>("/api/auth/me"),
   login: (email: string, password: string) =>

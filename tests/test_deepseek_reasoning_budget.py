@@ -1,4 +1,4 @@
-"""deepseek-v4-flash is a REASONING model: every call emits reasoning_content
+"""deepseek-flash (DeepSeek-V4.1-Flash) is a REASONING model: every call emits reasoning_content
 (chain-of-thought) that consumes the token budget before the visible content.
 It must be recognized as such so _budget_for() grants headroom; otherwise a
 small max_tokens (e.g. the critique call's 500) is fully consumed by CoT and
@@ -13,8 +13,8 @@ from src.providers.deepseek_provider import (
 )
 
 
-def test_v4_flash_is_recognized_as_reasoning():
-    assert _is_reasoning_model("deepseek-v4-flash") is True
+def test_v41_flash_is_recognized_as_reasoning():
+    assert _is_reasoning_model("deepseek-flash") is True
 
 
 def test_v4_pro_still_reasoning():
@@ -24,12 +24,12 @@ def test_v4_pro_still_reasoning():
 def test_flash_gets_headroom_for_a_tiny_request():
     # The critique call requests only 500 tokens; CoT alone exceeds that, so
     # the effective budget must be expanded well above the raw request.
-    assert _budget_for("deepseek-v4-flash", 500) >= 3000
+    assert _budget_for("deepseek-flash", 500) >= 3000
 
 
 def test_flash_budget_is_capped():
     # A large request is clamped to the reasoning cap, not multiplied unbounded.
-    assert _budget_for("deepseek-v4-flash", 6000) == _REASONING_MAX_CAP
+    assert _budget_for("deepseek-flash", 6000) == _REASONING_MAX_CAP
 
 
 def test_gemini_flash_not_mistaken_for_reasoning():

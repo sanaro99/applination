@@ -42,7 +42,7 @@ PROVIDERS: tuple[dict, ...] = (
         "label": "Google Gemini",
         "recommended": True,
         "why": "Free tier, no card needed, and you probably already have a Google account.",
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.8-flash",
         "console_url": "https://aistudio.google.com/apikey",
         "steps": [
             "Sign in with your Google account.",
@@ -59,7 +59,7 @@ PROVIDERS: tuple[dict, ...] = (
         "label": "DeepSeek",
         "recommended": False,
         "why": "The cheapest paid option, if you would rather pay than sit in a free tier.",
-        "model": "deepseek-v4-flash",
+        "model": "deepseek-flash",
         "console_url": "https://platform.deepseek.com/api_keys",
         "steps": [
             "Create an account and add credit.",
@@ -76,7 +76,7 @@ PROVIDERS: tuple[dict, ...] = (
         "label": "OpenRouter",
         "recommended": False,
         "why": "One key for many models, including some free ones.",
-        "model": "tencent/hy3-preview:free",
+        "model": "nex-agi/nex-n2.5-mini:free",
         "console_url": "https://openrouter.ai/keys",
         "steps": [
             "Sign in with Google or GitHub.",

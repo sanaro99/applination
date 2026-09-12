@@ -1,10 +1,8 @@
 """DeepSeek peak-hour pricing-window helper — single source of truth.
 
-DeepSeek's 2025 off-peak *discount* ended 2025-09-05; V4 pricing is flat. The
-mid-2026 V4 launch reportedly adds a peak-hour *surcharge* (~2x) during Beijing
-business hours (09:00-12:00 & 14:00-18:00, UTC+8 => 01:00-04:00 & 06:00-10:00
-UTC). That surcharge is UNCONFIRMED by DeepSeek's official docs, so the windows
-are configurable and the whole behaviour can be disabled.
+DeepSeek Flash has documented 2x peak pricing on weekdays during 01:00-04:00
+and 06:00-10:00 UTC. The windows remain configurable and the entire behaviour
+can be disabled for users who prefer not to delay a run.
 
 This module lets the run-trigger UI, the ``/api/pricing-window`` endpoint, and
 the scheduler scripts all agree on "is now a peak-surcharge window" and "when
@@ -23,7 +21,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-# Beijing 09:00-12:00 & 14:00-18:00 (UTC+8) in UTC minutes-of-day.
+# Documented weekday DeepSeek peak windows in UTC minutes-of-day.
 DEFAULT_PEAK_WINDOWS_UTC: tuple[tuple[int, int], ...] = ((60, 240), (360, 600))
 
 

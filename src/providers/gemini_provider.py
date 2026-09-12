@@ -12,6 +12,33 @@ _MAX_RETRIES = 3
 _RETRY_DELAYS = [2, 5, 15]   # seconds between retries on 503
 
 
+def _generation_config_kwargs(
+    model: str,
+    *,
+    system_instruction: str,
+    max_output_tokens: int,
+    response_mime_type: str | None = None,
+    response_schema: dict | None = None,
+) -> dict:
+    """Build a Gemini generation config compatible with the selected family.
+
+    Gemini 3.x rejects sampling controls such as ``temperature``.  Earlier
+    Gemini models still accept them, so retain the existing deterministic
+    settings there while omitting them for current Gemini 3 models.
+    """
+    kwargs: dict = {
+        "system_instruction": system_instruction,
+        "max_output_tokens": max_output_tokens,
+    }
+    if not model.lower().startswith("gemini-3"):
+        kwargs["temperature"] = 0.3 if response_mime_type else 0.4
+    if response_mime_type is not None:
+        kwargs["response_mime_type"] = response_mime_type
+    if response_schema is not None:
+        kwargs["response_schema"] = response_schema
+    return kwargs
+
+
 def _with_retry(fn, *args, **kwargs):
     """Call fn with exponential backoff on 503 / rate-limit errors."""
     for attempt, delay in enumerate(_RETRY_DELAYS, start=1):
@@ -52,11 +79,11 @@ class GeminiProvider(LLMProvider):
             resp = self._client.models.generate_content(
                 model=self.model_name,
                 contents=user,
-                config=self._types.GenerateContentConfig(
+                config=self._types.GenerateContentConfig(**_generation_config_kwargs(
+                    self.model_name,
                     system_instruction=system,
                     max_output_tokens=max_tokens,
-                    temperature=0.4,
-                ),
+                )),
             )
             return (resp.text or "").strip()
         return self._post_process_text(_with_retry(_call))
@@ -72,14 +99,13 @@ class GeminiProvider(LLMProvider):
         # Gemini's response_schema enforces the contract server-side. When a
         # schema is provided the API will refuse to return non-conforming
         # JSON, which catches malformed output at the wire.
-        config_kwargs = dict(
+        config_kwargs = _generation_config_kwargs(
+            self.model_name,
             system_instruction=system,
             max_output_tokens=max_tokens,
-            temperature=0.3,
             response_mime_type="application/json",
+            response_schema=schema,
         )
-        if schema is not None:
-            config_kwargs["response_schema"] = schema
 
         def _call():
             resp = self._client.models.generate_content(

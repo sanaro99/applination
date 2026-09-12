@@ -1212,8 +1212,8 @@ class Tailor:
 
         Args:
             quality_tier: "standard" routes through the fast `tailoring` chain
-                (deepseek-v4-flash by default). "premium" routes through
-                `tailoring_premium` (also v4-flash by default; can be set to the
+                (deepseek-flash / DeepSeek-V4.1-Flash by default). "premium" routes through
+                `tailoring_premium` (also DeepSeek Flash by default; can be set to the
                 deepseek-v4-pro reasoning model) for top-N ranked jobs. main.py
                 decides which tier each job uses.
 

@@ -56,6 +56,7 @@ log = logging.getLogger("server")
 # enumerates app.routes and asserts each one is covered by exactly this list.
 PUBLIC_PATHS: frozenset[str] = frozenset({
     "/api/health",
+    "/api/version",
     "/api/auth/login",
     "/api/auth/signup",
     "/api/auth/logout",   # clearing a cookie you may no longer have is harmless
@@ -87,7 +88,10 @@ def _is_public(path: str) -> bool:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Applination api", version="0.1.0")
+    app = FastAPI(
+        title="Applination api",
+        version=os.environ.get("APPLINATION_VERSION", "0.1.1"),
+    )
 
     origins = os.environ.get(
         "ALLOWED_ORIGINS",
@@ -158,6 +162,14 @@ def create_app() -> FastAPI:
         # The login page is unauthenticated and needs to know whether to offer
         # the demo link. This is the only public endpoint it already calls.
         return {"ok": True, "demo": demo_enabled()}
+
+    @app.get("/api/version")
+    def version() -> dict:
+        """Public, non-sensitive deployment identity for support and releases."""
+        return {
+            "version": os.environ.get("APPLINATION_VERSION", "0.1.1"),
+            "revision": os.environ.get("APPLINATION_BUILD_SHA", "dev")[:12],
+        }
 
     # The auth router is the only one mounted without require_user — login and
     # signup obviously cannot require a session. Its own routes that do

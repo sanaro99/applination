@@ -20,6 +20,12 @@ COPY . .
 # hostname through to the backend container.
 ARG NEXT_PUBLIC_API_BASE=https://applination.sanchitarora.me
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+# Kept in both images so the build metadata is available for image inspection.
+# The Config page fetches the authoritative runtime value from /api/version.
+ARG APPLINATION_VERSION=0.1.1
+ARG APPLINATION_BUILD_SHA=dev
+ENV APPLINATION_VERSION=$APPLINATION_VERSION \
+    APPLINATION_BUILD_SHA=$APPLINATION_BUILD_SHA
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build

@@ -141,8 +141,8 @@ class UserPaths:
         return GLOBAL_MASTER_DIR / "stories"
 
     def ensure(self) -> UserPaths:
-        """Create the directory tree and seed config.yaml from the committed
-        template. Idempotent — safe to call on every request.
+        """Create the directory tree, seed config.yaml, and migrate retired
+        model identifiers. Idempotent — safe to call on every request.
 
         Seeding matters: without a config.yaml a brand-new account cannot reach
         the onboarding wizard, because the wizard itself reads config to work
@@ -161,6 +161,12 @@ class UserPaths:
             self.config_path.write_text(
                 EXAMPLE_CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8"
             )
+        if self.config_path.exists():
+            # The config volume outlives image deployments.  Apply only the
+            # explicit, lossless mappings approved for retired model IDs.
+            from .config_migrations import migrate_legacy_model_identifiers
+
+            migrate_legacy_model_identifiers(self.config_path)
         return self
 
     def resolve_output(self, cfg: dict | None = None) -> Path:

@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - id: app-version
-        run: echo "value=$(node -p \"require('./web/package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: node -p "'value=' + require('./web/package.json').version" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 

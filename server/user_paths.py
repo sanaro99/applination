@@ -162,11 +162,16 @@ class UserPaths:
                 EXAMPLE_CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8"
             )
         if self.config_path.exists():
-            # The config volume outlives image deployments.  Apply only the
-            # explicit, lossless mappings approved for retired model IDs.
-            from .config_migrations import migrate_legacy_model_identifiers
+            # The config volume outlives image deployments. Apply the lossless
+            # model identifier mappings and the once-only approved free-pool
+            # routing preset; the latter writes a local rollback copy first.
+            from .config_migrations import (
+                migrate_free_pool_routing,
+                migrate_legacy_model_identifiers,
+            )
 
             migrate_legacy_model_identifiers(self.config_path)
+            migrate_free_pool_routing(self.config_path)
         return self
 
     def resolve_output(self, cfg: dict | None = None) -> Path:

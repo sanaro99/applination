@@ -6,6 +6,7 @@ Run table so the existing /api/runs/{id}/stream endpoint streams progress.
 """
 from __future__ import annotations
 import logging
+import hashlib
 import threading
 from datetime import date, datetime
 from pathlib import Path
@@ -65,20 +66,36 @@ def extract(
         # LinkedIn blocks automated browsers; let the user fill it manually.
         return ExtractedJob(url=body.url)
 
+    from .cache import cache
+    cache_key = "applination:job-extraction:v1:%s:%s" % (
+        user.id,
+        hashlib.sha256(body.url.strip().encode("utf-8")).hexdigest(),
+    )
+    cached = cache().get_json(cache_key)
+    if cached is not None:
+        return ExtractedJob(**cached)
+
     from src.job_extractor import JobExtractor
-    from src.providers import get_provider_chain
+    from src.providers import get_provider_chain, get_task_chains
 
     cfg = load_config(user)
-    chain = get_provider_chain(cfg.get("llm") or {})
+    llm = cfg.get("llm") or {}
+    try:
+        chain = get_task_chains(llm).get("job_extraction")
+    except Exception:  # fall back to legacy/global config gracefully
+        chain = None
+    chain = chain or get_provider_chain(llm)
     if not chain:
         raise HTTPException(502, "no LLM provider is configured")
-    extractor = JobExtractor(chain[0])
+    extractor = JobExtractor(chain)
     try:
         data: dict[str, Any] = extractor.extract(body.url)
     except Exception as e:  # graceful fallback
         log.warning("extract failed for %s: %s", body.url, e)
         return ExtractedJob(url=body.url)
-    return ExtractedJob(**{**data, "url": body.url})
+    result = {**data, "url": body.url}
+    cache().set_json(cache_key, result, 24 * 60 * 60)
+    return ExtractedJob(**result)
 
 
 class GenerateBody(BaseModel):

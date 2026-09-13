@@ -82,11 +82,15 @@ def _load_config(user_spec: str | None = None) -> dict:
 
 
 def _build_provider(provider_name: str | None, cfg: dict):
-    from .providers import get_provider, get_provider_with_fallback
+    from .providers import get_provider, get_provider_chain, get_task_chains
     llm_cfg = cfg.get("llm", {})
     if provider_name:
-        return get_provider(provider_name, llm_cfg)
-    return get_provider_with_fallback(llm_cfg)
+        return [get_provider(provider_name, llm_cfg)]
+    try:
+        chain = get_task_chains(llm_cfg).get("tweak")
+    except Exception:
+        chain = None
+    return chain or get_provider_chain(llm_cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +144,15 @@ def apply_tweak(
         f"NEW EDITING INSTRUCTION:\n{instruction}\n\n"
         "Produce the updated resume JSON now."
     )
-    return provider.json_call(system, user_prompt, max_tokens=2500)
+    from .providers import try_chain
+
+    chain = provider if isinstance(provider, list) else [provider]
+    return try_chain(
+        chain,
+        lambda candidate: candidate.json_call(system, user_prompt, max_tokens=2500),
+        any_error=True,
+        task_name="tweak",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -221,8 +233,8 @@ def main():
     )
     ap.add_argument(
         "--provider",
-        choices=["claude", "gemini", "ollama", "nim", "openrouter", "deepseek",
-                 "mistral", "demo"],
+        choices=["claude", "gemini", "ollama", "nim", "groq", "cloudflare",
+                 "openrouter", "deepseek", "mistral", "demo"],
         default=None,
         help="LLM provider to use for this tweak (overrides config primary)"
     )

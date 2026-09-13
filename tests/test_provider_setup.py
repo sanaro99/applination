@@ -33,9 +33,9 @@ def test_exactly_one_provider_is_recommended():
     assert sum(1 for p in PROVIDERS if p["recommended"]) == 1
 
 
-def test_gemini_is_the_recommended_one():
+def test_nim_is_the_recommended_one():
     recommended = next(p for p in PROVIDERS if p["recommended"])
-    assert recommended["id"] == "gemini"
+    assert recommended["id"] == "nim"
 
 
 def test_gemini_is_listed_first():

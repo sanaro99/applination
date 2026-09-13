@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import yaml
 
-from server.config_migrations import migrate_legacy_model_identifiers
+from server.config_migrations import (
+    FREE_POOL_ROUTING_VERSION,
+    migrate_free_pool_routing,
+    migrate_legacy_model_identifiers,
+)
 from server.user_paths import UserPaths
 
 
@@ -43,3 +47,17 @@ def test_user_paths_runs_the_migration_for_an_existing_config(tmp_path, monkeypa
     UserPaths(user_id=8).ensure()
 
     assert yaml.safe_load(path.read_text(encoding="utf-8"))["llm"]["deepseek"]["model"] == "deepseek-flash"
+
+
+def test_free_pool_routing_migration_keeps_a_local_rollback_copy(tmp_path):
+    path = tmp_path / "config.yaml"
+    original = "# personal comment\nllm:\n  primary: deepseek\n  deepseek:\n    model: deepseek-flash\n"
+    path.write_text(original, encoding="utf-8")
+
+    assert migrate_free_pool_routing(path) is True
+    saved = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert (tmp_path / "config.pre-free-routing-v1.yaml").read_text(encoding="utf-8") == original
+    assert saved["llm"]["routing_preset_version"] == FREE_POOL_ROUTING_VERSION
+    assert saved["llm"]["tasks"]["ranking"]["primary"] == "groq"
+    assert saved["llm"]["tasks"]["tailoring"]["primary"] == "nim"
+    assert migrate_free_pool_routing(path) is False

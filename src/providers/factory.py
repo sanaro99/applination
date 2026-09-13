@@ -45,20 +45,20 @@ _TASK_NAMES = (
     "ranking", "tailoring", "tailoring_premium", "cover_letter",
     "critique", "answer_questions",
     # `relinefit` is the Tier-2 LLM rescue that rewrites bullets to hit exact
-    # character-count line budgets. It wants a STRONG model (inherits the global
-    # primary, usually deepseek) but NOT chain-of-thought — CoT burns the budget
+    # character-count line budgets. It wants a strong model but NOT
+    # chain-of-thought — CoT burns the budget
     # on a bounded mechanical rewrite and returns empty content. Defaults to
     # thinking OFF (see _THINKING_OFF_BY_DEFAULT).
     "relinefit",
     # Prepwork + content-studio tasks. Inherit the global primary/fallbacks
     # until configured under llm.tasks.<name>.
-    "coach", "interview", "essay", "content_studio",
+    "coach", "interview", "essay", "content_studio", "job_extraction", "tweak",
 )
 
 # Tasks whose chain-of-thought hurts more than it helps: bounded, mechanical
-# rewrites where DeepSeek v4 reasoning models spend their whole token budget on
-# CoT and return empty content. These default to thinking OFF; a user can still
-# force it on per task via `llm.tasks.<task>.thinking: true`.
+# rewrites where reasoning models spend their whole token budget on CoT and
+# return empty content. These default to thinking OFF; a user can still force
+# it on per task via `llm.tasks.<task>.thinking: true`.
 _THINKING_OFF_BY_DEFAULT = frozenset({"relinefit"})
 
 
@@ -67,16 +67,16 @@ def get_provider(
     llm_cfg: dict,
     *,
     model_override: str | None = None,
-    disable_thinking: bool = False,
+    thinking: str = "on",
 ) -> LLMProvider:
     """Construct a provider by name.
 
     `model_override` lets a per-task config swap the default model for that
-    provider on a single call site (e.g., critique uses deepseek-flash while
-    tailoring keeps deepseek-v4-pro).
+    provider on a single call site (for example, a premium tailoring route can
+    use a stronger model than ranking).
 
-    `disable_thinking` turns off chain-of-thought for providers that support a
-    non-thinking mode (currently DeepSeek v4). Ignored by providers without one.
+    `thinking` is ``off``, ``low`` or ``on``.  Providers that do not expose a
+    matching mode safely ignore the distinction.
     """
     name = name.lower().strip()
     sub = llm_cfg.get(name, {}) or {}
@@ -110,7 +110,23 @@ def get_provider(
         return NIMProvider(
             api_key=sub.get("api_key", ""),
             base_url=sub.get("base_url", "https://integrate.api.nvidia.com/v1"),
-            model=_model("meta/llama-3.1-70b-instruct"),
+            model=_model("nvidia/nemotron-3-super-120b-a12b"),
+            thinking=thinking,
+        )
+
+    if name == "groq":
+        from .groq_provider import GroqProvider
+        return GroqProvider(
+            api_key=sub.get("api_key", ""),
+            model=_model("openai/gpt-oss-120b"),
+        )
+
+    if name == "cloudflare":
+        from .cloudflare_provider import CloudflareProvider
+        return CloudflareProvider(
+            api_token=sub.get("api_token", ""),
+            account_id=sub.get("account_id", ""),
+            model=_model("@cf/google/gemma-4-26b-a4b-it"),
         )
 
     if name == "openrouter":
@@ -127,7 +143,7 @@ def get_provider(
         return DeepSeekProvider(
             api_key=sub.get("api_key", ""),
             model=_model("deepseek-flash"),
-            disable_thinking=disable_thinking,
+            disable_thinking=thinking == "off",
         )
 
     if name == "mistral":
@@ -144,8 +160,8 @@ def get_provider(
         return DemoProvider(fixtures_dir=sub.get("fixtures_dir") or None)
 
     raise ValueError(
-        f"Unknown provider '{name}'. Options: claude, gemini, ollama, nim, "
-        f"openrouter, deepseek, mistral, demo."
+        f"Unknown provider '{name}'. Options: claude, gemini, ollama, nim, groq, "
+        f"cloudflare, openrouter, deepseek, mistral, demo."
     )
 
 
@@ -257,17 +273,22 @@ def get_task_chains(llm_cfg: dict) -> dict[str, list[LLMProvider]]:
         primary = task_cfg.get("primary", global_primary)
         fallbacks = task_cfg.get("fallbacks", global_fallbacks) or []
         # `models: {provider_name: model_id}` lets a task pin a non-default model
-        # for one or more providers (e.g. use deepseek-flash for critique while
-        # tailoring keeps the slower deepseek-v4-pro). Falls back to the
-        # top-level llm.<provider>.model when unset.
+        # for one or more providers. Falls back to the top-level
+        # llm.<provider>.model when unset.
         model_overrides = task_cfg.get("models", {}) or {}
-        # `thinking: false` disables chain-of-thought for this task's providers
-        # (DeepSeek v4 supports a non-thinking mode). Best for simple, structured
-        # tasks where CoT adds cost/latency without quality. Defaults to on for
-        # most tasks; tasks in _THINKING_OFF_BY_DEFAULT default to off (a user
-        # can still re-enable them with `thinking: true`).
-        thinking_default = task not in _THINKING_OFF_BY_DEFAULT
-        disable_thinking = task_cfg.get("thinking", thinking_default) is False
+        # Existing configs use booleans.  ``low`` is the economical NIM mode;
+        # unsupported providers keep their normal behavior.
+        raw_thinking = task_cfg.get(
+            "thinking", "off" if task in _THINKING_OFF_BY_DEFAULT else "on"
+        )
+        if raw_thinking is True:
+            thinking = "on"
+        elif raw_thinking is False:
+            thinking = "off"
+        else:
+            thinking = str(raw_thinking).strip().lower()
+        if thinking not in {"off", "low", "on"}:
+            raise ValueError(f"Task '{task}' has invalid thinking mode '{raw_thinking}'")
 
         chain: list[LLMProvider] = []
         for name in [primary, *fallbacks]:
@@ -275,7 +296,7 @@ def get_task_chains(llm_cfg: dict) -> dict[str, list[LLMProvider]]:
                 chain.append(get_provider(
                     name, llm_cfg,
                     model_override=model_overrides.get(name),
-                    disable_thinking=disable_thinking,
+                    thinking=thinking,
                 ))
             except Exception as e:
                 _warn_unavailable(name, e)

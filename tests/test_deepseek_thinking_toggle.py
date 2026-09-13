@@ -4,6 +4,7 @@ and no CoT-eats-the-budget truncation. Verify the provider + per-task wiring.
 """
 from src.providers.deepseek_provider import DeepSeekProvider, _REASONING_MAX_CAP
 from src.providers.factory import get_task_chains
+from src.providers.nim_provider import NIMProvider
 
 
 def test_disable_thinking_sets_toggle_and_skips_budget_headroom():
@@ -50,3 +51,10 @@ def test_relinefit_defaults_to_thinking_off_but_is_overridable():
     # A user can still force CoT back on for relinefit.
     chains = get_task_chains({**base, "tasks": {"relinefit": {"thinking": True}}})
     assert chains["relinefit"][0].disable_thinking is False
+
+
+def test_nim_thinking_modes_are_forwarded_as_chat_template_kwargs():
+    low = NIMProvider(api_key="x", base_url="https://example.invalid/v1", model="nvidia/nemotron-3-super-120b-a12b", thinking="low")
+    off = NIMProvider(api_key="x", base_url="https://example.invalid/v1", model="nvidia/nemotron-3-super-120b-a12b", thinking="off")
+    assert low._extra == {"extra_body": {"chat_template_kwargs": {"enable_thinking": True, "low_effort": True}}}
+    assert off._extra == {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}

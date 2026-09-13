@@ -182,14 +182,18 @@ def tweak(
 
     cfg = load_config(user)
     from src.tweak import apply_tweak, _next_version, render_docx
-    from src.providers import get_provider, get_provider_with_fallback
+    from src.providers import get_provider, get_provider_chain, get_task_chains
     from src.pdf_convert import docx_to_pdf
 
     llm_cfg = cfg.get("llm", {})
-    provider = (
-        get_provider(body.provider, llm_cfg) if body.provider
-        else get_provider_with_fallback(llm_cfg)
-    )
+    if body.provider:
+        chain = [get_provider(body.provider, llm_cfg)]
+    else:
+        try:
+            chain = get_task_chains(llm_cfg).get("tweak")
+        except Exception:  # bad optional task routing should not brick editing
+            chain = None
+        chain = chain or get_provider_chain(llm_cfg)
 
     # Determine next version by inspecting existing files
     versions = _list_versions(folder)
@@ -198,7 +202,7 @@ def tweak(
     for v in versions:
         latest_docx = folder / v["docx"]
 
-    updated_json = apply_tweak(resume_json, job_json, body.instruction, provider)
+    updated_json = apply_tweak(resume_json, job_json, body.instruction, chain)
 
     next_docx, next_json = _next_version(latest_docx)
     next_json.write_text(json.dumps(updated_json, indent=2), encoding="utf-8")

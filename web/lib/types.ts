@@ -156,6 +156,7 @@ export interface TaskRouting {
   primary: string | null;
   fallbacks: string[];
   models: Record<string, string>;
+  thinking: "off" | "low" | "on" | boolean | null;
 }
 
 export interface LlmConfig {

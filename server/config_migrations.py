@@ -9,6 +9,7 @@ safe to run on every startup/request path.
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 
 
 # Keep these exact substitutions together so a model-default refresh has one
@@ -19,6 +20,80 @@ MODEL_IDENTIFIER_MIGRATIONS: dict[str, str] = {
     "open-mixtral-8x22b": "mistral-small-latest",
     "tencent/hy3-preview:free": "nex-agi/nex-n2.5-mini:free",
 }
+
+FREE_POOL_ROUTING_VERSION = 1
+
+
+def migrate_free_pool_routing(config_path: Path) -> bool:
+    """Apply the approved free-provider routing preset once per user config.
+
+    This migration intentionally changes routing (unlike the identifier-only
+    migration above), so it leaves a local pre-migration copy beside the config
+    before modifying anything. API keys are already blank in persisted config
+    files and remain untouched in encrypted ``UserSecret`` rows.
+    """
+    from ruamel.yaml import YAML
+
+    yamlrt = YAML()
+    yamlrt.preserve_quotes = True
+    document = yamlrt.load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        return False
+    llm = document.get("llm")
+    if not isinstance(llm, dict):
+        return False
+    try:
+        if int(llm.get("routing_preset_version", 0) or 0) >= FREE_POOL_ROUTING_VERSION:
+            return False
+    except (TypeError, ValueError):
+        pass
+
+    backup = config_path.with_name("config.pre-free-routing-v1.yaml")
+    if not backup.exists():
+        shutil.copy2(config_path, backup)
+
+    llm.setdefault("nim", {})
+    llm["nim"].setdefault("api_key", "")
+    llm["nim"].setdefault("base_url", "https://integrate.api.nvidia.com/v1")
+    llm["nim"]["model"] = "nvidia/nemotron-3-super-120b-a12b"
+    llm.setdefault("groq", {})
+    llm["groq"].setdefault("api_key", "")
+    llm["groq"]["model"] = "openai/gpt-oss-120b"
+    llm.setdefault("cloudflare", {})
+    llm["cloudflare"].setdefault("api_token", "")
+    llm["cloudflare"].setdefault("account_id", "")
+    llm["cloudflare"]["model"] = "@cf/google/gemma-4-26b-a4b-it"
+
+    llm["primary"] = "nim"
+    llm["fallbacks"] = ["cloudflare", "groq"]
+    def compact() -> dict:
+        return {
+            "primary": "groq", "fallbacks": ["cloudflare"],
+            "models": {"cloudflare": "@cf/zai-org/glm-4.7-flash"}, "thinking": "off",
+        }
+
+    def editorial(thinking: str) -> dict:
+        return {"primary": "nim", "fallbacks": ["cloudflare"], "thinking": thinking}
+
+    llm["tasks"] = {
+        "ranking": compact(),
+        "critique": compact(),
+        "job_extraction": compact(),
+        "content_studio": {"primary": "groq", "fallbacks": ["cloudflare"], "thinking": "off"},
+        "relinefit": {"primary": "cloudflare", "fallbacks": ["nim"], "models": {"cloudflare": "@cf/zai-org/glm-4.7-flash"}, "thinking": "off"},
+        "tailoring": editorial("low"),
+        "tailoring_premium": editorial("on"),
+        "cover_letter": editorial("low"),
+        "answer_questions": editorial("low"),
+        "tweak": editorial("low"),
+        "coach": editorial("low"),
+        "interview": editorial("low"),
+        "essay": editorial("low"),
+    }
+    llm["routing_preset_version"] = FREE_POOL_ROUTING_VERSION
+    with config_path.open("w", encoding="utf-8") as handle:
+        yamlrt.dump(document, handle)
+    return True
 
 
 def migrate_legacy_model_identifiers(config_path: Path) -> list[tuple[str, str]]:

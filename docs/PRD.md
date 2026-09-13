@@ -318,7 +318,7 @@ FastAPI server. Runs on port 8000 by default.
 | `resume_builder.py` | Renders one-page ATS-safe `.docx` from tailored JSON. Line-count estimator with iterative overflow recovery. |
 | `profile.py` | `derive_profile(master)` — derives candidate identity (titles, seniority, education proximity) from resume.yaml for use in prompts and guards |
 | `tailor_graph.py` | Full tailoring pipeline with quality stages: tailor → audit → keyword_fix? → critique → revise? → line_fitter → relinefit_rescue? |
-| `providers/` | LLM abstraction layer. `factory.py` exposes `get_provider_chain()`, `get_task_chains()`, `try_chain()`. Implementations for Claude, Gemini, Ollama, NIM, OpenRouter, DeepSeek, Mistral. |
+| `providers/` | LLM abstraction layer. `factory.py` exposes `get_provider_chain()`, `get_task_chains()`, `try_chain()`. Implementations for Claude, Gemini, Ollama, NVIDIA NIM, Groq, Cloudflare Workers AI, OpenRouter, DeepSeek, Mistral. |
 | `scrapers/` | One scraper per source (see §6.4). All return the unified `Job` dataclass. |
 | `reference_loader.py` | Loads stories and example letters; `match_stories()` scores by tag/keyword overlap |
 | `content_studio.py` | `generate_story()`, `tweak_content()`, `import_resume()` — LLM-assisted master-data authoring |
@@ -380,12 +380,12 @@ All config lives in `config.yaml` (gitignored; seeded from `config.example.yaml`
 | `user` | `full_name`, `email`, `phone`, `linkedin`, `github`, `website` |
 | `search` | `keywords` (list), `location`, `min_match_score` (default 55), `max_jobs_per_day` (default 50) |
 | `sources` | `enabled` per scraper; `greenhouse_slugs` list |
-| `llm` | `primary`, `fallbacks`, per-provider `api_key`+`model`, `tasks.<task>` overrides, `critique_cover_letters`, `critique_top_n`, `tailoring_premium_top_n` |
+| `llm` | `primary`, `fallbacks`, per-provider credentials+`model`, `tasks.<task>` overrides including `thinking: off|low|on`, `critique_cover_letters`, `critique_top_n`, `tailoring_premium_top_n` |
 | `output` | `root` (folder), `font`, `base_font_size`, margins, `produce_pdf` |
 
-LLM task names: `ranking`, `tailoring`, `tailoring_premium`, `cover_letter`, `critique`, `answer_questions`, `coach`, `interview`, `essay`, `content_studio`.
+LLM task names: `ranking`, `tailoring`, `tailoring_premium`, `cover_letter`, `critique`, `answer_questions`, `relinefit`, `coach`, `interview`, `essay`, `content_studio`, `job_extraction`, `tweak`. The default routing uses NVIDIA NIM for quality-sensitive tailoring, Groq GPT-OSS and Cloudflare Workers AI for economical bounded work, with per-task fallbacks.
 
-API keys can also be set via env vars: `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`.
+API credentials can also be set via env vars: `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `NVIDIA_API_KEY`, `GROQ_API_KEY`, `CLOUDFLARE_API_TOKEN`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`.
 
 ---
 
@@ -439,7 +439,7 @@ The tailoring engine enforces strict one-page limits. Key rules:
 - **LinkedIn scraping blocked by design.** LinkedIn aggressively blocks automated browsers. Job postings from LinkedIn must be pasted manually via the single-job wizard.
 - **No real-time token usage tracking.** The provider abstraction layer does not expose token counts, so there is no per-run cost estimate in the UI. Cost reference: Claude Haiku ~$0.10–0.30/run (30 jobs); Gemini Flash / Ollama effectively free.
 - **Coach is send-and-wait, not streaming.** The Prepwork chat endpoints return the complete assistant response synchronously; there is no streaming UI for Coach replies.
-- **DeepSeek API limitation.** DeepSeek's API does not support `json_schema` response format (returns 400). Only `json_object` is used with schema embedded in the prompt. Legacy names `deepseek-chat`/`deepseek-reasoner` retired 2026-07-24; the current models are `deepseek-v4-flash` (default for all tasks) and `deepseek-v4-pro` (reserved for `tailoring_premium`, ~3x pricier). Both are dual-mode reasoning models that emit chain-of-thought to a separate `reasoning_content` field by default — disable per-task via `llm.tasks.<task>.thinking: false` for bounded structured tasks (ranking, critique) where CoT only adds latency.
+- **DeepSeek API limitation.** DeepSeek does not support `json_schema` response format, so its provider uses `json_object` with the schema embedded in the prompt. It remains an optional paid provider; the default routing prefers free/quota-backed providers. Tasks accept `llm.tasks.<task>.thinking: off`, `low`, or `on`; unsupported providers safely ignore the setting.
 
 ---
 

@@ -43,6 +43,8 @@ _PROVIDER_ENV = {
     "deepseek": "DEEPSEEK_API_KEY",
     "mistral": "MISTRAL_API_KEY",
     "nim": "NVIDIA_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "cloudflare": "CLOUDFLARE_API_TOKEN",
 }
 
 PARTS: tuple[tuple[str, str, str], ...] = (
@@ -151,14 +153,18 @@ def provider_ready(llm: dict, user_id: int) -> bool:
     allow_env = env_api_keys_allowed()
     for name, env in _PROVIDER_ENV.items():
         block = llm.get(name) or {}
-        if str(block.get("api_key") or "").strip():
+        credential_field = "api_token" if name == "cloudflare" else "api_key"
+        if str(block.get(credential_field) or "").strip():
             return True
         if allow_env and os.environ.get(env):
             return True
     if _ollama_chosen(llm):
         return True
     stored = set(secret_names(user_id))
-    return any(p in stored for p in SECRET_PATHS if p.endswith(".api_key"))
+    return any(
+        p in stored for p in SECRET_PATHS
+        if p.endswith(".api_key") or p.endswith(".api_token")
+    )
 
 
 def count_stories(paths: UserPaths) -> int:

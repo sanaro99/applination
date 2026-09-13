@@ -31,10 +31,13 @@ const TASK_META: Record<string, { label: string; group: string; hint: string }> 
   cover_letter: { label: "Cover letters", group: "Pipeline", hint: "Letter writing" },
   critique: { label: "Critique", group: "Pipeline", hint: "Quality scoring" },
   answer_questions: { label: "Application Q&A", group: "Pipeline", hint: "Short answers" },
+  relinefit: { label: "Line fitting", group: "Pipeline", hint: "Rescues bullets that miss layout limits" },
+  job_extraction: { label: "Job extraction", group: "Pipeline", hint: "Reads manual job-posting URLs" },
   coach: { label: "Coach chat", group: "Prepwork & editing", hint: "Profile chat" },
   interview: { label: "Mock interview", group: "Prepwork & editing", hint: "Interview coach" },
   essay: { label: "Essay drafter", group: "Prepwork & editing", hint: "Scholarship / essays" },
   content_studio: { label: "Content studio", group: "Prepwork & editing", hint: "Story / bio edits" },
+  tweak: { label: "Resume tweaks", group: "Prepwork & editing", hint: "Edits generated resumes" },
 };
 const GROUPS = ["Pipeline", "Prepwork & editing"];
 
@@ -45,7 +48,9 @@ const CURATED_MODELS: Record<string, string[]> = {
   gemini: ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview"],
   claude: ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-8"],
   openrouter: ["nex-agi/nex-n2.5-mini:free", "nex-agi/nex-n2.5-pro:free"],
-  nim: ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"],
+  nim: ["nvidia/nemotron-3-super-120b-a12b"],
+  groq: ["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
+  cloudflare: ["@cf/google/gemma-4-26b-a4b-it", "@cf/zai-org/glm-4.7-flash"],
   ollama: ["llama3.2", "qwen2.5"],
 };
 
@@ -54,6 +59,13 @@ interface TaskState {
   primary: string;
   fallbacks: string[];
   model: string; // model override for the primary provider
+  thinking: "off" | "low" | "on";
+}
+
+function thinkingMode(value: unknown): "off" | "low" | "on" {
+  if (value === false || value === "off") return "off";
+  if (value === "low") return "low";
+  return "on";
 }
 
 function buildState(cfg: LlmConfig) {
@@ -68,6 +80,7 @@ function buildState(cfg: LlmConfig) {
         primary,
         fallbacks: t.fallbacks ?? [],
         model: t.models?.[primary] ?? "",
+        thinking: thinkingMode(t.thinking),
       };
     } else {
       tasks[name] = {
@@ -75,6 +88,7 @@ function buildState(cfg: LlmConfig) {
         primary: globalPrimary,
         fallbacks: cfg.global.fallbacks,
         model: "",
+        thinking: "on",
       };
     }
   }
@@ -110,7 +124,12 @@ function Editor({
     mutationFn: () => {
       const tasks: Record<
         string,
-        { primary: string; fallbacks: string[]; models: Record<string, string> }
+        {
+          primary: string;
+          fallbacks: string[];
+          models: Record<string, string>;
+          thinking: "off" | "low" | "on";
+        }
       > = {};
       for (const [name, t] of Object.entries(state.tasks)) {
         if (t.inherit) continue;
@@ -118,6 +137,7 @@ function Editor({
           primary: t.primary,
           fallbacks: t.fallbacks,
           models: t.model ? { [t.primary]: t.model } : {},
+          thinking: t.thinking,
         };
       }
       return api.putLlmConfig({
@@ -260,6 +280,16 @@ function TaskCard({
               value={state.fallbacks}
               onChange={(fb) => onChange({ fallbacks: fb })}
             />
+          </Row>
+          <Row label="Reasoning">
+            <Select value={state.thinking} onValueChange={(v) => onChange({ thinking: v as TaskState["thinking"] })}>
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="off">Off</SelectItem>
+                <SelectItem value="low">Low</SelectItem>
+                <SelectItem value="on">Full</SelectItem>
+              </SelectContent>
+            </Select>
           </Row>
         </div>
       )}

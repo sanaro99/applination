@@ -45,6 +45,8 @@ SECRET_PATHS: tuple[str, ...] = (
     "llm.deepseek.api_key",
     "llm.mistral.api_key",
     "llm.nim.api_key",
+    "llm.groq.api_key",
+    "llm.cloudflare.api_token",
     "sources.adzuna.app_key",
     "sources.jsearch.rapidapi_key",
     "inbox.client_id",

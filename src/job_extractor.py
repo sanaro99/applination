@@ -83,8 +83,19 @@ def _clean_label(raw: str) -> str:
 class JobExtractor:
     """Extract structured job data from any job posting URL."""
 
-    def __init__(self, provider: LLMProvider):
-        self.provider = provider
+    def __init__(self, provider: LLMProvider | list[LLMProvider]):
+        self.providers = provider if isinstance(provider, list) else [provider]
+
+    def _text_call(self, system: str, user: str, max_tokens: int) -> str:
+        """Use the task chain only for the two optional LLM extraction steps."""
+        from .providers import try_chain
+
+        return try_chain(
+            self.providers,
+            lambda provider: provider.text_call(system, user, max_tokens=max_tokens),
+            any_error=True,
+            task_name="job_extraction",
+        )
 
     # ------------------------------------------------------------------
     def extract(self, url: str) -> dict:
@@ -244,7 +255,7 @@ class JobExtractor:
             "<location>city and state, or empty</location>\n"
             "<remote>true or false</remote>"
         )
-        raw = self.provider.text_call(system, prompt, max_tokens=200)
+        raw = self._text_call(system, prompt, max_tokens=200)
         return {
             "company": _tag(raw, "company"),
             "title": _tag(raw, "title"),
@@ -370,7 +381,7 @@ class JobExtractor:
             "<instructions>one or two sentences describing the specific requirement, "
             "or empty if none</instructions>"
         )
-        raw = self.provider.text_call(system, user, max_tokens=150)
+        raw = self._text_call(system, user, max_tokens=150)
         found = _tag(raw, "instructions").strip()
         _negatives = ("none", "no specific", "no additional", "standard resume",
                       "not mentioned", "n/a", "nothing specific", "does not mention",

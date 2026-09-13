@@ -18,7 +18,7 @@ log = logging.getLogger("server.ops")
 
 # Provider names the factory knows how to build (mirrors src/tweak.py choices).
 KNOWN_PROVIDERS = [
-    "openrouter", "nim", "gemini", "ollama", "claude", "deepseek", "mistral",
+    "openrouter", "nim", "groq", "cloudflare", "gemini", "ollama", "claude", "deepseek", "mistral",
 ]
 # Providers that don't need an api_key (local / self-hosted).
 LOCAL_PROVIDERS = {"ollama"}
@@ -46,7 +46,7 @@ def list_providers(
         block = llm.get(name)
         if not isinstance(block, dict):
             continue
-        has_key = bool(block.get("api_key"))
+        has_key = bool(block.get("api_token" if name == "cloudflare" else "api_key"))
         configured = has_key or name in LOCAL_PROVIDERS
         role = (
             "primary" if name == primary
@@ -126,6 +126,7 @@ class TaskRouting(BaseModel):
     primary: str | None = None
     fallbacks: list[str] = []
     models: dict[str, str] = {}
+    thinking: str | bool | None = None
 
 
 class LlmGlobal(BaseModel):
@@ -171,6 +172,7 @@ def get_llm_config(user: User = Depends(require_user)) -> LlmConfigOut:
             primary=block.get("primary"),
             fallbacks=list(block.get("fallbacks", []) or []),
             models=dict(block.get("models", {}) or {}),
+            thinking=block.get("thinking"),
         )
     return LlmConfigOut(
         task_names=_task_names(),
@@ -204,6 +206,8 @@ def put_llm_config(
             _validate_provider(p)
         for p in routing.models:
             _validate_provider(p)
+        if routing.thinking not in (None, True, False, "off", "low", "on"):
+            raise HTTPException(400, f"invalid thinking mode for task: {tname}")
 
     def _mutate(llm: dict) -> None:
         if body.global_.primary:
@@ -219,6 +223,8 @@ def put_llm_config(
                 entry["fallbacks"] = [p.strip().lower() for p in routing.fallbacks]
             if routing.models:
                 entry["models"] = {k: v for k, v in routing.models.items() if v}
+            if routing.thinking is not None:
+                entry["thinking"] = routing.thinking
             if entry:
                 new_tasks[tname] = entry
         if new_tasks:

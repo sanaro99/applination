@@ -438,7 +438,12 @@ export const api = {
     global: { primary: string | null; fallbacks: string[] };
     tasks: Record<
       string,
-      { primary?: string | null; fallbacks?: string[]; models?: Record<string, string> }
+      {
+        primary?: string | null;
+        fallbacks?: string[];
+        models?: Record<string, string>;
+        thinking?: "off" | "low" | "on" | boolean | null;
+      }
     >;
   }) =>
     http<{ ok: boolean }>("/api/llm-config", {

@@ -111,12 +111,19 @@ sudo tee /mnt/apps-pool/appconfig/applination.env >/dev/null <<'EOF'
 PYTHON_ENV=production
 TZ=America/Los_Angeles
 ALLOWED_ORIGINS=https://applination.sanchitarora.me
+# Required when using the current compose file's internal Redis cache:
+# REDIS_PASSWORD=<a separate random value>
 EOF
 sudo chmod 600 /mnt/apps-pool/appconfig/applination.env
 ```
 
 Everything else (provider keys, search prefs, inbox credentials) lives in the
 bind-mounted `config.yaml` and is editable from the in-app **Setup** page.
+For a new installation, use every required database and encryption value in
+`deploy/applination.env.example`; generate `REDIS_PASSWORD` with
+`openssl rand -base64 32`. Redis stores only short-lived, non-secret job
+preview/extraction responses, but it must have a password because it shares the
+internal application network.
 
 ---
 
@@ -430,6 +437,17 @@ the app's YAML, Save. Pinning also stops Watchtower from moving it.
 
 **Change a runtime env var:** edit `/mnt/apps-pool/appconfig/applination.env`,
 then **Apps → applination → Restart**. Editing the file alone does nothing.
+
+**Verify the Redis cache after updating the YAML:**
+
+```bash
+sudo docker exec $(sudo docker ps -qf name=applination-redis) \
+  redis-cli -a "$(sudo sed -n 's/^REDIS_PASSWORD=//p' /mnt/apps-pool/appconfig/applination.env)" ping
+# -> PONG
+```
+
+Redis is an internal, memory-only cache. If it is unavailable, the API continues
+without caching; no user data needs restoring.
 
 **Change `NEXT_PUBLIC_API_BASE`:** that one is build-time. Set an Actions
 *variable* of that name and re-run the workflow — an app restart won't help.

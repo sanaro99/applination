@@ -92,35 +92,72 @@ sources:
 # do this for you and test connectivity.
 # =====================================================================
 llm:
-  primary: "gemini"        # claude | gemini | ollama | nim | openrouter | deepseek | mistral
-  fallbacks: ["mistral", "openrouter"]
+  routing_preset_version: 1  # prevents the one-time free-pool migration from reapplying
+  # Free-pool default.  Add your own NIM, Groq and Cloudflare credentials in
+  # the Config page; no paid provider is used implicitly on quota exhaustion.
+  primary: "nim"           # claude | gemini | ollama | nim | groq | cloudflare | openrouter | deepseek | mistral
+  fallbacks: ["cloudflare", "groq"]
 
   # Per-task provider chains. Omit a task block to inherit the global chain above.
-  # `thinking: false` turns off chain-of-thought for a task (DeepSeek v4 only;
-  # ignored by other providers). Recommended for simple, structured tasks like
-  # ranking + critique — v4 reasons by default, which adds latency + tokens and
-  # can truncate the answer, without improving a bounded scoring/grading call.
+  # `thinking` is `off`, `low`, or `on`.  `low` asks NIM for economical
+  # reasoning; `off` is right for compact, structured work.
   tasks:
     ranking:
-      primary: "gemini"
-      fallbacks: ["mistral", "openrouter"]
-      thinking: false
+      primary: "groq"
+      fallbacks: ["cloudflare"]
+      models: {cloudflare: "@cf/zai-org/glm-4.7-flash"}
+      thinking: off
     tailoring:
-      primary: "gemini"
-      fallbacks: ["mistral", "openrouter"]
+      primary: "nim"
+      fallbacks: ["cloudflare"]
+      thinking: low
     tailoring_premium:
-      primary: "gemini"
-      fallbacks: ["mistral", "openrouter"]
+      primary: "nim"
+      fallbacks: ["cloudflare"]
+      thinking: on
     cover_letter:
-      primary: "gemini"
-      fallbacks: ["mistral", "openrouter"]
+      primary: "nim"
+      fallbacks: ["cloudflare"]
+      thinking: low
     critique:
-      primary: "mistral"
-      fallbacks: ["gemini"]
-      thinking: false
+      primary: "groq"
+      fallbacks: ["cloudflare"]
+      models: {cloudflare: "@cf/zai-org/glm-4.7-flash"}
+      thinking: off
     answer_questions:
-      primary: "mistral"
-      fallbacks: ["gemini"]
+      primary: "nim"
+      fallbacks: ["cloudflare"]
+      thinking: low
+    relinefit:
+      primary: "cloudflare"
+      fallbacks: ["nim"]
+      models: {cloudflare: "@cf/zai-org/glm-4.7-flash"}
+      thinking: off
+    content_studio:
+      primary: "groq"
+      fallbacks: ["cloudflare"]
+      thinking: off
+    job_extraction:
+      primary: "groq"
+      fallbacks: ["cloudflare"]
+      models: {cloudflare: "@cf/zai-org/glm-4.7-flash"}
+      thinking: off
+    tweak:
+      primary: "nim"
+      fallbacks: ["cloudflare"]
+      thinking: low
+    coach:
+      primary: "nim"
+      fallbacks: ["cloudflare"]
+      thinking: low
+    interview:
+      primary: "nim"
+      fallbacks: ["cloudflare"]
+      thinking: low
+    essay:
+      primary: "nim"
+      fallbacks: ["cloudflare"]
+      thinking: low
 
   critique_cover_letters: false
   critique_top_n: 15
@@ -139,7 +176,7 @@ llm:
     site_name: "applination"
   deepseek:
     api_key: ""                  # or set DEEPSEEK_API_KEY env var — platform.deepseek.com
-    # deepseek-flash — DeepSeek-V4.1-Flash, fast + very cheap, default.
+    # Optional paid provider. DeepSeek-V4.1-Flash is fast + very cheap.
     # deepseek-v4-pro — premium reasoning model.
     model: "deepseek-flash"
   mistral:
@@ -151,7 +188,14 @@ llm:
   nim:
     api_key: ""                  # or set NVIDIA_API_KEY env var
     base_url: "https://integrate.api.nvidia.com/v1"
-    model: "meta/llama-3.1-8b-instruct"
+    model: "nvidia/nemotron-3-super-120b-a12b"
+  groq:
+    api_key: ""                  # or set GROQ_API_KEY env var
+    model: "openai/gpt-oss-120b"
+  cloudflare:
+    api_token: ""                # or set CLOUDFLARE_API_TOKEN env var
+    account_id: ""                # Cloudflare dashboard -> account home
+    model: "@cf/google/gemma-4-26b-a4b-it"
 
 # =====================================================================
 # Output + format
@@ -189,11 +233,12 @@ reminders:
   follow_up_days: 10            # nudge applications with no reply after N days
 
 # =====================================================================
-# DeepSeek peak-hour pricing awareness (used by the web run trigger).
-# DeepSeek Flash has documented 2x peak pricing on weekdays at 01:00-04:00
-# and 06:00-10:00 UTC. When avoid_peak is true, triggering a run inside a
-# peak window prompts to schedule it for after the window.
-# Times are UTC "HH:MM-HH:MM". Set avoid_peak: false to disable entirely.
+# Optional DeepSeek peak-hour pricing awareness (used by the web run trigger).
+# It has no effect unless a task is routed to DeepSeek. DeepSeek Flash has
+# documented 2x peak pricing on weekdays at 01:00-04:00 and 06:00-10:00 UTC.
+# When avoid_peak is true, triggering a run inside a peak window prompts to
+# schedule it for after the window. Times are UTC "HH:MM-HH:MM".
+# Set avoid_peak: false to disable entirely.
 # =====================================================================
 pricing:
   avoid_peak: true

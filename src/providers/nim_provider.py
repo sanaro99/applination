@@ -5,10 +5,8 @@ point the OpenAI SDK at it with a custom base_url.
 Get a key at https://build.nvidia.com. Default endpoint:
     https://integrate.api.nvidia.com/v1
 
-Recommended models by task speed:
-  Fast (ranking, quick triage):  meta/llama-3.1-8b-instruct
-  Capable (tailoring, letters):  meta/llama-3.1-70b-instruct
-                                 nvidia/llama-3.1-nemotron-70b-instruct-hf
+Default model: nvidia/nemotron-3-super-120b-a12b.  It supports configurable
+reasoning through ``chat_template_kwargs.enable_thinking``.
 """
 from __future__ import annotations
 import logging
@@ -45,7 +43,7 @@ def _with_retry(fn, *args, **kwargs):
 class NIMProvider(LLMProvider):
     name = "nim"
 
-    def __init__(self, api_key: str, base_url: str, model: str):
+    def __init__(self, api_key: str, base_url: str, model: str, *, thinking: str = "on"):
         try:
             from openai import OpenAI
         except ImportError:
@@ -61,6 +59,15 @@ class NIMProvider(LLMProvider):
             timeout=_REQUEST_TIMEOUT,
         )
         self.model = model
+        self.thinking = thinking
+
+    @property
+    def _extra(self) -> dict:
+        enabled = self.thinking != "off"
+        kwargs: dict[str, object] = {"enable_thinking": enabled}
+        if self.thinking == "low":
+            kwargs["low_effort"] = True
+        return {"extra_body": {"chat_template_kwargs": kwargs}}
 
     def text_call(self, system: str, user: str, max_tokens: int = 1000) -> str:
         def _call():
@@ -68,6 +75,7 @@ class NIMProvider(LLMProvider):
                 model=self.model,
                 max_tokens=max_tokens,
                 temperature=0.4,
+                **self._extra,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
@@ -105,6 +113,7 @@ class NIMProvider(LLMProvider):
                     max_tokens=max_tokens,
                     temperature=0.3,
                     response_format=response_format,
+                    **self._extra,
                     messages=[
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},

@@ -3,13 +3,10 @@
 One source for the journey, the Config page and the CLI, replacing the one-line
 hints that used to live in the frontend's PROVIDERS array.
 
-**Gemini is the recommended default.** It has a genuine free tier with no card
-required, and most people already have a Google account and no reason to
-distrust it. DeepSeek stays available but is not offered first: it is the
-cheapest paid path and a fine choice for someone who has decided to pay, but
-offering it to a stranger asks for card details and prompts from a vendor many
-will not recognise, at the moment they have least reason to trust us. Cheapness
-is the wrong default when the user has no trust yet.
+**NVIDIA NIM is the recommended starting point.** The routing preset combines
+NIM's long-form capability with Groq for compact work and Cloudflare as the
+privacy-oriented fallback. Paid providers stay available but are never added to
+that automatic chain.
 
 **Staleness is designed against, not hoped away.** The primary control is a deep
 link to the key-creation page, not a click path; steps stay at three shallow
@@ -40,7 +37,7 @@ PROVIDERS: tuple[dict, ...] = (
     {
         "id": "gemini",
         "label": "Google Gemini",
-        "recommended": True,
+        "recommended": False,
         "why": "Free tier, no card needed, and you probably already have a Google account.",
         "model": "gemini-3.8-flash",
         "console_url": "https://aistudio.google.com/apikey",
@@ -121,6 +118,57 @@ PROVIDERS: tuple[dict, ...] = (
         "cost_note": "Paid only, billed per token.",
         "needs_key": True,
         "verified_on": "2026-08-24",
+    },
+    {
+        "id": "nim",
+        "label": "NVIDIA NIM",
+        "recommended": True,
+        "why": "Strong long-context writing through NVIDIA's current free prototype endpoint.",
+        "model": "nvidia/nemotron-3-super-120b-a12b",
+        "console_url": "https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b/build",
+        "steps": [
+            "Sign in to NVIDIA Build.",
+            "Generate an API key for the model endpoint.",
+            "Copy it and paste it below.",
+        ],
+        "key_shape": {"prefix": "nvapi-", "min_len": 20},
+        "cost_note": "Free prototype endpoint; treat its quota and availability as a trial.",
+        "needs_key": True,
+        "verified_on": "2026-09-13",
+    },
+    {
+        "id": "groq",
+        "label": "Groq",
+        "recommended": False,
+        "why": "Very fast flagship GPT-OSS for compact ranking and structured tasks.",
+        "model": "openai/gpt-oss-120b",
+        "console_url": "https://console.groq.com/keys",
+        "steps": [
+            "Sign in to GroqCloud.",
+            "Create an API key.",
+            "Copy it and paste it below.",
+        ],
+        "key_shape": {"prefix": "gsk_", "min_len": 20},
+        "cost_note": "Free limits are best for short, structured requests rather than full resume generation.",
+        "needs_key": True,
+        "verified_on": "2026-09-13",
+    },
+    {
+        "id": "cloudflare",
+        "label": "Cloudflare Workers AI",
+        "recommended": False,
+        "why": "Private fallback pool with a daily free Workers AI allocation.",
+        "model": "@cf/google/gemma-4-26b-a4b-it",
+        "console_url": "https://dash.cloudflare.com/",
+        "steps": [
+            "Open your Cloudflare account home and copy its account ID.",
+            "Create an API token with Workers AI permission.",
+            "Add both values in the configuration below.",
+        ],
+        "key_shape": {"prefix": "", "min_len": 20},
+        "cost_note": "Free allocation resets daily; Workers AI does not train on content without explicit consent.",
+        "needs_key": True,
+        "verified_on": "2026-09-13",
     },
     {
         "id": "ollama",

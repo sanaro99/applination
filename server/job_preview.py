@@ -12,6 +12,8 @@ description mentions something the user just told us.
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 import threading
 import time
 
@@ -22,6 +24,21 @@ SAMPLE_SIZE = 12
 
 _lock = threading.Lock()
 _state: dict[int, dict] = {}
+
+
+def _cache_key(user_id: int, cfg: dict, keywords: list[str]) -> str:
+    """Hash only non-secret inputs that influence the preview result."""
+    sources = {
+        name: {
+            field: value for field, value in block.items()
+            if not any(word in field.lower() for word in ("key", "secret", "token"))
+        }
+        for name, block in (cfg.get("sources") or {}).items()
+        if isinstance(block, dict)
+    }
+    payload = json.dumps({"sources": sources, "keywords": keywords}, sort_keys=True)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"applination:job-preview:v1:{user_id}:{digest}"
 
 
 def reset() -> None:
@@ -52,7 +69,7 @@ def _matches(job, keywords: list[str]) -> bool:
     return any(k.lower() in haystack for k in keywords)
 
 
-def _worker(user_id: int, cfg: dict, keywords: list[str]) -> None:
+def _worker(user_id: int, cfg: dict, keywords: list[str], cache_key: str) -> None:
     try:
         jobs, ok, total = _fetch(cfg)
     except Exception as exc:  # noqa: BLE001
@@ -66,29 +83,39 @@ def _worker(user_id: int, cfg: dict, keywords: list[str]) -> None:
         return
 
     matched = [j for j in jobs if _matches(j, keywords)] if keywords else []
+    result = {
+        "state": "ready",
+        "total": len(jobs),
+        "matched": len(matched),
+        "sources_ok": ok,
+        "sources_total": total,
+        "sample": [
+            {
+                "title": getattr(j, "title", ""),
+                "company": getattr(j, "company", ""),
+                "location": getattr(j, "location", ""),
+                "url": getattr(j, "url", ""),
+            }
+            for j in matched[:SAMPLE_SIZE]
+        ],
+        "error": None,
+        "fetched_at": time.time(),
+    }
     with _lock:
-        _state[user_id] = {
-            "state": "ready",
-            "total": len(jobs),
-            "matched": len(matched),
-            "sources_ok": ok,
-            "sources_total": total,
-            "sample": [
-                {
-                    "title": getattr(j, "title", ""),
-                    "company": getattr(j, "company", ""),
-                    "location": getattr(j, "location", ""),
-                    "url": getattr(j, "url", ""),
-                }
-                for j in matched[:SAMPLE_SIZE]
-            ],
-            "error": None,
-            "fetched_at": time.time(),
-        }
+        _state[user_id] = result
+    from .cache import cache
+    cache().set_json(cache_key, result, CACHE_TTL_SECONDS)
 
 
 def start(user_id: int, cfg: dict, keywords: list[str]) -> None:
     """Kick off a preview unless one is running or a fresh one is cached."""
+    cache_key = _cache_key(user_id, cfg, keywords)
+    from .cache import cache
+    cached = cache().get_json(cache_key)
+    if cached is not None:
+        with _lock:
+            _state[user_id] = cached
+        return
     with _lock:
         current = _state.get(user_id)
         if current:
@@ -99,7 +126,7 @@ def start(user_id: int, cfg: dict, keywords: list[str]) -> None:
         _state[user_id] = {"state": "running", "fetched_at": time.time()}
 
     threading.Thread(
-        target=_worker, args=(user_id, cfg, keywords), daemon=True
+        target=_worker, args=(user_id, cfg, keywords, cache_key), daemon=True
     ).start()
 
 

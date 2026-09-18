@@ -52,6 +52,23 @@ PROVIDERS: tuple[dict, ...] = (
         "verified_on": "2026-08-24",
     },
     {
+        "id": "openai",
+        "label": "OpenAI",
+        "recommended": False,
+        "why": "GPT Luna is a capable, cost-conscious option for high-volume application work.",
+        "model": "gpt-5.6-luna",
+        "console_url": "https://platform.openai.com/api-keys",
+        "steps": [
+            "Sign in to the OpenAI platform.",
+            "Create an API key for this application.",
+            "Copy it and paste it below.",
+        ],
+        "key_shape": {"prefix": "sk-", "min_len": 20},
+        "cost_note": "Paid usage is billed per token. Check the pricing page before enabling it.",
+        "needs_key": True,
+        "verified_on": "2026-09-14",
+    },
+    {
         "id": "deepseek",
         "label": "DeepSeek",
         "recommended": False,

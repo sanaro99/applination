@@ -98,6 +98,14 @@ def get_provider(
             model=_model("gemini-3.8-flash"),
         )
 
+    if name == "openai":
+        from .openai_provider import OpenAIProvider
+        return OpenAIProvider(
+            api_key=sub.get("api_key", ""),
+            model=_model("gpt-5.6-luna"),
+            thinking=thinking,
+        )
+
     if name == "ollama":
         from .ollama_provider import OllamaProvider
         return OllamaProvider(
@@ -161,7 +169,7 @@ def get_provider(
 
     raise ValueError(
         f"Unknown provider '{name}'. Options: claude, gemini, ollama, nim, groq, "
-        f"cloudflare, openrouter, deepseek, mistral, demo."
+        f"cloudflare, openrouter, openai, deepseek, mistral, demo."
     )
 
 

@@ -40,6 +40,7 @@ _PROVIDER_ENV = {
     "claude": "ANTHROPIC_API_KEY",
     "gemini": "GOOGLE_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "openai": "OPENAI_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "mistral": "MISTRAL_API_KEY",
     "nim": "NVIDIA_API_KEY",

@@ -5,10 +5,25 @@ import yaml
 
 from server.config_migrations import (
     FREE_POOL_ROUTING_VERSION,
+    ensure_provider_blocks,
     migrate_free_pool_routing,
     migrate_legacy_model_identifiers,
 )
 from server.user_paths import UserPaths
+
+
+def test_ensure_provider_blocks_is_additive_and_idempotent(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text("llm:\n  primary: gemini\n  gemini:\n    model: gemini-3.8-flash\n")
+
+    assert ensure_provider_blocks(config) is True
+    assert ensure_provider_blocks(config) is False
+
+    saved = yaml.safe_load(config.read_text())
+    assert saved["llm"]["primary"] == "gemini"
+    assert saved["llm"]["openai"] == {
+        "api_key": "", "model": "gpt-5.6-luna",
+    }
 
 
 def test_retired_model_ids_migrate_in_provider_blocks_and_task_overrides(tmp_path, monkeypatch):

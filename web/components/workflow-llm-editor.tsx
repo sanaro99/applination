@@ -45,7 +45,8 @@ const GROUPS = ["Pipeline", "Prepwork & editing"];
 const CURATED_MODELS: Record<string, string[]> = {
   deepseek: ["deepseek-flash", "deepseek-v4-pro"],
   mistral: ["mistral-small-latest", "mistral-medium-latest"],
-  gemini: ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview"],
+  gemini: ["gemini-3.8-flash"],
+  openai: ["gpt-5.6-luna"],
   claude: ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-8"],
   openrouter: ["nex-agi/nex-n2.5-mini:free", "nex-agi/nex-n2.5-pro:free"],
   nim: ["nvidia/nemotron-3-super-120b-a12b"],

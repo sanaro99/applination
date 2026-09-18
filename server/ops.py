@@ -18,7 +18,7 @@ log = logging.getLogger("server.ops")
 
 # Provider names the factory knows how to build (mirrors src/tweak.py choices).
 KNOWN_PROVIDERS = [
-    "openrouter", "nim", "groq", "cloudflare", "gemini", "ollama", "claude", "deepseek", "mistral",
+    "openrouter", "openai", "nim", "groq", "cloudflare", "gemini", "ollama", "claude", "deepseek", "mistral",
 ]
 # Providers that don't need an api_key (local / self-hosted).
 LOCAL_PROVIDERS = {"ollama"}

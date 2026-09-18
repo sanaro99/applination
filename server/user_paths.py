@@ -166,12 +166,14 @@ class UserPaths:
             # model identifier mappings and the once-only approved free-pool
             # routing preset; the latter writes a local rollback copy first.
             from .config_migrations import (
+                ensure_provider_blocks,
                 migrate_free_pool_routing,
                 migrate_legacy_model_identifiers,
             )
 
             migrate_legacy_model_identifiers(self.config_path)
             migrate_free_pool_routing(self.config_path)
+            ensure_provider_blocks(self.config_path)
         return self
 
     def resolve_output(self, cfg: dict | None = None) -> Path:

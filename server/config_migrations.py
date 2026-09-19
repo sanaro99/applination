@@ -24,6 +24,31 @@ MODEL_IDENTIFIER_MIGRATIONS: dict[str, str] = {
 FREE_POOL_ROUTING_VERSION = 1
 
 
+def ensure_provider_blocks(config_path: Path) -> bool:
+    """Add newly supported provider blocks without changing anyone's routing.
+
+    User configuration is persisted on the host volume. A new provider must be
+    added independently of the image's example config or the workflow editor
+    cannot offer it to existing accounts. This is intentionally additive: it
+    never selects a provider, changes a model, or touches keys.
+    """
+    from ruamel.yaml import YAML
+
+    yamlrt = YAML()
+    yamlrt.preserve_quotes = True
+    document = yamlrt.load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        return False
+    llm = document.get("llm")
+    if not isinstance(llm, dict) or "openai" in llm:
+        return False
+
+    llm["openai"] = {"api_key": "", "model": "gpt-5.6-luna"}
+    with config_path.open("w", encoding="utf-8") as handle:
+        yamlrt.dump(document, handle)
+    return True
+
+
 def migrate_free_pool_routing(config_path: Path) -> bool:
     """Apply the approved free-provider routing preset once per user config.
 

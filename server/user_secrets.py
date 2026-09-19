@@ -41,6 +41,7 @@ log = logging.getLogger("server.user_secrets")
 SECRET_PATHS: tuple[str, ...] = (
     "llm.claude.api_key",
     "llm.gemini.api_key",
+    "llm.openai.api_key",
     "llm.openrouter.api_key",
     "llm.deepseek.api_key",
     "llm.mistral.api_key",

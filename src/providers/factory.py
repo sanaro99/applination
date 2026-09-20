@@ -44,21 +44,15 @@ def _warn_unavailable(name: str, exc: Exception) -> None:
 _TASK_NAMES = (
     "ranking", "tailoring", "tailoring_premium", "cover_letter",
     "critique", "answer_questions",
-    # `relinefit` is the Tier-2 LLM rescue that rewrites bullets to hit exact
-    # character-count line budgets. It wants a strong model but NOT
-    # chain-of-thought — CoT burns the budget
-    # on a bounded mechanical rewrite and returns empty content. Defaults to
-    # thinking OFF (see _THINKING_OFF_BY_DEFAULT).
+    # Compatibility-only task name retained for persisted configurations from
+    # the v1 exact-line-fitting pipeline. V2 does not call this chain.
     "relinefit",
     # Prepwork + content-studio tasks. Inherit the global primary/fallbacks
     # until configured under llm.tasks.<name>.
     "coach", "interview", "essay", "content_studio", "job_extraction", "tweak",
 )
 
-# Tasks whose chain-of-thought hurts more than it helps: bounded, mechanical
-# rewrites where reasoning models spend their whole token budget on CoT and
-# return empty content. These default to thinking OFF; a user can still force
-# it on per task via `llm.tasks.<task>.thinking: true`.
+# Preserve the old default while the compatibility task remains configurable.
 _THINKING_OFF_BY_DEFAULT = frozenset({"relinefit"})
 
 

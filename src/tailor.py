@@ -23,6 +23,18 @@ from .reference_loader import (
     STORY_BODY_CAP,
     STORY_CANDIDATE_CAP,
 )
+from .evidence import (
+    build_evidence_ledger,
+    format_evidence_packet,
+    normalize_content_plan,
+    selected_evidence_ids,
+)
+from .grounding import (
+    DeterministicGroundingAdapter,
+    GroundingEngine,
+    LLMProviderChainGroundingAdapter,
+    blocking_verdicts,
+)
 
 # Structured-output contract for answer_questions. Providers that support
 # strict schemas (DeepSeek/Mistral/Gemini/Claude) enforce the shape, so a
@@ -58,12 +70,10 @@ def _strip_em_dashes(text: str) -> str:
     """
     return re.sub(r"\s*—\s*", ", ", text)
 
-# Soft caps for the LLM. The page-fit pass in resume_builder.py is the
-# real one-page enforcer — it both shrinks overflow AND expands undersized
-# content from the master so the page doesn't look half empty.
-#
-# These limits are intentionally generous so the LLM produces enough raw
-# material to fill the page; the renderer trims back if it overflows.
+# Legacy/public constants retained for tweak-flow and configuration
+# compatibility.  The v2 resume pipeline plans variable section and bullet
+# counts from the evidence ledger, then applies page-level layout policy after
+# editorial generation; it does not target exact character bands.
 RESUME_CONSTRAINTS = {
     "summary_max_chars": 320,
     "skills_max_total": 42,          # across all groups
@@ -73,14 +83,11 @@ RESUME_CONSTRAINTS = {
     # roles so a current internship isn't crowded out by older history.
     "experience_max_items": 3,
     "experience_bullets_per_item": 5,
-    # Single-line max. NOTE: the authoritative, font-aware bullet bands live in
-    # src/line_fitter.py::configure_for_font (10pt single target 116-125). These
-    # values are kept aligned to that single max to avoid contradicting the
-    # prompt guidance, which interpolates the live line_fitter bands.
+    # Tweak-flow safety caps only; not editorial targets in the v2 pipeline.
     "experience_bullet_max_chars": 125,
     "projects_max_items": 3,
     "projects_bullets_per_item": 2,
-    "projects_bullet_max_chars": 125,     # single-line max (see note above)
+    "projects_bullet_max_chars": 125,
     "education_max_items": 2,
 }
 
@@ -1131,6 +1138,8 @@ class Tailor:
         # Populated by write_cover_letter — main.py reads this and persists
         # the per-attempt diagnostics to cover_letter.debug.json.
         self.last_letter_debug: dict | None = None
+        self.last_tailor_metrics: dict = {}
+        self.last_tailor_audit: dict = {}
 
     def _get_chain(self, task: str) -> list[LLMProvider]:
         """Return the provider chain for task, falling back to 'tailoring'."""
@@ -1204,11 +1213,11 @@ class Tailor:
         *,
         quality_tier: str = "standard",
     ) -> dict:
-        """Delegate to the self-correcting LangGraph pipeline.
+        """Delegate to the evidence-led editorial pipeline.
 
-        The graph runs: tailor → keyword_audit → [keyword_fix?] → critique → [revise × ≤2?]
-        All post-processing guarantees (_ensure_core_experience, etc.) are applied
-        inside the graph after each step that produces a new resume JSON.
+        The pipeline runs evidence selection → content plan → editorial write →
+        factual validation → narrowly scoped repair. Page layout is handled
+        later by ``resume_builder`` and never drives source selection.
 
         Args:
             quality_tier: "standard" routes through the fast `tailoring` chain
@@ -1217,9 +1226,8 @@ class Tailor:
                 deepseek-v4-pro reasoning model) for top-N ranked jobs. main.py
                 decides which tier each job uses.
 
-        Populates self.last_tailor_metrics with per-step bullet-band counts,
-        line_fitter stats, and total wall-clock seconds. main.py serializes
-        this to pipeline_metrics.json alongside resume.json.
+        Populates ``last_tailor_metrics`` and ``last_tailor_audit`` so the run
+        records both operational timings and claim provenance.
         """
         from .tailor_graph import run_tailor_graph
         chain_key = "tailoring_premium" if quality_tier == "premium" else "tailoring"
@@ -1234,6 +1242,7 @@ class Tailor:
             relinefit_chain=self._get_chain("relinefit"),
         )
         self.last_tailor_metrics = metrics
+        self.last_tailor_audit = metrics.get("audit") or {}
         return result
 
     # -----------------------------------------------------------------
@@ -1265,12 +1274,35 @@ class Tailor:
                 main.py passes True for the top-N ranked jobs so they get an
                 extra LLM polish pass while skipping the cost for tail jobs.
         """
+        evidence_ledger = build_evidence_ledger(source or {}, stories)
+        content_plan = normalize_content_plan(
+            self.last_tailor_metrics.get("content_plan") or {},
+            source or {},
+            job,
+            evidence_ledger,
+        )
+        cover_evidence_ids = selected_evidence_ids(content_plan, evidence_ledger)
+        cover_evidence_ids.extend(
+            item.id for item in evidence_ledger if item.kind == "story"
+        )
+        cover_evidence_ids = list(dict.fromkeys(cover_evidence_ids))
+        cover_grounding_plan = {
+            **content_plan,
+            "summary_evidence_ids": list(dict.fromkeys(
+                list(content_plan.get("summary_evidence_ids") or [])
+                + [item.id for item in evidence_ledger if item.kind == "story"]
+            )),
+        }
+        cover_evidence_packet = format_evidence_packet(
+            evidence_ledger, cover_evidence_ids, max_chars_per_item=1200,
+        )
+
         if not stories:
             best_story_block = "(no stories available — write from the bio alone)"
         elif len(stories) == 1:
             best = stories[0]
             best_story_block = (
-                f"STORY — the spine of the letter:\n"
+                f"STORY [story.0] — the spine of the letter:\n"
                 f"Title: {best.get('title','')}\n"
                 f"One-liner: {best.get('one_liner','')}\n\n"
                 f"{best.get('body','')}\n"
@@ -1297,7 +1329,7 @@ class Tailor:
                 if i > 1:
                     body = body[:STORY_CANDIDATE_CAP]
                 best_story_block += (
-                    f"[Story {i}] {s.get('title','')}\n"
+                    f"[story.{i - 1}] {s.get('title','')}\n"
                     f"One-liner: {s.get('one_liner','')}\n\n"
                     f"{body}\n\n"
                 )
@@ -1405,13 +1437,22 @@ class Tailor:
             "'thrilled', or 'excited to apply'; no prose skill lists; no 'perfect fit' "
             "or 'ideal candidate'; no paragraph openers like 'Furthermore' or 'Moreover'; "
             "no bullet points or markdown; contractions are fine; 220-380 words total. "
-            "Three paragraphs separated by a SINGLE blank line."
+            "Three paragraphs separated by a SINGLE blank line.\n\n"
+            "Evidence policy: rewrite and synthesize freely when it improves the argument. "
+            "You may combine facts from multiple cited sources and explain why demonstrated "
+            "knowledge transfers to the target role. Keep the distinction between demonstrated "
+            "experience and adjacent knowledge explicit. Never turn a plausible relationship "
+            "into a claim that the candidate used an uncited technology or held an uncited "
+            "responsibility."
         )
 
         user_prompt = (
             f"Candidate voice, how {first_name} writes (absorb the tone, do not "
             f"reproduce this section):\n{(bio or '')[:COVER_LETTER_BIO_CAP]}\n\n"
             f"Story material:\n{best_story_block}\n"
+            f"Evidence-led resume strategy:\n{content_plan.get('role_strategy', '')}\n\n"
+            f"NUMBERED SOURCE EVIDENCE (the factual authority for this letter):\n"
+            f"{cover_evidence_packet}\n\n"
             f"{example_block}"
             f"{guidelines_block}"
             f"{positioning_block}"
@@ -1423,14 +1464,14 @@ class Tailor:
             f"BINDING: You MUST anchor the STORY paragraph in the single "
             f"best-fitting story from the Story material above (the candidate's "
             f"real work). Do not invent projects, stories, or experiences not "
-            f"present in the Story material. Every concrete detail you cite (each "
+            f"present in the numbered source evidence. Every concrete detail you cite (each "
             f"metric, percentage, scale figure, technology, or outcome) must appear "
-            f"in the Story material; if a number is not there, describe the result "
+            f"in the numbered source evidence; if a number is not there, describe the result "
             f"qualitatively rather than inventing one. If no story fits this role "
             f"cleanly, lead with the transferable skill the strongest story showed "
             f"(judgment, system design, debugging instincts) rather than forcing a "
-            f"company-specific hook. NEVER claim experience the candidate doesn't "
-            f"have, and NEVER name technologies not mentioned in the story material.\n\n"
+            f"company-specific hook. You may mention adjacent knowledge only as a "
+            f"transferable foundation, never as past hands-on experience.\n\n"
             f"Write the letter now. Start directly with the first sentence of the "
             f"opening paragraph. No label, no 'Dear', no sign-off, no planning text, "
             f"no em dashes. Do not open with {first_name}'s credentials or school name."
@@ -1442,11 +1483,15 @@ class Tailor:
         return self._cover_letter_retry_ladder(
             system, user_prompt, self._get_chain("cover_letter"),
             critique=critique_this_call,
+            grounding_plan=cover_grounding_plan,
+            grounding_ledger=evidence_ledger,
         )
 
     def _cover_letter_retry_ladder(
         self, system: str, user_prompt: str, cl_chain: list[LLMProvider],
         *, critique: bool = False,
+        grounding_plan: dict | None = None,
+        grounding_ledger: list | None = None,
     ) -> str:
         """3-attempt retry ladder for cover-letter generation.
 
@@ -1473,6 +1518,12 @@ class Tailor:
 
         debug_attempts: list[dict] = []
         best_recovered: str = ""
+        grounding_feedback = ""
+        critique_chain = self._get_chain("critique")
+        grounding_adapters = [DeterministicGroundingAdapter()]
+        if any(provider.name != "demo" for provider in critique_chain):
+            grounding_adapters.append(LLMProviderChainGroundingAdapter(critique_chain))
+        grounding_engine = GroundingEngine(grounding_adapters) if grounding_ledger else None
 
         attempts = [
             {"provider": primary,                      "max_tokens": 1600, "use_hardened": False},
@@ -1490,9 +1541,15 @@ class Tailor:
                 continue
 
             sys_prompt = system + (_HARDENED_OUTPUT_SUFFIX if plan["use_hardened"] else "")
+            attempt_user = user_prompt
+            if grounding_feedback:
+                attempt_user += (
+                    "\n\nPREVIOUS DRAFT GROUNDING FAILURES. Correct these without adding new facts:\n"
+                    + grounding_feedback
+                )
 
             try:
-                raw = provider.text_call(sys_prompt, user_prompt, max_tokens=plan["max_tokens"])
+                raw = provider.text_call(sys_prompt, attempt_user, max_tokens=plan["max_tokens"])
             except Exception as e:
                 LOG.warning("Cover letter attempt %d (%s) failed: %s", i, provider.name, e)
                 debug_attempts.append({
@@ -1514,6 +1571,23 @@ class Tailor:
             cleaned = _rewrite_casual_closing(cleaned)
 
             issues = validate_cover_letter(cleaned)
+            grounding_report = None
+            if not issues and grounding_engine is not None:
+                grounding_report = grounding_engine.review(
+                    {"summary": cleaned, "skills": [], "experience": [], "projects": []},
+                    grounding_plan or {},
+                    grounding_ledger or [],
+                )
+                failures = blocking_verdicts(grounding_report)
+                if failures:
+                    issues.extend(
+                        f"grounding: {verdict.reason or verdict.claim}"
+                        for verdict in failures[:4]
+                    )
+                    grounding_feedback = "\n".join(
+                        f"- {verdict.reason}: {verdict.claim}"
+                        for verdict in failures[:4]
+                    )
 
             debug_attempts.append({
                 "attempt": i,
@@ -1525,6 +1599,7 @@ class Tailor:
                 "prompt_leakage_kind": prompt_kind,
                 "cot_kind": cot_kind,
                 "issues": issues,
+                "grounding": grounding_report.to_dict() if grounding_report else None,
             })
 
             if not issues:
@@ -1537,6 +1612,18 @@ class Tailor:
                 else:
                     final_text = cleaned
                     critique_info = {"skipped": True, "reason": "critique_disabled"}
+                # A stylistic revision is allowed to change wording, so verify
+                # it again. If it introduced an unsupported claim, retain the
+                # already-grounded pre-critique draft.
+                if grounding_engine is not None and final_text != cleaned:
+                    revised_report = grounding_engine.review(
+                        {"summary": final_text, "skills": [], "experience": [], "projects": []},
+                        grounding_plan or {},
+                        grounding_ledger or [],
+                    )
+                    if not revised_report.passed:
+                        critique_info["grounding_rejected_revision"] = revised_report.to_dict()
+                        final_text = cleaned
                 debug_attempts.append({"attempt": "critique", **critique_info})
                 self.last_letter_debug = {"status": "ok", "attempts": debug_attempts}
                 return final_text

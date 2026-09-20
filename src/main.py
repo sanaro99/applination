@@ -30,7 +30,7 @@ from .reference_loader import (
     load_example_letters, match_example_letter,
     load_guidelines, match_guidelines,
 )
-from .resume_builder import build_resume_onepage
+from .resume_builder import build_resume_onepage, layout_diagnostics
 from .cover_letter import build_cover_letter
 from .excel_writer import build_tracker
 from .pdf_convert import docx_to_pdf
@@ -357,12 +357,6 @@ def process_job(
     folder = _unique_job_folder(day_root, job.safe_folder_name())
     folder.mkdir(parents=True, exist_ok=True)
 
-    # Calibrate the bullet line-fit bands to the actual render font BEFORE
-    # tailoring, so the deterministic fitter + LLM rescue target the real
-    # printed line width (config: output.base_font_size). Idempotent.
-    from .line_fitter import configure_for_font
-    configure_for_font(out_cfg.get("base_font_size", 10.0))
-
     jd_dict = {
         "company": job.company,
         "title": job.title,
@@ -391,14 +385,9 @@ def process_job(
         log.exception("tailoring failed for %s / %s: %s", job.company, job.title, e)
         return {"error": str(e), "folder_name": folder.name}
 
-    # Save the structured JSON alongside the docx (needed by tweak.py)
-    (folder / "resume.json").write_text(
-        json.dumps(tailored, indent=2), encoding="utf-8"
-    )
-
-    # Snapshot pipeline metrics so we can diagnose per-step bullet quality and
-    # overall latency without re-running. Captures band counts at each step,
-    # line_fitter expansion/trim counts, and wall-clock duration.
+    # Snapshot pipeline metrics and the evidence/claim audit separately. The
+    # audit is intentionally explicit so a generated sentence can be traced to
+    # selected source evidence without polluting the renderer-facing JSON.
     metrics = getattr(tailor, "last_tailor_metrics", None) or {}
     if metrics:
         metrics_with_meta = {
@@ -410,22 +399,44 @@ def process_job(
         (folder / "pipeline_metrics.json").write_text(
             json.dumps(metrics_with_meta, indent=2, default=str), encoding="utf-8",
         )
+    audit = getattr(tailor, "last_tailor_audit", None) or {}
+    if audit:
+        (folder / "grounding_audit.json").write_text(
+            json.dumps(audit, indent=2, default=str), encoding="utf-8",
+        )
 
     resume_docx = folder / "resume.docx"
-    build_resume_onepage(
+    tailored = build_resume_onepage(
         tailored, user, resume_docx,
         master=master,
         font=out_cfg["font_name"],
         base_size=out_cfg["base_font_size"],
         margins=out_cfg["margins_inches"],
     )
+    # Save the exact content that was rendered, not the pre-layout draft.
+    (folder / "resume.json").write_text(
+        json.dumps(tailored, indent=2), encoding="utf-8"
+    )
+    if metrics:
+        metrics["layout"] = layout_diagnostics(
+            tailored, base_size=out_cfg["base_font_size"],
+        )
+        (folder / "pipeline_metrics.json").write_text(
+            json.dumps({
+                "company": job.company,
+                "title": job.title,
+                "quality_tier": quality_tier,
+                **metrics,
+            }, indent=2, default=str),
+            encoding="utf-8",
+        )
 
     # 3. Cover letter — guidelines are matched once above (line 263) and
     # passed through here so cover-letter-specific guidance (hook patterns,
     # recruiter scan rules) lands in the writer's prompt.
     try:
         letter_body = tailor.write_cover_letter(
-            source={},
+            source=master,
             job=jd_dict,
             user=user,
             bio=bio,
@@ -490,6 +501,53 @@ def process_job(
     cover_pdf = None
     if out_cfg.get("produce_pdf", True):
         resume_pdf = docx_to_pdf(resume_docx)
+        # The estimate is intentionally conservative, but the PDF is the truth.
+        # If font metrics differ on this host, remove one lowest-priority tail
+        # item at a time and re-render. This is a narrow layout repair: it never
+        # rewrites factual content or restores material from the master resume.
+        if resume_pdf:
+            try:
+                from pypdf import PdfReader
+                from .layout_policy import tighten_once
+
+                for _ in range(3):
+                    page_count = len(PdfReader(str(resume_pdf)).pages)
+                    if page_count <= 1:
+                        break
+                    tightened, removed = tighten_once(tailored)
+                    if removed is None:
+                        log.warning("resume still exceeds one page; no safe layout removal remains")
+                        break
+                    log.info("rendered resume exceeded one page; removing %s and retrying", removed)
+                    tailored = build_resume_onepage(
+                        tightened, user, resume_docx,
+                        master=None,
+                        font=out_cfg["font_name"],
+                        base_size=out_cfg["base_font_size"],
+                        margins=out_cfg["margins_inches"],
+                    )
+                    (folder / "resume.json").write_text(
+                        json.dumps(tailored, indent=2), encoding="utf-8"
+                    )
+                    resume_pdf.unlink(missing_ok=True)
+                    resume_pdf = docx_to_pdf(resume_docx)
+                    if not resume_pdf:
+                        break
+                if resume_pdf and metrics:
+                    metrics.setdefault("layout", {})["rendered_pdf_pages"] = len(
+                        PdfReader(str(resume_pdf)).pages
+                    )
+                    (folder / "pipeline_metrics.json").write_text(
+                        json.dumps({
+                            "company": job.company,
+                            "title": job.title,
+                            "quality_tier": quality_tier,
+                            **metrics,
+                        }, indent=2, default=str),
+                        encoding="utf-8",
+                    )
+            except Exception as e:
+                log.warning("could not verify rendered resume page count: %s", e)
         if cover_docx.exists():
             cover_pdf = docx_to_pdf(cover_docx)
 

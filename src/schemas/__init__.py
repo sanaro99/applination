@@ -8,6 +8,7 @@ from .resume_schema import RESUME_SCHEMA, CRITIQUE_SCHEMA, RELINEFIT_SCHEMA
 from .story_schema import STORY_SCHEMA
 from .master_resume_schema import MASTER_RESUME_SCHEMA
 from .keywords_schema import KEYWORDS_SCHEMA
+from .editorial_schema import CONTENT_PLAN_SCHEMA, GROUNDING_SCHEMA
 
 __all__ = [
     "RESUME_SCHEMA",
@@ -16,4 +17,6 @@ __all__ = [
     "STORY_SCHEMA",
     "MASTER_RESUME_SCHEMA",
     "KEYWORDS_SCHEMA",
+    "CONTENT_PLAN_SCHEMA",
+    "GROUNDING_SCHEMA",
 ]

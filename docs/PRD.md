@@ -315,9 +315,13 @@ FastAPI server. Runs on port 8000 by default.
 | `pipeline.py` | `run_pipeline()` — the importable orchestrator; all stages, stop-check polling, event emission |
 | `main.py` | CLI entry point; `setup_logging()`, `process_job()`, `fetch_all()` |
 | `tailor.py` | LLM calls: `rank_jobs()`, `tailor_resume()`, `write_cover_letter()`, `answer_questions()` |
-| `resume_builder.py` | Renders one-page ATS-safe `.docx` from tailored JSON. Line-count estimator with iterative overflow recovery. |
+| `evidence.py` | Normalizes the master resume and stories into stable, addressable evidence; validates selected identities and skills. |
+| `resume_pipeline.py` | Evidence selection → content plan → editorial write → grounding → narrow factual repair. |
+| `grounding.py` | Deep grounding module with deterministic and LLM adapters plus auditable claim verdicts. |
+| `layout_policy.py` | Downstream orphan-wrap cleanup and lowest-priority page-budget removal. |
+| `resume_builder.py` | Renders one-page ATS-safe `.docx` and applies downstream page-budget policy. |
 | `profile.py` | `derive_profile(master)` — derives candidate identity (titles, seniority, education proximity) from resume.yaml for use in prompts and guards |
-| `tailor_graph.py` | Full tailoring pipeline with quality stages: tailor → audit → keyword_fix? → critique → revise? → line_fitter → relinefit_rescue? |
+| `tailor_graph.py` | Backward-compatible entry point for the evidence-led resume pipeline. |
 | `providers/` | LLM abstraction layer. `factory.py` exposes `get_provider_chain()`, `get_task_chains()`, `try_chain()`. Implementations for Claude, Gemini, Ollama, NVIDIA NIM, Groq, Cloudflare Workers AI, OpenRouter, DeepSeek, Mistral. |
 | `scrapers/` | One scraper per source (see §6.4). All return the unified `Job` dataclass. |
 | `reference_loader.py` | Loads stories and example letters; `match_stories()` scores by tag/keyword overlap |
@@ -422,13 +426,15 @@ The day's Excel tracker is written to `output/YYYY-MM-DD/apps_YYYY-MM-DD.xlsx`.
 
 ## 10. Resume Tailoring Constraints
 
-The tailoring engine enforces strict one-page limits. Key rules:
+The tailoring engine separates factual/editorial decisions from downstream page layout. Key rules:
 
-- **Preserve full-time roles.** For candidates with professional experience, full-time employment history is never dropped.
+- **Select rather than restore.** Experience, projects, skills, and bullets are selected for each job. Omitted master content is not silently restored by the renderer.
 - **No em dashes.** Stripped for ATS compatibility (uses commas or semicolons).
 - **Profile-driven identity.** The summary opening must use the candidate's real titles (derived from `src/profile.py`), never the JD's title. Fabrication of identity is explicitly prohibited in prompts.
-- **Line-fill rule.** Bullets must be either a clean single line (≥88% of the line width) or a full two-line wrap. The orphan zone (a very short second line) is forbidden. A deterministic line-count estimator runs after tailoring; if overflow or orphan-wrap violations are detected, a two-phase LLM rescue (compress then extend) is attempted.
-- **Font-aware bands.** Line width bands are derived from `output.base_font_size` (default 10pt: single line 79–130 chars, target fill ≥116 chars, double 205–258 chars).
+- **Evidence-led editing.** The writer may rewrite, merge, split, compress, and reorder selected evidence. A separate grounding stage rejects invented metrics, tools, employers, responsibilities, and outcomes.
+- **Qualified adjacency.** Up to four job-requested, technically defensible adjacent skills may appear under `Related Knowledge` with a visible qualifier such as `transferable familiarity`; they cannot be presented as direct hands-on experience or unqualified established skills.
+- **Soft line guidance.** Most bullets are approximately one line, 1.5 lines is valid, and a few high-value achievements may use two lines. Exact character bands do not control content.
+- **Page-level enforcement.** The renderer removes lowest-priority tail content only when the whole resume exceeds its page budget. The produced PDF is checked and may receive a narrowly scoped final removal repair.
 
 ---
 

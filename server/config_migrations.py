@@ -67,6 +67,11 @@ def migrate_free_pool_routing(config_path: Path) -> bool:
     llm = document.get("llm")
     if not isinstance(llm, dict):
         return False
+    # The public demo intentionally routes every task to its committed fixture
+    # adapter. Replacing that route with a real provider would both break the
+    # demo and risk spending credentials on anonymous traffic.
+    if str(llm.get("primary") or "").strip().lower() == "demo":
+        return False
     try:
         if int(llm.get("routing_preset_version", 0) or 0) >= FREE_POOL_ROUTING_VERSION:
             return False

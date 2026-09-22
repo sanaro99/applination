@@ -1,0 +1,3 @@
+# Optional developer dependency for publishing local evaluation runs.
+# Production generation does not import or require Braintrust.
+braintrust>=0.25.0,<1

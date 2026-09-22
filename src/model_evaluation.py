@@ -49,6 +49,12 @@ class EvaluationCandidate:
 
 
 CURATED_CANDIDATES: dict[str, EvaluationCandidate] = {
+    "deepseek": EvaluationCandidate(
+        "deepseek", "DeepSeek V4.1 Flash", "deepseek", "deepseek-flash",
+    ),
+    "deepseek-pro": EvaluationCandidate(
+        "deepseek-pro", "DeepSeek V4 Pro", "deepseek", "deepseek-v4-pro",
+    ),
     "luna": EvaluationCandidate("luna", "GPT-5.6 Luna", "openai", "gpt-5.6-luna"),
     "gemini": EvaluationCandidate("gemini", "Gemini 3.8 Flash", "gemini", "gemini-3.8-flash"),
     "gemini-batch": EvaluationCandidate(

@@ -30,6 +30,7 @@ from .grounding import (
     prune_unsupported,
 )
 from .profile import derive_profile
+from .prompt_registry import PROMPTS, editorial_prompt_manifest
 from .providers import LLMProvider
 from .schemas import CONTENT_PLAN_SCHEMA, RESUME_SCHEMA
 
@@ -125,8 +126,13 @@ def _plan_content(
             )
         )
 
+    prompt = PROMPTS.build(
+        "resume.content_plan", system=system, user=user, schema=CONTENT_PLAN_SCHEMA,
+    )
     return _call_json_chain(
-        providers, system, user, schema=CONTENT_PLAN_SCHEMA, max_tokens=2200,
+        providers, prompt.system, prompt.user,
+        schema=prompt.schema or CONTENT_PLAN_SCHEMA,
+        max_tokens=2200,
         stage="content_plan", validate=valid_plan,
     )
 
@@ -188,7 +194,10 @@ def _writer_prompt(
         "Return the tailored resume JSON. The final ats_keywords field is metadata, not permission "
         "to insert unsupported keywords into visible content."
     )
-    return system, user
+    prompt = PROMPTS.build(
+        "resume.editorial_write", system=system, user=user, schema=RESUME_SCHEMA,
+    )
+    return prompt.system, prompt.user
 
 
 def _fallback_draft(master: dict, plan: dict) -> dict:
@@ -271,8 +280,12 @@ def _repair_resume(
         f"GROUNDING REPORT:\n{json.dumps(report, indent=2)}\n\n"
         "Return the complete resume with only the necessary factual repairs."
     )
+    prompt = PROMPTS.build(
+        "resume.grounding_repair", system=system, user=user, schema=RESUME_SCHEMA,
+    )
     return _call_json_chain(
-        providers, system, user, schema=RESUME_SCHEMA, max_tokens=2800, stage="grounding_repair",
+        providers, prompt.system, prompt.user, schema=prompt.schema or RESUME_SCHEMA,
+        max_tokens=2800, stage="grounding_repair",
     )
 
 
@@ -298,7 +311,11 @@ def run_resume_editorial_pipeline(
 ) -> dict:
     """Run the evidence-led resume pipeline and return renderer-compatible JSON."""
     started = time.time()
-    metrics: dict = {"pipeline_version": 2, "stages": []}
+    metrics: dict = {
+        "pipeline_version": 2,
+        "stages": [],
+        "prompt_versions": editorial_prompt_manifest(),
+    }
     guidelines = guidelines or []
     ledger = build_evidence_ledger(master, stories or [])
     metrics["evidence_items"] = len(ledger)

@@ -10,6 +10,7 @@ from .evidence import _recency, build_evidence_ledger
 from .grounding import unsupported_numbers_in_text
 from .model_evaluation import EvaluationCandidate, MAX_CASES
 from .profile import derive_profile
+from .prompt_registry import editorial_prompt_manifest
 from .providers import get_provider
 from .resume_builder import skill_line_capacity
 from .tailor import Tailor, validate_cover_letter
@@ -24,6 +25,7 @@ class EditorialEvaluationCase:
     bio: str
     stories: list[dict]
     expectations: dict
+    cloud_safe: bool = False
 
     @classmethod
     def from_dict(cls, value: dict[str, Any], position: int) -> "EditorialEvaluationCase":
@@ -40,7 +42,16 @@ class EditorialEvaluationCase:
         }
         stories = [row for row in value.get("stories") or [] if isinstance(row, dict)]
         expectations = value.get("expectations") if isinstance(value.get("expectations"), dict) else {}
-        return cls(case_id, master, job, user, str(value.get("bio") or ""), stories, expectations)
+        return cls(
+            case_id,
+            master,
+            job,
+            user,
+            str(value.get("bio") or ""),
+            stories,
+            expectations,
+            value.get("cloud_safe") is True,
+        )
 
 
 def load_editorial_cases(path: str, *, limit: int = 10) -> list[EditorialEvaluationCase]:
@@ -195,6 +206,7 @@ def run_editorial_evaluation(
                 "candidate": candidate.__dict__,
                 "ok": True,
                 "latency_ms": int((time.monotonic() - started) * 1000),
+                "prompt_versions": editorial_prompt_manifest(),
                 "resume": resume,
                 "cover_letter": letter,
                 "scores": {
@@ -203,6 +215,7 @@ def run_editorial_evaluation(
                     "expectations": score_expectations(resume, letter, case.expectations),
                 },
                 "audit": tailor.last_tailor_audit,
+                "cover_letter_debug": tailor.last_letter_debug,
             })
         except Exception as exc:
             records.append({
@@ -210,6 +223,7 @@ def run_editorial_evaluation(
                 "candidate": candidate.__dict__,
                 "ok": False,
                 "latency_ms": int((time.monotonic() - started) * 1000),
+                "prompt_versions": editorial_prompt_manifest(),
                 "error": str(exc)[:500],
             })
     return records

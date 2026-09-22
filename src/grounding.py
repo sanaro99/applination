@@ -15,6 +15,7 @@ from typing import Protocol
 
 from .evidence import EvidenceItem, format_evidence_packet, selected_evidence_ids
 from .providers import LLMProvider
+from .prompt_registry import PROMPTS
 from .schemas import GROUNDING_SCHEMA
 
 
@@ -223,7 +224,18 @@ class LLMGroundingAdapter:
                 "Audit every listed claim. Keep the exact paths. Do not reward keyword overlap "
                 "unless the evidence supports the claim."
             )
-            return self.provider.json_call(system, user, max_tokens=max_tokens, schema=GROUNDING_SCHEMA)
+            prompt = PROMPTS.build(
+                "resume.grounding_review",
+                system=system,
+                user=user,
+                schema=GROUNDING_SCHEMA,
+            )
+            return self.provider.json_call(
+                prompt.system,
+                prompt.user,
+                max_tokens=max_tokens,
+                schema=prompt.schema or GROUNDING_SCHEMA,
+            )
 
         try:
             raw = audit(review_claims, 2600)

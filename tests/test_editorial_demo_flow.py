@@ -27,6 +27,7 @@ def test_demo_provider_runs_the_complete_v2_resume_and_letter_flow():
     resume = tailor.tailor_resume(master, job, stories=stories)
     assert resume["experience"]
     assert tailor.last_tailor_metrics["pipeline_version"] == 2
+    assert tailor.last_tailor_metrics["prompt_versions"]["resume.editorial_write"] == "1"
     assert tailor.last_tailor_audit["final_grounding"]["passed"] is True
 
     letter = tailor.write_cover_letter(
@@ -39,4 +40,5 @@ def test_demo_provider_runs_the_complete_v2_resume_and_letter_flow():
     )
     assert validate_cover_letter(letter) == []
     assert tailor.last_letter_debug["status"] == "ok"
+    assert tailor.last_letter_debug["prompt"]["id"] == "cover_letter.write@1"
     assert tailor.last_letter_debug["attempts"][0]["grounding"]["passed"] is True

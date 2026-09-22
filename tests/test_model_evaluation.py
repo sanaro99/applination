@@ -48,6 +48,11 @@ def test_sync_evaluation_rejects_batch_targets(case):
         run_sync_evaluation({}, CURATED_CANDIDATES["gemini-batch"], [case])
 
 
+def test_primary_deepseek_targets_are_available_for_prompt_experiments():
+    assert CURATED_CANDIDATES["deepseek"].model == "deepseek-flash"
+    assert CURATED_CANDIDATES["deepseek-pro"].model == "deepseek-v4-pro"
+
+
 def test_gemini_batch_submit_is_bounded_and_preserves_case_id(case):
     created = {}
 

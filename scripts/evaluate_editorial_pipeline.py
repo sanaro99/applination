@@ -7,6 +7,13 @@ import json
 from pathlib import Path
 import sys
 
+# Keep the documented ``python scripts/evaluate_editorial_pipeline.py`` form
+# working on Windows and Unix, where Python otherwise puts only ``scripts/``
+# on the import path.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from server.cli import UserNotFound, context_for
 from src.editorial_evaluation import load_editorial_cases, run_editorial_evaluation
 from src.model_evaluation import CURATED_CANDIDATES
@@ -18,6 +25,26 @@ def main() -> int:
     parser.add_argument("--cases", required=True, help="Private JSON editorial cases.")
     parser.add_argument("--candidate", required=True, choices=sorted(CURATED_CANDIDATES))
     parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument(
+        "--braintrust", action="store_true",
+        help="Publish the completed local run to Braintrust after evaluation.",
+    )
+    parser.add_argument(
+        "--braintrust-project", default="applination-prompt-evals",
+        help="Braintrust project name used with --braintrust.",
+    )
+    parser.add_argument(
+        "--experiment", default=None,
+        help="Experiment name; defaults to candidate plus the UTC timestamp.",
+    )
+    parser.add_argument(
+        "--base-experiment", default=None,
+        help="Optional Braintrust baseline experiment name for comparison.",
+    )
+    parser.add_argument(
+        "--allow-sensitive-upload", action="store_true",
+        help="Allow upload of cases not explicitly marked cloud_safe. Use with care.",
+    )
     args = parser.parse_args()
 
     candidate = CURATED_CANDIDATES[args.candidate]
@@ -37,9 +64,27 @@ def main() -> int:
     output.write_text(json.dumps({
         "kind": "editorial-pipeline-evaluation",
         "candidate": candidate.__dict__,
+        "experiment": args.experiment or f"{candidate.slug}-{stamp}",
         "records": records,
     }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(output)
+
+    if args.braintrust:
+        from src.braintrust_reporting import publish_editorial_experiment
+
+        remote = publish_editorial_experiment(
+            cases,
+            records,
+            project=args.braintrust_project,
+            experiment_name=args.experiment or f"{candidate.slug}-{stamp}",
+            candidate=candidate.__dict__,
+            base_experiment=args.base_experiment,
+            allow_sensitive_upload=args.allow_sensitive_upload,
+        )
+        if remote["url"]:
+            print(remote["url"])
+        else:
+            print(f"Braintrust experiment: {remote['project']} / {remote['experiment']}")
     return 0 if all(record["ok"] for record in records) else 1
 
 

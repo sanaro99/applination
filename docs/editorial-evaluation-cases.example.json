@@ -1,6 +1,7 @@
 [
   {
     "id": "merge-split-subset",
+    "cloud_safe": true,
     "master_resume": {
       "profile": {
         "identity_titles": ["Software Engineer"],
@@ -80,6 +81,7 @@
   },
   {
     "id": "adjacent-database-without-fabrication",
+    "cloud_safe": true,
     "master_resume": {
       "profile": {
         "identity_titles": ["Software Engineer"],

@@ -16,6 +16,7 @@ from typing import Any
 
 from .providers import LLMProvider
 from .profile import profile_summary_block
+from .prompt_registry import PROMPTS
 from .providers.factory import is_quota_error, try_chain
 from .reference_loader import (
     BIO_CAP,
@@ -1523,6 +1524,11 @@ class Tailor:
         Updates ``self.last_letter_debug`` with attempt-by-attempt diagnostics
         so main.py can persist a postmortem JSON snapshot.
         """
+        base_prompt = PROMPTS.build(
+            "cover_letter.write", system=system, user=user_prompt,
+        )
+        system = base_prompt.system
+        user_prompt = base_prompt.user
         primary = cl_chain[0]
         debug_attempts: list[dict] = []
         best_recovered: str = ""
@@ -1644,7 +1650,11 @@ class Tailor:
                         critique_info["grounding_rejected_revision"] = revised_report.to_dict()
                         final_text = cleaned
                 debug_attempts.append({"attempt": "critique", **critique_info})
-                self.last_letter_debug = {"status": "ok", "attempts": debug_attempts}
+                self.last_letter_debug = {
+                    "status": "ok",
+                    "prompt": base_prompt.metadata(),
+                    "attempts": debug_attempts,
+                }
                 return final_text
 
             LOG.warning("Cover letter attempt %d had issues: %s", i, issues[:5])
@@ -1654,7 +1664,11 @@ class Tailor:
         # All attempts failed validation — return sentinel for fail-loud banner.
         LOG.error("Cover letter generation failed all %d attempts; emitting placeholder",
                   len(attempts))
-        self.last_letter_debug = {"status": "placeholder", "attempts": debug_attempts}
+        self.last_letter_debug = {
+            "status": "placeholder",
+            "prompt": base_prompt.metadata(),
+            "attempts": debug_attempts,
+        }
         body = best_recovered.strip() or "(no recoverable content)"
         return f"{COVER_LETTER_FAILURE_SENTINEL}\n\n{body}"
 
@@ -1697,17 +1711,26 @@ class Tailor:
             f"Cover letter to grade:\n\n{letter}\n\n"
             "Score 1-10 and list at most 3 required_fixes if score < 7."
         )
+        critique_prompt = PROMPTS.build(
+            "cover_letter.critique", system=critique_system, user=critique_user,
+        )
 
         try:
             critique = try_chain(
                 critique_chain,
-                lambda p: p.json_call(critique_system, critique_user, max_tokens=400),
+                lambda p: p.json_call(
+                    critique_prompt.system, critique_prompt.user, max_tokens=400,
+                ),
                 any_error=True,
                 task_name="cl_critique",
             )
         except Exception as e:
             LOG.debug("Cover letter critique skipped (provider error): %s", e)
-            return letter, {"skipped": True, "reason": str(e)[:100]}
+            return letter, {
+                "skipped": True,
+                "reason": str(e)[:100],
+                "prompt": critique_prompt.metadata(),
+            }
 
         score = int(critique.get("score", 7) or 7)
         fixes = critique.get("required_fixes") or []
@@ -1716,6 +1739,7 @@ class Tailor:
         if score >= 7 or not fixes:
             return letter, {
                 "score": score, "issues": issues, "fixes": fixes, "revised": False,
+                "prompt": critique_prompt.metadata(),
             }
 
         LOG.info("Cover letter score=%d, attempting revision: %s", score, fixes[:2])
@@ -1733,11 +1757,16 @@ class Tailor:
             f"\n\nPREVIOUS DRAFT (apply the required fixes to produce a stronger one):\n"
             f"{letter}"
         )
+        revise_prompt = PROMPTS.build(
+            "cover_letter.revise", system=revise_system, user=revise_user,
+        )
 
         try:
             revised_raw = try_chain(
                 cl_chain,
-                lambda p: p.text_call(revise_system, revise_user, max_tokens=1400),
+                lambda p: p.text_call(
+                    revise_prompt.system, revise_prompt.user, max_tokens=1400,
+                ),
                 any_error=True,
                 task_name="cl_revise",
             )
@@ -1746,6 +1775,8 @@ class Tailor:
             return letter, {
                 "score": score, "issues": issues, "fixes": fixes, "revised": False,
                 "revise_error": str(e)[:100],
+                "prompt": critique_prompt.metadata(),
+                "revision_prompt": revise_prompt.metadata(),
             }
 
         revised = revised_raw
@@ -1761,10 +1792,14 @@ class Tailor:
             return letter, {
                 "score": score, "issues": issues, "fixes": fixes, "revised": False,
                 "revised_issues": revised_issues,
+                "prompt": critique_prompt.metadata(),
+                "revision_prompt": revise_prompt.metadata(),
             }
 
         return revised, {
             "score": score, "issues": issues, "fixes": fixes, "revised": True,
+            "prompt": critique_prompt.metadata(),
+            "revision_prompt": revise_prompt.metadata(),
         }
 
     # -----------------------------------------------------------------

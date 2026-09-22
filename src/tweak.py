@@ -339,7 +339,7 @@ def _run_interactive(
     cfg: dict,
     args,
 ):
-    print("Interactive tweak mode (LangGraph session — prior instructions are remembered).")
+    print("Interactive tweak mode (prior instructions are remembered).")
     print("  save   — save current version and exit")
     print("  quit   — exit without saving")
     print("  diff   — show what changed vs. original")

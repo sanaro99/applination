@@ -46,11 +46,15 @@ Run the actual multi-stage pipeline, not only a single compatibility prompt:
 ```bash
 python scripts/evaluate_editorial_pipeline.py \
   --user you@example.com \
-  --candidate luna \
+  --candidate deepseek \
   --cases /private/editorial-cases.json
 ```
 
 Results are stored under the user's `output/editorial-evaluations/` directory. The case file may contain real resume data, so keep it outside the repository. `docs/editorial-evaluation-cases.example.json` is a synthetic starting point.
+
+For versioned prompt metadata and optional Braintrust experiment publishing, see
+[`PROMPT-EVALUATION.md`](PROMPT-EVALUATION.md). Cloud publishing is opt-in and
+refuses cases unless they are explicitly marked `cloud_safe`.
 
 Every serious comparison should include:
 

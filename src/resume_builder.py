@@ -477,6 +477,9 @@ def build_resume_docx(
                 _style_run(sep, size=base_size, bold=False, font=font, color=(100, 100, 100))
                 _add_hyperlink(p, proj["link"], proj["link"],
                                font=font, size=base_size, bold=False)
+            if proj.get("dates"):
+                date_run = p.add_run(f"   {proj['dates']}")
+                _style_run(date_run, size=base_size, bold=True, font=font, color=(80, 80, 80))
             tech = proj.get("tech", "")
             if tech:
                 r2 = p.add_run(f"   {tech}")
@@ -499,7 +502,7 @@ def build_resume_docx(
         awards_raw = resume["awards"]
         awards = awards_raw if isinstance(awards_raw, list) else [awards_raw]
         if awards:
-            _add_heading(doc, "Awards & Honors", font=font, size=heading_size, space_before=7)
+            _add_heading(doc, "Awards and Recognition", font=font, size=heading_size, space_before=7)
             for a in awards:
                 if isinstance(a, dict):
                     name = (a.get("name") or "").strip()
@@ -635,6 +638,11 @@ def _cpl(base_size: float) -> int:
     return round(_CAL_CHARS_PER_LINE_AT_1PT / (float(base_size) or _CAL_FONT))
 
 
+def skill_line_capacity(base_size: float) -> int:
+    """Conservative category width; bold labels use more space than bullets."""
+    return round(1125.0 / (float(base_size) or _CAL_FONT))
+
+
 def _page_budget(base_size: float) -> int:
     """Body-line-equivalents that fit one page (taller font -> fewer lines)."""
     return round(_CAL_BUDGET * (_CAL_FONT + 2) / ((float(base_size) or _CAL_FONT) + 2))
@@ -649,330 +657,50 @@ PAGE_LINE_BUDGET = _page_budget(_CAL_FONT)
 PAGE_LINE_MINIMUM = _page_minimum(_CAL_FONT)
 
 
-# ---------------------------------------------------------------------
-# Shrink helpers (used when the resume overflows the page)
-# ---------------------------------------------------------------------
-def _drop_coursework(r: dict) -> dict:
-    for e in r.get("education", []):
-        e.pop("coursework", None)
-    return r
-
-
-def _drop_last(r: dict, key: str) -> dict:
-    items = r.get(key) or []
-    if items:
-        items.pop()
-    return r
-
-
-def _truncate_bullets(r: dict, key: str, max_bullets: int) -> dict:
-    for item in r.get(key, []) or []:
-        item["bullets"] = (item.get("bullets") or [])[:max_bullets]
-    return r
-
-
-def _keep_top_projects(r: dict, keep: int) -> dict:
-    """Trim the projects list to at most `keep`, preserving order (best first)."""
-    projs = r.get("projects") or []
-    if len(projs) > keep:
-        r["projects"] = projs[:keep]
-    return r
-
-
-def _shrink(r: dict, base_size: float = _CAL_FONT) -> dict:
-    """Iteratively drop lowest-priority content until estimate <= budget.
-
-    Order matters: shed the least valuable content first. We protect a floor of
-    TWO projects — trimming experience/project bullet COUNTS and dropping
-    coursework/certs before ever dropping a project below two, since a resume
-    with a single project reads thin. Only as a last resort do we fall to one
-    project.
-    """
-    budget = _page_budget(base_size)
-    steps = [
-        lambda r: r.pop("activities", None) or r,
-        lambda r: r.pop("awards", None) or r,
-        lambda r: _drop_coursework(r),
-        lambda r: _truncate_bullets(r, "experience", 4),
-        lambda r: _truncate_bullets(r, "projects", 2),
-        lambda r: _truncate_bullets(r, "experience", 3),
-        lambda r: r.pop("certifications", None) or r,
-        lambda r: _keep_top_projects(r, 2),       # drop only 3rd+ projects
-        lambda r: _truncate_bullets(r, "projects", 1),
-        lambda r: _truncate_bullets(r, "experience", 2),
-        lambda r: _drop_last(r, "skills"),
-        lambda r: _keep_top_projects(r, 1),        # last resort: single project
-    ]
-    for step in steps:
-        if _estimate_line_count(r, base_size=base_size) <= budget:
-            break
-        step(r)
-    return r
-
-
-# ---------------------------------------------------------------------
-# Expand helpers (used when the resume looks half-empty)
-# ---------------------------------------------------------------------
-def _master_lookup_experience(master: dict, role: str, company: str) -> dict | None:
-    role_l = (role or "").lower()
-    co_l = (company or "").lower()
-    for e in master.get("experience", []) or []:
-        head = (e.get("role", "") or "").lower().split("(")[0].strip()
-        if (e.get("company", "") or "").lower() == co_l and (
-            head in role_l or role_l.startswith(head[:18])
-        ):
-            return e
-    return None
-
-
-def _master_project_by_name(master: dict, name: str) -> dict | None:
-    name_l = (name or "").lower()
-    for p in master.get("projects", []) or []:
-        if (p.get("name", "") or "").lower() == name_l:
-            return p
-    return None
-
-
-def _clean_band_variants(variants, k: int, *, exclude: set[str] | None = None) -> list[str]:
-    """Pick up to k master `bullets_all` variants that already render cleanly —
-    a full single line or a full double — preferring single (densest), then the
-    shortest doubles. Forbidden/overlong variants are skipped: expansion runs
-    AFTER the LLM line-fit (in resume_builder, no LLM available), so a raw
-    forbidden master bullet pulled in here would orphan-wrap on the page."""
-    from .line_fitter import classify as _band
-    exclude = exclude or set()
-    singles, doubles = [], []
-    for v in variants or []:
-        if not isinstance(v, str) or v.lower()[:60] in exclude:
-            continue
-        b = _band(len(v))
-        if b == "single":
-            singles.append(v)
-        elif b == "double":
-            doubles.append(v)
-    singles.sort(key=len, reverse=True)   # fullest single first
-    doubles.sort(key=len)                 # shortest clean double first
-    return (singles + doubles)[:k]
-
-
-def _project_dups_experience(name: str, resume: dict) -> bool:
-    """True if a project name's distinctive words already appear in an
-    experience role or its lead bullets (so it'd render as a duplicate)."""
-    import re as _re
-    toks = set(_re.findall(r"[a-z0-9]+", (name or "").lower()))
-    # Ignore generic words so "AI Resume Builder" doesn't false-match on "ai".
-    toks -= {"a", "an", "the", "ai", "app", "web", "tool", "platform", "system", "and", "of"}
-    if not toks:
-        return False
-    for e in resume.get("experience", []) or []:
-        hay = (e.get("role", "") or "") + " " + " ".join((e.get("bullets") or [])[:2])
-        haytoks = set(_re.findall(r"[a-z0-9]+", hay.lower()))
-        if len(toks & haytoks) / len(toks) >= 0.6:
-            return True
-    return False
-
-
-def _expand(r: dict, master: dict, base_size: float = _CAL_FONT) -> dict:
-    """Pull additional content from master until estimate >= PAGE_LINE_MINIMUM
-    (without exceeding PAGE_LINE_BUDGET).
-
-    Strategy, in priority order:
-      1. Top up experience bullets (most ATS-valuable space)
-      2. Add a 2nd education entry with coursework
-      3. Add a 3rd project from master
-      4. Add coursework to existing education entry
-      5. Add certifications row
-      6. Add awards row
-    """
-    # Font-aware budgets shadow the module constants so the body below reads
-    # naturally while staying correct for the configured font size.
-    PAGE_LINE_MINIMUM = _page_minimum(base_size)
-    PAGE_LINE_BUDGET = _page_budget(base_size)
-
-    def lines() -> int:
-        return _estimate_line_count(r, base_size=base_size)
-
-    # 1. top up experience bullets to 4 each
-    for entry in r.get("experience", []) or []:
-        if lines() >= PAGE_LINE_MINIMUM:
-            return r
-        m = _master_lookup_experience(master, entry.get("role", ""), entry.get("company", ""))
-        if not m:
-            continue
-        existing = entry.get("bullets") or []
-        existing_norm = [b.lower()[:60] for b in existing]
-        # Only top up with master variants that already render cleanly (we can't
-        # line-fit them here — no LLM in the renderer).
-        candidates = _clean_band_variants(
-            m.get("bullets_all"), 5, exclude=set(existing_norm))
-        for cand in candidates:
-            if lines() >= PAGE_LINE_BUDGET - 2:
-                break
-            if cand.lower()[:60] in existing_norm:
-                continue
-            if len(existing) >= 5:
-                break
-            existing.append(cand)
-            existing_norm.append(cand.lower()[:60])
-        entry["bullets"] = existing[:5]
-
-    if lines() >= PAGE_LINE_MINIMUM:
-        return r
-
-    # 2. add 2nd education entry from master if missing
-    edu = list(r.get("education") or [])
-    if len(edu) < 2 and master.get("education"):
-        existing_schools = {(e.get("school", "") or "").lower() for e in edu}
-        for me in master["education"]:
-            if (me.get("school", "") or "").lower() in existing_schools:
-                continue
-            new_e = {
-                "school": me.get("school", ""),
-                "degree": me.get("degree", ""),
-                "location": me.get("location", ""),
-                "dates": f"{me.get('start_date','')} – {me.get('end_date','')}".strip(" –"),
-                "gpa": me.get("gpa", ""),
-            }
-            cw = me.get("coursework")
-            if isinstance(cw, list) and cw:
-                new_e["coursework"] = ", ".join(cw[:6])
-            elif isinstance(cw, str) and cw:
-                new_e["coursework"] = cw
-            edu.append(new_e)
-            break
-        r["education"] = edu
-
-    if lines() >= PAGE_LINE_MINIMUM:
-        return r
-
-    # 3. add a 3rd project from master if not already present AND it doesn't
-    # duplicate an experience entry (a flagship project may also be an experience
-    # headline — the tailor's project/experience dedup runs before render, so we
-    # must re-check here or expansion silently re-introduces the duplicate).
-    projs = list(r.get("projects") or [])
-    if len(projs) < 3 and master.get("projects"):
-        present = {(p.get("name", "") or "").lower() for p in projs}
-        for mp in master["projects"]:
-            if (mp.get("name", "") or "").lower() in present:
-                continue
-            if _project_dups_experience(mp.get("name", ""), r):
-                continue
-            # Pull clean-band variants only (no LLM here to line-fit them).
-            clean = _clean_band_variants(mp.get("bullets_all"), 2)
-            if not clean:
-                continue   # no cleanly-rendering bullets -> skip this project
-            projs.append({
-                "name": mp.get("name", ""),
-                "tech": mp.get("tech", ""),
-                "link": mp.get("link", ""),
-                "bullets": clean,
-            })
-            break
-        r["projects"] = projs[:3]
-
-    if lines() >= PAGE_LINE_MINIMUM:
-        return r
-
-    # 4. add coursework to UW entry from master if missing
-    for e in r.get("education", []) or []:
-        if e.get("coursework"):
-            continue
-        m_edu = next(
-            (m for m in master.get("education", []) or []
-             if (m.get("school", "") or "").lower() == (e.get("school", "") or "").lower()),
-            None,
-        )
-        if m_edu and m_edu.get("coursework"):
-            cw = m_edu["coursework"]
-            e["coursework"] = ", ".join(cw[:6]) if isinstance(cw, list) else str(cw)
-
-    if lines() >= PAGE_LINE_MINIMUM:
-        return r
-
-    # 5. awards
-    if not r.get("awards") and master.get("awards"):
-        r["awards"] = list(master["awards"])[:3]
-
-    if lines() >= PAGE_LINE_MINIMUM:
-        return r
-
-    # 6. activities (last expansion choice — niceties only when there's room)
-    if not r.get("activities") and master.get("activities"):
-        # Each activity is one line; pull only as many as fit the budget.
-        budget_room = PAGE_LINE_BUDGET - lines() - 2  # HDR + safety cushion
-        if budget_room >= 2:
-            r["activities"] = list(master["activities"])[:int(budget_room)]
-
-    # Pull through education extras (minor / specializations / honors) from master
-    # since these come for "free" — they're already on the existing edu line block.
-    for e in r.get("education", []) or []:
-        m_edu = next(
-            (m for m in master.get("education", []) or []
-             if (m.get("school", "") or "").lower() == (e.get("school", "") or "").lower()),
-            None,
-        )
-        if not m_edu:
-            continue
-        if not e.get("minor") and m_edu.get("minor"):
-            e["minor"] = m_edu["minor"]
-        if not e.get("specializations") and m_edu.get("specializations"):
-            e["specializations"] = list(m_edu["specializations"])
-        if not e.get("honors") and m_edu.get("honors"):
-            e["honors"] = list(m_edu["honors"]) if isinstance(m_edu["honors"], list) else m_edu["honors"]
-
-    return r
-
-
-def _inject_certifications(r: dict, master: dict, base_size: float = _CAL_FONT) -> dict:
-    """Add certifications if they are not present and budget allows.
-
-    Certifications are always relevant (they're real credentials) so we inject
-    them unconditionally after page-fit, rather than only during expansion.
-    """
-    if r.get("certifications") or not master.get("certifications"):
-        return r
-    est = _estimate_line_count(r, base_size=base_size)
-    # HDR + 1 content line = ~2.6 "lines"; leave a 3-line cushion.
-    if est <= _page_budget(base_size) - 3:
-        r["certifications"] = list(master["certifications"])[:3]
-    return r
-
-
 def _fit_to_page(resume: dict, master: dict | None = None,
                  base_size: float = _CAL_FONT) -> dict:
-    """Two-way page fit: shrink if overflow, expand if undersized.
+    """Apply downstream-only page layout without changing editorial meaning.
 
-    Always normalizes skills first so the line estimator sees the real shape.
-    Certifications are injected as a guaranteed post-fit step when budget allows.
+    ``master`` remains accepted for backward compatibility but is deliberately
+    unused. The renderer must never restore generic source bullets or projects
+    after the editorial pipeline selected stronger job-specific content.
     """
+    from .layout_policy import fit_skill_rows, repair_orphan_wraps, shrink_to_budget
+
     r = deepcopy(resume)
     r["skills"] = _normalize_skills(r.get("skills", []))
-
+    r, skill_removals = fit_skill_rows(
+        r, skill_line_capacity(base_size), (master or {}).get("core_skills") or [],
+    )
+    r, orphan_repairs = repair_orphan_wraps(r, _cpl(base_size))
     budget = _page_budget(base_size)
-    minimum = _page_minimum(base_size)
-    est = _estimate_line_count(r, base_size=base_size)
-    if est > budget:
-        r = _shrink(r, base_size)
-    elif master and est < minimum:
-        r = _expand(r, master, base_size)
-        if _estimate_line_count(r, base_size=base_size) > budget:
-            r = _shrink(r, base_size)
-
-    # Always try to add certifications after fit (they don't make the resume
-    # look sparse — they fill space purposefully).
-    if master:
-        r = _inject_certifications(r, master, base_size)
-
+    r, removals = shrink_to_budget(
+        r,
+        lambda value: _estimate_line_count(value, base_size=base_size),
+        budget,
+    )
+    if orphan_repairs or removals or skill_removals:
+        LOG.info(
+            "layout-policy: repaired %d orphan wrap(s), removed %d skills and %d tail item(s): %s",
+            orphan_repairs, len(skill_removals), len(removals), removals,
+        )
     return r
+
+
+def layout_diagnostics(resume: dict, *, base_size: float = _CAL_FONT) -> dict:
+    """Return stable page-budget signals for run metrics and evaluations."""
+    estimated = _estimate_line_count(resume, base_size=base_size)
+    return {
+        "estimated_lines": estimated,
+        "line_budget": _page_budget(base_size),
+        "within_estimated_page": estimated <= _page_budget(base_size),
+        "base_font_size": float(base_size),
+    }
 
 
 def build_resume_onepage(resume: dict, user: dict, out_path: Path,
                          master: dict | None = None, **kwargs):
-    """Render the resume with two-way page fit.
-
-    Pass `master` to enable expansion when the LLM's tailored output is too
-    short to fill the page (the most common failure mode in practice).
-    """
+    """Render the grounded resume with a page-aware downstream layout pass."""
     base_size = float(kwargs.get("base_size", 9.0))
     fitted = _fit_to_page(resume, master=master, base_size=base_size)
     build_resume_docx(fitted, user, out_path, **kwargs)

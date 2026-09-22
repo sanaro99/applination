@@ -189,7 +189,7 @@ class GeminiBatchEvaluator:
                     "system_instruction": SYSTEM_PROMPT,
                     "max_output_tokens": 900,
                     "response_mime_type": "application/json",
-                    "response_schema": EVALUATION_SCHEMA,
+                    "response_json_schema": EVALUATION_SCHEMA,
                 },
                 "metadata": {"case_id": case.case_id},
             }

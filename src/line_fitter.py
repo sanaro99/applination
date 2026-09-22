@@ -1,5 +1,7 @@
-"""
-Deterministic bullet line-fitter.
+"""Legacy deterministic bullet line-fitter.
+
+Deprecated: retained temporarily for callers and historical regression tests.
+The production resume pipeline no longer imports or invokes this module.
 
 The printable width of one bullet line depends on the configured body font
 size (see configure_for_font). At the project default (10pt Times New Roman,
@@ -23,8 +25,7 @@ Strategy per bullet:
         3. Otherwise leave the bullet INTACT and flag for LLM rescue.
            Truncating mid-sentence is strictly worse than wrap-waste.
 
-The caller (tailor_graph.run_tailor_graph) runs this BEFORE the LLM rescue
-step, so the LLM is only invoked for genuinely tricky bullets.
+New code should use ``layout_policy`` and page-level rendering instead.
 """
 from __future__ import annotations
 import logging

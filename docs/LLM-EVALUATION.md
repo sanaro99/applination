@@ -28,4 +28,10 @@ python scripts/evaluate_llm_models.py --user you@example.com --candidate gemini-
 
 Results are private JSON files under `data/users/<user id>/output/model-evaluations/`. Review factual grounding, useful evidence, missed requirements, and whether the tailoring actions make a better resume and letter. The harness does not change the configured primary or fallback model; make that routing decision only after reviewing the comparison.
 
+For the complete multi-stage resume and cover-letter workflow, use
+`scripts/evaluate_editorial_pipeline.py` and the protocol in
+`docs/EDITORIAL-PIPELINE.md`. Batch candidates are intentionally unavailable
+there because evidence selection, writing, validation, and conditional repair
+are sequential stages.
+
 Google documents the Gemini Batch API as asynchronous batch processing at half the standard cost, with inline requests appropriate for small batches. Groq Batch also provides a half-price asynchronous path for GPT-OSS and accepts JSONL through its Files API. See the [Gemini Batch API documentation](https://ai.google.dev/gemini-api/docs/batch-api) and [Groq Batch API documentation](https://console.groq.com/docs/batch).

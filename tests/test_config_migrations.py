@@ -76,3 +76,13 @@ def test_free_pool_routing_migration_keeps_a_local_rollback_copy(tmp_path):
     assert saved["llm"]["tasks"]["ranking"]["primary"] == "groq"
     assert saved["llm"]["tasks"]["tailoring"]["primary"] == "nim"
     assert migrate_free_pool_routing(path) is False
+
+
+def test_free_pool_routing_never_replaces_the_demo_fixture_provider(tmp_path):
+    path = tmp_path / "config.yaml"
+    original = "llm:\n  primary: demo\n  fallbacks: []\n"
+    path.write_text(original, encoding="utf-8")
+
+    assert migrate_free_pool_routing(path) is False
+    assert path.read_text(encoding="utf-8") == original
+    assert not (tmp_path / "config.pre-free-routing-v1.yaml").exists()

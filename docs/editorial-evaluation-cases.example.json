@@ -1,0 +1,132 @@
+[
+  {
+    "id": "merge-split-subset",
+    "master_resume": {
+      "profile": {
+        "identity_titles": ["Software Engineer"],
+        "seniority": "professional",
+        "preserve_fulltime": false
+      },
+      "summary_options": [
+        "Backend engineer focused on job processing, reliability, and operational tooling."
+      ],
+      "core_skills": ["Python", "SQL"],
+      "ats_adjacent_skills": ["MongoDB"],
+      "skills": {
+        "languages": ["Python", "SQL"],
+        "data": ["PostgreSQL", "Redis"],
+        "practices": ["Observability", "Unit Testing"]
+      },
+      "experience": [
+        {
+          "company": "Example Systems",
+          "role": "Software Engineer",
+          "location": "Remote",
+          "start_date": "2022",
+          "end_date": "Present",
+          "bullets_all": [
+            "Diagnosed retry contention in a PostgreSQL-backed job queue after tracing failures across worker logs.",
+            "Isolated retries and added idempotency checks, reducing failed jobs by 40%.",
+            "Added queue-depth alerts and wrote the responder runbook.",
+            "Built an unrelated internal form used by the finance team.",
+            "Updated a legacy admin page and its CSS tests."
+          ]
+        }
+      ],
+      "projects": [
+        {
+          "name": "Worker Lab",
+          "tech": "Python, PostgreSQL",
+          "bullets_all": [
+            "Built a local queue simulator to reproduce retry storms and test backoff policies.",
+            "Added failure injection for timeouts, duplicate delivery, and worker restarts."
+          ]
+        },
+        {
+          "name": "Recipe Notes",
+          "tech": "JavaScript",
+          "bullets_all": ["Built a personal recipe organizer."]
+        }
+      ],
+      "education": [
+        {
+          "school": "State University",
+          "degree": "BS Computer Science",
+          "start_date": "2016",
+          "end_date": "2020"
+        }
+      ]
+    },
+    "job": {
+      "company": "Target Infrastructure",
+      "title": "Backend Reliability Engineer",
+      "location": "Remote",
+      "description": "Build reliable Python services, background job systems, retry controls, and production observability."
+    },
+    "bio": "I write plainly and care about understanding failure modes before changing a system.",
+    "stories": [
+      {
+        "title": "The retry storm",
+        "one_liner": "Found a retry design flaw and made the worker path idempotent.",
+        "body": "A PostgreSQL-backed queue was intermittently losing jobs. I traced worker logs, reproduced the contention locally, isolated retries, and added idempotency checks. Failed jobs fell by 40%, and I added queue-depth alerts plus a responder runbook."
+      }
+    ],
+    "expectations": {
+      "required_phrases": ["40%"],
+      "forbidden_phrases": ["mongoDB experience", "99%"],
+      "required_experience": ["Example Systems"],
+      "required_projects": ["Worker Lab"]
+    }
+  },
+  {
+    "id": "adjacent-database-without-fabrication",
+    "master_resume": {
+      "profile": {
+        "identity_titles": ["Software Engineer"],
+        "seniority": "professional",
+        "preserve_fulltime": false
+      },
+      "summary_options": ["Software engineer experienced with relational data modeling and production APIs."],
+      "core_skills": ["Python", "SQL"],
+      "ats_adjacent_skills": ["MongoDB"],
+      "skills": {
+        "languages": ["Python", "SQL"],
+        "data": ["PostgreSQL"],
+        "frameworks": ["FastAPI"]
+      },
+      "experience": [
+        {
+          "company": "Example API Co",
+          "role": "Software Engineer",
+          "start_date": "2023",
+          "end_date": "Present",
+          "bullets_all": [
+            "Designed normalized PostgreSQL schemas and query indexes for a FastAPI service.",
+            "Reviewed migration plans and added integration tests for data-access changes."
+          ]
+        }
+      ],
+      "projects": [],
+      "education": [
+        {
+          "school": "State University",
+          "degree": "BS Computer Science",
+          "start_date": "2018",
+          "end_date": "2022"
+        }
+      ]
+    },
+    "job": {
+      "company": "Document Data Co",
+      "title": "Backend Engineer",
+      "description": "Develop Python APIs backed by MongoDB and reason carefully about data models and indexes."
+    },
+    "bio": "I like database work because correctness and performance meet in concrete design decisions.",
+    "stories": [],
+    "expectations": {
+      "required_phrases": ["PostgreSQL", "MongoDB"],
+      "forbidden_phrases": ["MongoDB expert", "used MongoDB", "MongoDB experience"],
+      "required_experience": ["Example API Co"]
+    }
+  }
+]

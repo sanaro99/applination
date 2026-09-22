@@ -1,19 +1,19 @@
-"""Strict JSON schemas for LLM-produced resume / critique / relinefit outputs.
+"""Strict JSON schemas for renderer-facing resume output and legacy tools.
 
 These are intentionally minimal — provider strict-mode JSON-schema support
 varies, and complex constructs like `anyOf` with length ranges fail silently
 on some backends. Instead we enforce:
   - structural correctness (required fields, types, no extra properties)
-  - generous length bands (50-300 chars per bullet)
+  - generous limits that permit concise, 1.5-line, and two-line bullets
 
-The deterministic line_fitter in src/line_fitter.py handles the finer-grained
-"90-105 single OR 170-220 double" rule AFTER the LLM returns its draft.
+Fine-grained character bands are intentionally not part of the v2 pipeline.
+Page layout is enforced after editorial generation in ``resume_builder``.
 """
 from __future__ import annotations
 
 
 # ---------------------------------------------------------------------------
-# Resume tailoring — used by _run_tailor, _run_keyword_fix, _run_revise
+# Renderer-facing resume draft — used by editorial write and factual repair
 # ---------------------------------------------------------------------------
 
 # A skills group entry. Skills are arrays of {group, items} not free-form dicts
@@ -44,8 +44,8 @@ _EXPERIENCE_ENTRY_SCHEMA = {
             "minItems": 1,
             "items": {
                 "type": "string",
-                # Wide range — line_fitter handles the band fitting post-LLM.
-                # We just reject malformed outputs (empty / pathologically long).
+                # Reject only empty/pathologically long values; layout is a
+                # downstream page-level concern.
                 "minLength": 30,
                 "maxLength": 320,
             },
@@ -61,6 +61,7 @@ _PROJECT_ENTRY_SCHEMA = {
         "name":    {"type": "string"},
         "tech":    {"type": "string"},
         "link":    {"type": "string"},
+        "dates":   {"type": "string"},
         "bullets": {
             "type": "array",
             "minItems": 1,
@@ -93,15 +94,20 @@ RESUME_SCHEMA = {
         "experience":   {"type": "array", "items": _EXPERIENCE_ENTRY_SCHEMA, "minItems": 1},
         "projects":     {"type": "array", "items": _PROJECT_ENTRY_SCHEMA},
         "education":    {"type": "array", "items": _EDUCATION_ENTRY_SCHEMA, "minItems": 1},
+        "certifications": {"type": "array", "items": {"type": "string"}},
+        "awards": {"type": "array", "items": {"type": "object", "properties": {
+            "name": {"type": "string"}, "date": {"type": "string"},
+            "description": {"type": "string"},
+        }, "required": ["name"], "additionalProperties": False}},
         "ats_keywords": {"type": "array", "items": {"type": "string"}, "minItems": 6},
     },
-    "required": ["summary", "skills", "experience", "education", "ats_keywords"],
+    "required": ["summary", "skills", "experience", "projects", "education", "certifications", "awards", "ats_keywords"],
     "additionalProperties": False,
 }
 
 
 # ---------------------------------------------------------------------------
-# Resume critique — used by _run_critique
+# Legacy compatibility schemas (not used by the v2 production pipeline)
 # ---------------------------------------------------------------------------
 
 CRITIQUE_SCHEMA = {
@@ -120,7 +126,7 @@ CRITIQUE_SCHEMA = {
 
 
 # ---------------------------------------------------------------------------
-# Relinefit rescue — used by _run_relinefit_rescue
+# Relinefit rescue
 # ---------------------------------------------------------------------------
 
 RELINEFIT_SCHEMA = {

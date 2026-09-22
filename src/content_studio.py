@@ -120,16 +120,19 @@ def import_resume(text: str, *, provider) -> dict:
         "Field guidance:\n"
         "- summary_options: 2 truthful 1-2 sentence professional summaries built "
         "from the resume's real content (lead with the candidate's real title).\n"
-        "- core_skills: 6-10 load-bearing skills that should appear on every "
+        "- core_skills: load-bearing skills that should appear on every "
         "tailored resume; ats_adjacent_skills: other real skills from the resume.\n"
+        "Include every explicitly listed programming language in core_skills.\n"
         "- skills: group all skills into 4-6 named groups (e.g. 'Languages', "
         "'Frameworks & APIs', 'Cloud & DevOps', 'Data & Storage').\n"
         "- experience: each role with company, role (the job title), location, "
         "start_date and end_date as 'Mon YYYY' (or 'Present'), and bullets_all "
         "(the bullet points, lightly cleaned, no em dashes).\n"
-        "- projects: any projects with name, tech, link, bullets_all.\n"
+        "- projects: any projects with name, tech, link, start_date, end_date, bullets_all.\n"
         "- education: school, degree, location, start_date, end_date, gpa, "
         "coursework (list).\n"
+        "- certifications: named certifications with dates if stated.\n"
+        "- awards: name, date, and description if stated.\n"
         "- profile.identity_titles: the candidate's real job title(s), taken from "
         "their most recent NON-internship role (omit internships); if they have "
         "only internships/education, use the field/degree (e.g. 'Software "
@@ -140,7 +143,7 @@ def import_resume(text: str, *, provider) -> dict:
         f"RAW RESUME:\n{text.strip()}\n\n"
         "Return the MASTER resume as a single JSON object with keys: profile, "
         "summary_options, core_skills, ats_adjacent_skills, skills, experience, "
-        "projects, education."
+        "projects, education, certifications, awards."
     )
     data = provider.json_call(system, user, max_tokens=3200, schema=MASTER_RESUME_SCHEMA)
     return _coerce_master_resume(data)
@@ -187,10 +190,16 @@ def _coerce_master_resume(data: dict) -> dict:
         return rows
 
     out["experience"] = _entries("experience", ("company", "role", "location", "start_date", "end_date"))
-    out["projects"] = _entries("projects", ("name", "tech", "link"))
+    out["projects"] = _entries("projects", ("name", "tech", "link", "start_date", "end_date"))
     out["education"] = [
         {k: v for k, v in e.items() if v not in (None, "")}
         for e in _list(data.get("education")) if isinstance(e, dict)
+    ]
+    out["certifications"] = [str(value).strip() for value in _list(data.get("certifications")) if str(value).strip()]
+    out["awards"] = [
+        {key: str(value).strip() for key, value in award.items()
+         if key in {"name", "date", "description"} and str(value).strip()}
+        for award in _list(data.get("awards")) if isinstance(award, dict) and award.get("name")
     ]
     return out
 

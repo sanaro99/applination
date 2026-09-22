@@ -49,6 +49,20 @@ def test_an_ai_imported_resume_is_written_with_skills_as_a_mapping():
     assert master["skills"] == {"languages": ["Python", "SQL"], "frameworks": ["FastAPI"]}
 
 
+def test_ai_import_retains_dated_projects_certifications_and_awards():
+    imported = dict(AI_IMPORTED)
+    imported["projects"] = [{
+        "name": "Cloud Tool", "start_date": "Jan 2025", "end_date": "Present",
+        "bullets_all": ["Built a cloud tool."],
+    }]
+    imported["certifications"] = ["Azure AI Fundamentals (Nov 2024)"]
+    imported["awards"] = [{"name": "Engineering Award", "date": "Apr 2023"}]
+    master = _written_then_read(imported)
+    assert master["projects"][0]["start_date"] == "Jan 2025"
+    assert master["certifications"] == imported["certifications"]
+    assert master["awards"] == imported["awards"]
+
+
 def test_group_order_from_the_model_is_preserved_on_the_way_out():
     """The model orders groups most-relevant first; a dict that reordered them
     would quietly demote the group it led with."""

@@ -242,6 +242,7 @@ def _embedded_json(text: str, marker: str) -> dict | None:
 # their required keys. RELINEFIT_SCHEMA first, then CRITIQUE_SCHEMA.
 _CLEAN_RESPONSES: tuple[tuple[frozenset[str], dict], ...] = (
     (frozenset({"rewrites"}), {"rewrites": []}),
+    (frozenset({"verdicts", "passed"}), {"verdicts": [], "passed": True}),
     (
         frozenset({"issues", "severity", "passed"}),
         {"issues": [], "severity": "none", "passed": True},

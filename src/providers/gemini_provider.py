@@ -18,7 +18,7 @@ def _generation_config_kwargs(
     system_instruction: str,
     max_output_tokens: int,
     response_mime_type: str | None = None,
-    response_schema: dict | None = None,
+    response_json_schema: dict | None = None,
 ) -> dict:
     """Build a Gemini generation config compatible with the selected family.
 
@@ -34,8 +34,8 @@ def _generation_config_kwargs(
         kwargs["temperature"] = 0.3 if response_mime_type else 0.4
     if response_mime_type is not None:
         kwargs["response_mime_type"] = response_mime_type
-    if response_schema is not None:
-        kwargs["response_schema"] = response_schema
+    if response_json_schema is not None:
+        kwargs["response_json_schema"] = response_json_schema
     return kwargs
 
 
@@ -96,15 +96,14 @@ class GeminiProvider(LLMProvider):
         *,
         schema: dict | None = None,
     ) -> dict:
-        # Gemini's response_schema enforces the contract server-side. When a
-        # schema is provided the API will refuse to return non-conforming
-        # JSON, which catches malformed output at the wire.
+        # The callers supply JSON Schema dictionaries (including keywords such
+        # as additionalProperties), not Gemini's OpenAPI-style response_schema.
         config_kwargs = _generation_config_kwargs(
             self.model_name,
             system_instruction=system,
             max_output_tokens=max_tokens,
             response_mime_type="application/json",
-            response_schema=schema,
+            response_json_schema=schema,
         )
 
         def _call():

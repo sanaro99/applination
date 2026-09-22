@@ -163,16 +163,16 @@ class UserPaths:
             )
         if self.config_path.exists():
             # The config volume outlives image deployments. Apply the lossless
-            # model identifier mappings and the once-only approved free-pool
-            # routing preset; the latter writes a local rollback copy first.
+            # model identifier mappings and the once-only approved routing
+            # preset; the latter writes a local rollback copy first.
             from .config_migrations import (
                 ensure_provider_blocks,
-                migrate_free_pool_routing,
+                migrate_routing_preset,
                 migrate_legacy_model_identifiers,
             )
 
             migrate_legacy_model_identifiers(self.config_path)
-            migrate_free_pool_routing(self.config_path)
+            migrate_routing_preset(self.config_path)
             ensure_provider_blocks(self.config_path)
         return self
 

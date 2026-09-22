@@ -3,10 +3,10 @@
 One source for the journey, the Config page and the CLI, replacing the one-line
 hints that used to live in the frontend's PROVIDERS array.
 
-**NVIDIA NIM is the recommended starting point.** The routing preset combines
-NIM's long-form capability with Groq for compact work and Cloudflare as the
-privacy-oriented fallback. Paid providers stay available but are never added to
-that automatic chain.
+**DeepSeek is the recommended starting point.** The routing preset uses
+DeepSeek V4.1 Flash for every workflow, then falls back through Groq, Gemini,
+and Cloudflare. Other paid providers stay available but are never added to that
+automatic chain.
 
 **Staleness is designed against, not hoped away.** The primary control is a deep
 link to the key-creation page, not a click path; steps stay at three shallow
@@ -71,8 +71,8 @@ PROVIDERS: tuple[dict, ...] = (
     {
         "id": "deepseek",
         "label": "DeepSeek",
-        "recommended": False,
-        "why": "The cheapest paid option, if you would rather pay than sit in a free tier.",
+        "recommended": True,
+        "why": "Strong long-context reasoning and writing at the lowest paid cost here.",
         "model": "deepseek-flash",
         "console_url": "https://platform.deepseek.com/api_keys",
         "steps": [
@@ -139,7 +139,7 @@ PROVIDERS: tuple[dict, ...] = (
     {
         "id": "nim",
         "label": "NVIDIA NIM",
-        "recommended": True,
+        "recommended": False,
         "why": "Strong long-context writing through NVIDIA's current free prototype endpoint.",
         "model": "nvidia/nemotron-3-super-120b-a12b",
         "console_url": "https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b/build",

@@ -92,73 +92,44 @@ sources:
 # do this for you and test connectivity.
 # =====================================================================
 llm:
-  routing_preset_version: 1  # prevents the one-time free-pool migration from reapplying
-  # Free-pool default.  Add your own NIM, Groq and Cloudflare credentials in
-  # the Config page; no paid provider is used implicitly on quota exhaustion.
-  primary: "nim"           # claude | gemini | openai | ollama | nim | groq | cloudflare | openrouter | deepseek | mistral
-  fallbacks: ["cloudflare", "groq"]
+  routing_preset_version: 2  # prevents the one-time DeepSeek preset migration from reapplying
+  # DeepSeek handles every workflow by default. The other configured providers
+  # are tried in this order when DeepSeek is unavailable or exhausts quota.
+  primary: "deepseek"      # claude | gemini | openai | ollama | nim | groq | cloudflare | openrouter | deepseek | mistral
+  fallbacks: ["groq", "gemini", "cloudflare"]
 
   # Per-task provider chains. Omit a task block to inherit the global chain above.
-  # `thinking` is `off`, `low`, or `on`.  `low` asks NIM for economical
-  # reasoning; `off` is right for compact, structured work.
+  # Tasks inherit the global provider chain. They override only whether
+  # DeepSeek should reason: `off` for bounded extraction/scoring, `on` for
+  # editorial work where planning improves the result.
   tasks:
     ranking:
-      primary: "groq"
-      fallbacks: ["cloudflare"]
-      models: {cloudflare: "@cf/zai-org/glm-4.7-flash"}
       thinking: off
     tailoring:
-      primary: "nim"
-      fallbacks: ["cloudflare"]
-      thinking: low
+      thinking: on
     tailoring_premium:
-      primary: "nim"
-      fallbacks: ["cloudflare"]
       thinking: on
     cover_letter:
-      primary: "nim"
-      fallbacks: ["cloudflare"]
-      thinking: low
+      thinking: on
     critique:
-      primary: "groq"
-      fallbacks: ["cloudflare"]
-      models: {cloudflare: "@cf/zai-org/glm-4.7-flash"}
       thinking: off
     answer_questions:
-      primary: "nim"
-      fallbacks: ["cloudflare"]
-      thinking: low
+      thinking: on
     relinefit:
       # Legacy compatibility only; the v2 editorial pipeline does not call this task.
-      primary: "cloudflare"
-      fallbacks: ["nim"]
-      models: {cloudflare: "@cf/zai-org/glm-4.7-flash"}
       thinking: off
     content_studio:
-      primary: "groq"
-      fallbacks: ["cloudflare"]
-      thinking: off
+      thinking: on
     job_extraction:
-      primary: "groq"
-      fallbacks: ["cloudflare"]
-      models: {cloudflare: "@cf/zai-org/glm-4.7-flash"}
       thinking: off
     tweak:
-      primary: "nim"
-      fallbacks: ["cloudflare"]
-      thinking: low
+      thinking: on
     coach:
-      primary: "nim"
-      fallbacks: ["cloudflare"]
-      thinking: low
+      thinking: on
     interview:
-      primary: "nim"
-      fallbacks: ["cloudflare"]
-      thinking: low
+      thinking: on
     essay:
-      primary: "nim"
-      fallbacks: ["cloudflare"]
-      thinking: low
+      thinking: on
 
   critique_cover_letters: false
   critique_top_n: 15

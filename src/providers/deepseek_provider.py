@@ -217,10 +217,15 @@ class DeepSeekProvider(LLMProvider):
         sys_prompt = system
         if schema is not None:
             import json as _json
+            # Keep the whole compact schema. The resume/content-plan contracts
+            # are close to 2K characters before pretty-print whitespace; the
+            # old ``indent=2`` + ``[:2000]`` combination silently cut off their
+            # closing requirements and made malformed responses more likely.
+            compact_schema = _json.dumps(schema, separators=(",", ":"))
             sys_prompt = (
                 system.rstrip()
                 + "\n\nReturn ONLY a JSON object conforming to this schema:\n"
-                + _json.dumps(schema, indent=2)[:2000]
+                + compact_schema
             )
 
         def _call_json_mode():
@@ -247,5 +252,19 @@ class DeepSeekProvider(LLMProvider):
         try:
             return _with_retry(_call_json_mode)
         except Exception as e:
+            # Text mode cannot repair authentication, quota, transport, or
+            # upstream availability failures. Surface those to the provider
+            # chain immediately instead of repeating the same doomed request.
+            status = getattr(e, "status_code", None)
+            message = str(e).lower()
+            infrastructure_failure = (
+                status is not None
+                or any(marker in message for marker in (
+                    "authentication", "api key", "rate limit", "timeout",
+                    "connection", "unavailable", "overloaded",
+                ))
+            )
+            if infrastructure_failure:
+                raise
             LOG.debug("DeepSeek JSON mode failed (%s), falling back to text parse", e)
             return super().json_call(system, user, max_tokens, schema=schema)

@@ -1194,6 +1194,7 @@ class Tailor:
                 resp = try_chain(
                     ranking_chain,
                     lambda p, _u=user_prompt: p.json_call(system, _u, max_tokens=3000),
+                    any_error=True,
                     task_name="ranking",
                 )
                 all_scored.extend(_parse_scores(resp, batch_size=len(batch), start=start))
@@ -1523,8 +1524,6 @@ class Tailor:
         so main.py can persist a postmortem JSON snapshot.
         """
         primary = cl_chain[0]
-        fallback = cl_chain[1] if len(cl_chain) > 1 else None
-
         debug_attempts: list[dict] = []
         best_recovered: str = ""
         grounding_feedback = ""
@@ -1537,8 +1536,17 @@ class Tailor:
         attempts = [
             {"provider": primary,                      "max_tokens": 1600, "use_hardened": False},
             {"provider": primary,                      "max_tokens": 2000, "use_hardened": True},
-            {"provider": fallback or primary,          "max_tokens": 2000, "use_hardened": True},
         ]
+        if len(cl_chain) > 1:
+            attempts.extend(
+                {"provider": provider, "max_tokens": 2000, "use_hardened": True}
+                for provider in cl_chain[1:]
+            )
+        else:
+            # Keep the old third repair attempt when no fallback exists.
+            attempts.append(
+                {"provider": primary, "max_tokens": 2000, "use_hardened": True}
+            )
 
         for i, plan in enumerate(attempts, start=1):
             provider = plan["provider"]
@@ -1550,7 +1558,7 @@ class Tailor:
                     "\n\nPREVIOUS DRAFT GROUNDING FAILURES. Correct these without adding new facts:\n"
                     + grounding_feedback
                 )
-            if i == 3 and fallback is None and best_recovered:
+            if i == len(attempts) and len(cl_chain) == 1 and best_recovered:
                 attempt_user += (
                     "\n\nREVISE THIS PREVIOUS DRAFT. Keep its valid, specific story and three-paragraph "
                     "structure. Remove or qualify every unsupported detail noted above; do not "
@@ -1694,6 +1702,7 @@ class Tailor:
             critique = try_chain(
                 critique_chain,
                 lambda p: p.json_call(critique_system, critique_user, max_tokens=400),
+                any_error=True,
                 task_name="cl_critique",
             )
         except Exception as e:
@@ -1729,6 +1738,7 @@ class Tailor:
             revised_raw = try_chain(
                 cl_chain,
                 lambda p: p.text_call(revise_system, revise_user, max_tokens=1400),
+                any_error=True,
                 task_name="cl_revise",
             )
         except Exception as e:
@@ -1871,6 +1881,7 @@ class Tailor:
                 lambda p: p.json_call(
                     system, user_prompt, max_tokens=2000, schema=_ANSWERS_SCHEMA,
                 ),
+                any_error=True,
                 task_name="answer_questions",
             )
             raw_answers = result.get("answers", [])

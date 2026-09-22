@@ -100,13 +100,15 @@ def _plan_content(
         (item.get("body") or "")[:500] for item in guidelines[:3] if item.get("body")
     )
     user = (
-        f"JOB:\n{job.get('company', '')} | {job.get('title', '')} | {job.get('location', '')}\n"
-        f"{job_focus_text(job)[:3000]}\n\n"
+        # Put the large, stable source prefix before job-specific text so
+        # DeepSeek's automatic prefix cache can reuse it across jobs in a run.
         f"SOURCE EVIDENCE:\n{format_evidence_packet([item for item in ledger if item.kind != 'story'], max_chars_per_item=400)}\n\n"
         f"PINNED CORE SKILLS:\n{json.dumps(master.get('core_skills') or [])}\n\n"
         f"CURATED PROJECT PREFERENCES (soft tie-breaker only):\n"
         f"{json.dumps(master.get('preferred_projects') or [])}\n\n"
         f"OPTIONAL EDITORIAL GUIDELINES:\n{guideline_text}\n\n"
+        f"JOB:\n{job.get('company', '')} | {job.get('title', '')} | {job.get('location', '')}\n"
+        f"{job_focus_text(job)[:3000]}\n\n"
         "Produce the content plan. Every selected item must cite IDs exactly as shown."
     )
     required_lists = ("selected_experience", "selected_projects", "selected_skills", "summary_evidence_ids")

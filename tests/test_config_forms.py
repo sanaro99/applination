@@ -119,7 +119,7 @@ def test_structured_put_keeps_the_templates_comments(client):
 def test_structured_put_leaves_the_sections_it_does_not_own_alone(client):
     put(client, "output", {"produce_pdf": False})
     cfg = on_disk()
-    assert cfg["llm"]["primary"] == "nim"
+    assert cfg["llm"]["primary"] == "deepseek"
     assert cfg["llm"]["tasks"]["ranking"]["thinking"] is False
     assert cfg["pricing"]["avoid_peak"] is True
     assert cfg["inbox"]["redirect_uri"].endswith("/api/inbox/oauth/callback")

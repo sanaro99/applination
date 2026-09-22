@@ -387,7 +387,7 @@ All config lives in `config.yaml` (gitignored; seeded from `config.example.yaml`
 | `llm` | `primary`, `fallbacks`, per-provider credentials+`model`, `tasks.<task>` overrides including `thinking: off|low|on`, `critique_cover_letters`, `critique_top_n`, `tailoring_premium_top_n` |
 | `output` | `root` (folder), `font`, `base_font_size`, margins, `produce_pdf` |
 
-LLM task names: `ranking`, `tailoring`, `tailoring_premium`, `cover_letter`, `critique`, `answer_questions`, `relinefit`, `coach`, `interview`, `essay`, `content_studio`, `job_extraction`, `tweak`. The default routing uses NVIDIA NIM for quality-sensitive tailoring, Groq GPT-OSS and Cloudflare Workers AI for economical bounded work, with per-task fallbacks.
+LLM task names: `ranking`, `tailoring`, `tailoring_premium`, `cover_letter`, `critique`, `answer_questions`, `relinefit`, `coach`, `interview`, `essay`, `content_studio`, `job_extraction`, `tweak`. The default routing uses DeepSeek V4.1 Flash for every task, then Groq GPT-OSS, Gemini Flash, and Cloudflare Workers AI as ordered fallbacks. Task configuration changes reasoning mode but inherits that global chain unless a user explicitly overrides it.
 
 API credentials can also be set via env vars: `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `NVIDIA_API_KEY`, `GROQ_API_KEY`, `CLOUDFLARE_API_TOKEN`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`.
 
@@ -445,7 +445,7 @@ The tailoring engine separates factual/editorial decisions from downstream page 
 - **LinkedIn scraping blocked by design.** LinkedIn aggressively blocks automated browsers. Job postings from LinkedIn must be pasted manually via the single-job wizard.
 - **No real-time token usage tracking.** The provider abstraction layer does not expose token counts, so there is no per-run cost estimate in the UI. Cost reference: Claude Haiku ~$0.10–0.30/run (30 jobs); Gemini Flash / Ollama effectively free.
 - **Coach is send-and-wait, not streaming.** The Prepwork chat endpoints return the complete assistant response synchronously; there is no streaming UI for Coach replies.
-- **DeepSeek API limitation.** DeepSeek does not support `json_schema` response format, so its provider uses `json_object` with the schema embedded in the prompt. It remains an optional paid provider; the default routing prefers free/quota-backed providers. Tasks accept `llm.tasks.<task>.thinking: off`, `low`, or `on`; unsupported providers safely ignore the setting.
+- **DeepSeek API limitation.** DeepSeek does not support `json_schema` response format, so its provider uses `json_object` with the complete compact schema embedded in the prompt and validates values downstream. DeepSeek is the default primary; bounded structured tasks disable reasoning to reduce latency and truncation risk, while editorial tasks keep it enabled. Tasks accept `llm.tasks.<task>.thinking: off`, `low`, or `on`; unsupported fallback providers safely ignore the setting.
 
 ---
 

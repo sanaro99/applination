@@ -213,7 +213,7 @@ LinkedIn is not scraped directly — it is rate-limited and requires a login.
 
 ## LLM providers
 
-Seven providers, any of which can be primary or fallback. Keys are entered in the app and stored encrypted per account.
+Ten providers, any of which can be primary or fallback. Keys are entered in the app and stored encrypted per account. New configurations use DeepSeek V4.1 Flash for every workflow, with Groq, Gemini, and Cloudflare as ordered fallbacks.
 
 | Provider | Notes |
 |---|---|
@@ -262,15 +262,15 @@ search:
   max_jobs_per_day: 50      # cap on documents generated per run
 
 llm:
-  primary: "claude"
-  fallbacks: ["gemini"]
-  claude:
-    model: "claude-haiku-4-5-20251001"
-  tasks:                    # per-workflow overrides
-    tailoring_premium:
-      primary: "deepseek"
-    coach:
-      primary: "gemini"
+  primary: "deepseek"
+  fallbacks: ["groq", "gemini", "cloudflare"]
+  deepseek:
+    model: "deepseek-flash"
+  tasks:                    # provider chain inherited; tune reasoning by task
+    ranking:
+      thinking: off
+    tailoring:
+      thinking: on
 
 output:
   root: "output"

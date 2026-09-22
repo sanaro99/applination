@@ -21,7 +21,7 @@ MODEL_IDENTIFIER_MIGRATIONS: dict[str, str] = {
     "tencent/hy3-preview:free": "nex-agi/nex-n2.5-mini:free",
 }
 
-FREE_POOL_ROUTING_VERSION = 1
+ROUTING_PRESET_VERSION = 2
 
 
 def ensure_provider_blocks(config_path: Path) -> bool:
@@ -49,8 +49,8 @@ def ensure_provider_blocks(config_path: Path) -> bool:
     return True
 
 
-def migrate_free_pool_routing(config_path: Path) -> bool:
-    """Apply the approved free-provider routing preset once per user config.
+def migrate_routing_preset(config_path: Path) -> bool:
+    """Apply the approved DeepSeek-first routing preset once per user config.
 
     This migration intentionally changes routing (unlike the identifier-only
     migration above), so it leaves a local pre-migration copy beside the config
@@ -73,57 +73,56 @@ def migrate_free_pool_routing(config_path: Path) -> bool:
     if str(llm.get("primary") or "").strip().lower() == "demo":
         return False
     try:
-        if int(llm.get("routing_preset_version", 0) or 0) >= FREE_POOL_ROUTING_VERSION:
+        if int(llm.get("routing_preset_version", 0) or 0) >= ROUTING_PRESET_VERSION:
             return False
     except (TypeError, ValueError):
         pass
 
-    backup = config_path.with_name("config.pre-free-routing-v1.yaml")
+    backup = config_path.with_name("config.pre-deepseek-routing-v2.yaml")
     if not backup.exists():
         shutil.copy2(config_path, backup)
 
-    llm.setdefault("nim", {})
-    llm["nim"].setdefault("api_key", "")
-    llm["nim"].setdefault("base_url", "https://integrate.api.nvidia.com/v1")
-    llm["nim"]["model"] = "nvidia/nemotron-3-super-120b-a12b"
+    llm.setdefault("deepseek", {})
+    llm["deepseek"].setdefault("api_key", "")
+    llm["deepseek"]["model"] = "deepseek-flash"
     llm.setdefault("groq", {})
     llm["groq"].setdefault("api_key", "")
     llm["groq"]["model"] = "openai/gpt-oss-120b"
+    llm.setdefault("gemini", {})
+    llm["gemini"].setdefault("api_key", "")
+    llm["gemini"]["model"] = "gemini-3.8-flash"
     llm.setdefault("cloudflare", {})
     llm["cloudflare"].setdefault("api_token", "")
     llm["cloudflare"].setdefault("account_id", "")
     llm["cloudflare"]["model"] = "@cf/google/gemma-4-26b-a4b-it"
 
-    llm["primary"] = "nim"
-    llm["fallbacks"] = ["cloudflare", "groq"]
-    def compact() -> dict:
-        return {
-            "primary": "groq", "fallbacks": ["cloudflare"],
-            "models": {"cloudflare": "@cf/zai-org/glm-4.7-flash"}, "thinking": "off",
-        }
-
-    def editorial(thinking: str) -> dict:
-        return {"primary": "nim", "fallbacks": ["cloudflare"], "thinking": thinking}
+    llm["primary"] = "deepseek"
+    llm["fallbacks"] = ["groq", "gemini", "cloudflare"]
 
     llm["tasks"] = {
-        "ranking": compact(),
-        "critique": compact(),
-        "job_extraction": compact(),
-        "content_studio": {"primary": "groq", "fallbacks": ["cloudflare"], "thinking": "off"},
-        "relinefit": {"primary": "cloudflare", "fallbacks": ["nim"], "models": {"cloudflare": "@cf/zai-org/glm-4.7-flash"}, "thinking": "off"},
-        "tailoring": editorial("low"),
-        "tailoring_premium": editorial("on"),
-        "cover_letter": editorial("low"),
-        "answer_questions": editorial("low"),
-        "tweak": editorial("low"),
-        "coach": editorial("low"),
-        "interview": editorial("low"),
-        "essay": editorial("low"),
+        "ranking": {"thinking": "off"},
+        "critique": {"thinking": "off"},
+        "job_extraction": {"thinking": "off"},
+        "relinefit": {"thinking": "off"},
+        "tailoring": {"thinking": "on"},
+        "tailoring_premium": {"thinking": "on"},
+        "cover_letter": {"thinking": "on"},
+        "answer_questions": {"thinking": "on"},
+        "content_studio": {"thinking": "on"},
+        "tweak": {"thinking": "on"},
+        "coach": {"thinking": "on"},
+        "interview": {"thinking": "on"},
+        "essay": {"thinking": "on"},
     }
-    llm["routing_preset_version"] = FREE_POOL_ROUTING_VERSION
+    llm["routing_preset_version"] = ROUTING_PRESET_VERSION
     with config_path.open("w", encoding="utf-8") as handle:
         yamlrt.dump(document, handle)
     return True
+
+
+# Compatibility aliases for callers or deployments importing the v1 names.
+FREE_POOL_ROUTING_VERSION = ROUTING_PRESET_VERSION
+migrate_free_pool_routing = migrate_routing_preset
 
 
 def migrate_legacy_model_identifiers(config_path: Path) -> list[tuple[str, str]]:

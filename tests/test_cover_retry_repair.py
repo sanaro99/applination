@@ -45,3 +45,35 @@ def test_complete_concise_letter_is_not_rejected_for_missing_arbitrary_padding()
     assert any(issue.startswith("word_count_low") for issue in validate_cover_letter(
         "\n\n".join([sentence] * 3)
     ))
+
+
+def test_retry_ladder_can_reach_every_configured_fallback():
+    class _FailingProvider(LLMProvider):
+        def __init__(self, name):
+            self.name = name
+            self.calls = 0
+
+        def text_call(self, system, user, max_tokens=1000):
+            self.calls += 1
+            raise RuntimeError(f"{self.name} unavailable")
+
+    class _LastProvider(_FailingProvider):
+        def text_call(self, system, user, max_tokens=1000):
+            self.calls += 1
+            sentence = (
+                "Acme needs dependable software, and my source-backed engineering experience "
+                "fits the reliability and delivery needs described for this role. "
+            )
+            return "\n\n".join([sentence * 6, sentence * 6, sentence * 6])
+
+    primary = _FailingProvider("deepseek")
+    groq = _FailingProvider("groq")
+    gemini = _FailingProvider("gemini")
+    cloudflare = _LastProvider("cloudflare")
+    chain = [primary, groq, gemini, cloudflare]
+
+    tailor = Tailor({"cover_letter": chain})
+    letter = tailor._cover_letter_retry_ladder("Write a letter", "For Acme", chain)
+
+    assert letter.startswith("Acme needs dependable software")
+    assert [primary.calls, groq.calls, gemini.calls, cloudflare.calls] == [2, 1, 1, 1]

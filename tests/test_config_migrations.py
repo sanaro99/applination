@@ -4,9 +4,9 @@ from __future__ import annotations
 import yaml
 
 from server.config_migrations import (
-    FREE_POOL_ROUTING_VERSION,
+    ROUTING_PRESET_VERSION,
     ensure_provider_blocks,
-    migrate_free_pool_routing,
+    migrate_routing_preset,
     migrate_legacy_model_identifiers,
 )
 from server.user_paths import UserPaths
@@ -64,25 +64,33 @@ def test_user_paths_runs_the_migration_for_an_existing_config(tmp_path, monkeypa
     assert yaml.safe_load(path.read_text(encoding="utf-8"))["llm"]["deepseek"]["model"] == "deepseek-flash"
 
 
-def test_free_pool_routing_migration_keeps_a_local_rollback_copy(tmp_path):
+def test_deepseek_routing_migration_keeps_a_local_rollback_copy(tmp_path):
     path = tmp_path / "config.yaml"
     original = "# personal comment\nllm:\n  primary: deepseek\n  deepseek:\n    model: deepseek-flash\n"
     path.write_text(original, encoding="utf-8")
 
-    assert migrate_free_pool_routing(path) is True
+    assert migrate_routing_preset(path) is True
     saved = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert (tmp_path / "config.pre-free-routing-v1.yaml").read_text(encoding="utf-8") == original
-    assert saved["llm"]["routing_preset_version"] == FREE_POOL_ROUTING_VERSION
-    assert saved["llm"]["tasks"]["ranking"]["primary"] == "groq"
-    assert saved["llm"]["tasks"]["tailoring"]["primary"] == "nim"
-    assert migrate_free_pool_routing(path) is False
+    assert (tmp_path / "config.pre-deepseek-routing-v2.yaml").read_text(encoding="utf-8") == original
+    assert saved["llm"]["routing_preset_version"] == ROUTING_PRESET_VERSION
+    assert saved["llm"]["primary"] == "deepseek"
+    assert saved["llm"]["fallbacks"] == ["groq", "gemini", "cloudflare"]
+    # PyYAML follows YAML 1.1 and reads the plain scalar ``off`` as False;
+    # the provider factory deliberately accepts both representations.
+    assert saved["llm"]["tasks"]["ranking"] == {"thinking": False}
+    assert saved["llm"]["tasks"]["tailoring"] == {"thinking": True}
+    assert all(
+        "primary" not in task and "fallbacks" not in task
+        for task in saved["llm"]["tasks"].values()
+    )
+    assert migrate_routing_preset(path) is False
 
 
-def test_free_pool_routing_never_replaces_the_demo_fixture_provider(tmp_path):
+def test_routing_preset_never_replaces_the_demo_fixture_provider(tmp_path):
     path = tmp_path / "config.yaml"
     original = "llm:\n  primary: demo\n  fallbacks: []\n"
     path.write_text(original, encoding="utf-8")
 
-    assert migrate_free_pool_routing(path) is False
+    assert migrate_routing_preset(path) is False
     assert path.read_text(encoding="utf-8") == original
-    assert not (tmp_path / "config.pre-free-routing-v1.yaml").exists()
+    assert not (tmp_path / "config.pre-deepseek-routing-v2.yaml").exists()

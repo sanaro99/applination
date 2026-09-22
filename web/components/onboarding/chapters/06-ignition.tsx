@@ -60,7 +60,7 @@ export function ChapterIgnition({ onBack }: { onBack: () => void }) {
     phone: "",
     location_city: "",
   });
-  const [providerId, setProviderId] = useState("gemini");
+  const [providerId, setProviderId] = useState("deepseek");
   const [apiKey, setApiKey] = useState("");
   const [cascade, setCascade] = useState<EnrichStep[] | null>(null);
 

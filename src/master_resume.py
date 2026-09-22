@@ -111,6 +111,8 @@ FORM_KEYS: tuple[str, ...] = (
     "experience",
     "projects",
     "education",
+    "certifications",
+    "awards",
 )
 
 

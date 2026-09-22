@@ -477,6 +477,9 @@ def build_resume_docx(
                 _style_run(sep, size=base_size, bold=False, font=font, color=(100, 100, 100))
                 _add_hyperlink(p, proj["link"], proj["link"],
                                font=font, size=base_size, bold=False)
+            if proj.get("dates"):
+                date_run = p.add_run(f"   {proj['dates']}")
+                _style_run(date_run, size=base_size, bold=True, font=font, color=(80, 80, 80))
             tech = proj.get("tech", "")
             if tech:
                 r2 = p.add_run(f"   {tech}")
@@ -499,7 +502,7 @@ def build_resume_docx(
         awards_raw = resume["awards"]
         awards = awards_raw if isinstance(awards_raw, list) else [awards_raw]
         if awards:
-            _add_heading(doc, "Awards & Honors", font=font, size=heading_size, space_before=7)
+            _add_heading(doc, "Awards and Recognition", font=font, size=heading_size, space_before=7)
             for a in awards:
                 if isinstance(a, dict):
                     name = (a.get("name") or "").strip()
@@ -635,6 +638,11 @@ def _cpl(base_size: float) -> int:
     return round(_CAL_CHARS_PER_LINE_AT_1PT / (float(base_size) or _CAL_FONT))
 
 
+def skill_line_capacity(base_size: float) -> int:
+    """Conservative category width; bold labels use more space than bullets."""
+    return round(1125.0 / (float(base_size) or _CAL_FONT))
+
+
 def _page_budget(base_size: float) -> int:
     """Body-line-equivalents that fit one page (taller font -> fewer lines)."""
     return round(_CAL_BUDGET * (_CAL_FONT + 2) / ((float(base_size) or _CAL_FONT) + 2))
@@ -657,10 +665,13 @@ def _fit_to_page(resume: dict, master: dict | None = None,
     unused. The renderer must never restore generic source bullets or projects
     after the editorial pipeline selected stronger job-specific content.
     """
-    from .layout_policy import repair_orphan_wraps, shrink_to_budget
+    from .layout_policy import fit_skill_rows, repair_orphan_wraps, shrink_to_budget
 
     r = deepcopy(resume)
     r["skills"] = _normalize_skills(r.get("skills", []))
+    r, skill_removals = fit_skill_rows(
+        r, skill_line_capacity(base_size), (master or {}).get("core_skills") or [],
+    )
     r, orphan_repairs = repair_orphan_wraps(r, _cpl(base_size))
     budget = _page_budget(base_size)
     r, removals = shrink_to_budget(
@@ -668,10 +679,10 @@ def _fit_to_page(resume: dict, master: dict | None = None,
         lambda value: _estimate_line_count(value, base_size=base_size),
         budget,
     )
-    if orphan_repairs or removals:
+    if orphan_repairs or removals or skill_removals:
         LOG.info(
-            "layout-policy: repaired %d orphan wrap(s), removed %d tail item(s): %s",
-            orphan_repairs, len(removals), removals,
+            "layout-policy: repaired %d orphan wrap(s), removed %d skills and %d tail item(s): %s",
+            orphan_repairs, len(skill_removals), len(removals), removals,
         )
     return r
 

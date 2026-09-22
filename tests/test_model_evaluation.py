@@ -62,7 +62,7 @@ def test_gemini_batch_submit_is_bounded_and_preserves_case_id(case):
     }
     assert created["model"] == "gemini-3.8-flash"
     assert created["src"][0]["metadata"] == {"case_id": "acme-platform"}
-    assert created["src"][0]["config"]["response_schema"] == evaluation.EVALUATION_SCHEMA
+    assert created["src"][0]["config"]["response_json_schema"] == evaluation.EVALUATION_SCHEMA
 
     with pytest.raises(ValueError, match=str(MAX_CASES)):
         evaluator.submit([case] * (MAX_CASES + 1), display_name="too-many")

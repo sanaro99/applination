@@ -510,7 +510,7 @@ def process_job(
                 from pypdf import PdfReader
                 from .layout_policy import tighten_once
 
-                for _ in range(3):
+                for _ in range(24):
                     page_count = len(PdfReader(str(resume_pdf)).pages)
                     if page_count <= 1:
                         break
@@ -521,7 +521,7 @@ def process_job(
                     log.info("rendered resume exceeded one page; removing %s and retrying", removed)
                     tailored = build_resume_onepage(
                         tightened, user, resume_docx,
-                        master=None,
+                        master=master,
                         font=out_cfg["font_name"],
                         base_size=out_cfg["base_font_size"],
                         margins=out_cfg["margins_inches"],
@@ -534,9 +534,12 @@ def process_job(
                     if not resume_pdf:
                         break
                 if resume_pdf and metrics:
-                    metrics.setdefault("layout", {})["rendered_pdf_pages"] = len(
-                        PdfReader(str(resume_pdf)).pages
-                    )
+                    rendered_pages = len(PdfReader(str(resume_pdf)).pages)
+                    metrics.setdefault("layout", {})["rendered_pdf_pages"] = rendered_pages
+                    metrics["layout"]["one_page_passed"] = rendered_pages == 1
+                    if rendered_pages > 1:
+                        metrics.setdefault("warnings", []).append("rendered_resume_over_one_page")
+                        log.warning("rendered resume remains %d pages after safe layout repair", rendered_pages)
                     (folder / "pipeline_metrics.json").write_text(
                         json.dumps({
                             "company": job.company,

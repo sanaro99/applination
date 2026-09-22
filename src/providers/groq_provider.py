@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import time
 
 from .base import LLMProvider, _parse_json, resolve_api_key
@@ -48,6 +49,16 @@ class GroqProvider(LLMProvider):
         )
         self.model = model
 
+    def _reasoning_options(self) -> dict:
+        options = {"include_reasoning": False}
+        if self.model.startswith("openai/gpt-oss-"):
+            # GPT-OSS defaults to medium reasoning on Groq. Short operational
+            # writing/verification calls can spend their whole output budget
+            # reasoning and return empty content; low effort preserves the
+            # final-answer budget while leaving reasoning enabled.
+            options["reasoning_effort"] = "low"
+        return options
+
     def text_call(self, system: str, user: str, max_tokens: int = 1000) -> str:
         def call():
             response = self.client.chat.completions.create(
@@ -57,7 +68,7 @@ class GroqProvider(LLMProvider):
                 max_tokens=max_tokens,
                 # GPT-OSS reasons by default. Compact operational tasks do not
                 # need the trace, and hiding it keeps response parsing stable.
-                extra_body={"include_reasoning": False},
+                extra_body=self._reasoning_options(),
             )
             return (response.choices[0].message.content or "").strip()
         return self._post_process_text(_with_retry(call))
@@ -70,16 +81,42 @@ class GroqProvider(LLMProvider):
                     "type": "json_schema",
                     "json_schema": {"name": "structured_output", "schema": schema, "strict": True},
                 }
-            try:
-                response = self.client.chat.completions.create(
+
+            def request(fmt: dict, system_prompt: str = system):
+                return self.client.chat.completions.create(
                     model=self.model,
-                    messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                    messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user}],
                     temperature=0.2,
                     max_tokens=max_tokens,
-                    response_format=response_format,
-                    extra_body={"include_reasoning": False},
+                    response_format=fmt,
+                    extra_body=self._reasoning_options(),
                 )
-            except Exception:
-                return super(GroqProvider, self).json_call(system, user, max_tokens, schema=schema)
+
+            try:
+                response = request(response_format)
+            except Exception as exc:
+                # Groq's strict JSON-schema subset rejects optional/nested
+                # renderer fields. A 400 is a format failure, not evidence the
+                # model cannot write JSON. Retry once without strict schema;
+                # do not amplify rate limits or network errors with a second
+                # immediate request.
+                message = str(exc).lower()
+                if schema is None or not any(marker in message for marker in ("400", "schema", "response_format")):
+                    raise
+                try:
+                    # JSON-object mode only guarantees syntax. Without the
+                    # contract, Groq can return a valid object with unrelated
+                    # keys, silently turning an AI content plan into the
+                    # deterministic fallback. Keep the compact schema in the
+                    # prompt when strict schema mode is unavailable.
+                    contract = json.dumps(schema, separators=(",", ":"))
+                    response = request(
+                        {"type": "json_object"},
+                        system + "\n\nReturn one JSON object matching this contract exactly: " + contract,
+                    )
+                except Exception as json_exc:
+                    if not any(marker in str(json_exc).lower() for marker in ("400", "response_format")):
+                        raise
+                    return super(GroqProvider, self).json_call(system, user, max_tokens, schema=schema)
             return _parse_json(response.choices[0].message.content or "")
         return _with_retry(call)

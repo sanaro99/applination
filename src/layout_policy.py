@@ -64,20 +64,39 @@ def repair_orphan_wraps(resume: dict, chars_per_line: int) -> tuple[dict, int]:
     return out, changed
 
 
+def fit_skill_rows(resume: dict, chars_per_line: int, pinned: list[str] | None = None) -> tuple[dict, list[str]]:
+    """Fit each skill category to one approximate line without losing core skills."""
+    out = deepcopy(resume)
+    protected = {str(value).casefold() for value in pinned or []}
+    removed: list[str] = []
+    for group in out.get("skills") or []:
+        values = group.get("items") or []
+        while len(f"{group.get('group', '')}: {', '.join(values)}") > chars_per_line:
+            index = next((i for i in range(len(values) - 1, -1, -1)
+                          if str(values[i]).casefold() not in protected), None)
+            if index is None:
+                break
+            removed.append(str(values.pop(index)))
+    out["skills"] = [group for group in out.get("skills") or [] if group.get("items")]
+    return out, removed
+
+
 def tighten_once(resume: dict) -> tuple[dict, str | None]:
     """Remove one lowest-priority piece of content, preserving section value."""
     out = deepcopy(resume)
     if out.get("activities"):
         out.pop("activities", None)
         return out, "activities"
-    if out.get("awards"):
-        out.pop("awards", None)
-        return out, "awards"
     if any(entry.get("coursework") for entry in out.get("education") or []):
         for entry in reversed(out.get("education") or []):
             if entry.get("coursework"):
                 entry.pop("coursework", None)
                 return out, "education.coursework"
+    if any(entry.get("honors") for entry in out.get("education") or []):
+        for entry in reversed(out.get("education") or []):
+            if entry.get("honors"):
+                entry.pop("honors", None)
+                return out, "education.honors"
 
     # The writer orders strongest-first. Remove only tail bullets and preserve
     # a useful floor for each selected item.
@@ -93,13 +112,9 @@ def tighten_once(resume: dict) -> tuple[dict, str | None]:
         return out, f"{section}.{index}.bullets.tail"
 
     projects = out.get("projects") or []
-    if len(projects) > 1:
+    if len(projects) > 2:
         projects.pop()
         return out, "projects.tail"
-    skills = out.get("skills") or []
-    if len(skills) > 3:
-        skills.pop()
-        return out, "skills.tail"
     return out, None
 
 

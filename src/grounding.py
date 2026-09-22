@@ -13,7 +13,7 @@ import json
 import re
 from typing import Protocol
 
-from .evidence import EvidenceItem, format_evidence_packet
+from .evidence import EvidenceItem, format_evidence_packet, selected_evidence_ids
 from .providers import LLMProvider
 from .schemas import GROUNDING_SCHEMA
 
@@ -36,6 +36,26 @@ def numbers_in(text: str) -> set[str]:
 def unsupported_numbers_in_text(text: str, evidence_text: str) -> list[str]:
     allowed = numbers_in(evidence_text)
     return sorted(number for number in numbers_in(text) if number not in allowed)
+
+
+def cover_letter_ledger(
+    candidate_ledger: list[EvidenceItem], job: dict,
+    selected_ids: list[str] | None = None,
+) -> list[EvidenceItem]:
+    """Bounded two-source packet for letters: candidate history plus the job."""
+    allowed = set(selected_ids or [])
+    candidate = [
+        EvidenceItem(item.id, item.kind, item.text[:1800 if item.kind == "story" else 900],
+                     item.source_id, item.support)
+        for item in candidate_ledger if not allowed or item.id in allowed
+    ]
+    job_text = " | ".join(filter(None, [
+        str(job.get("company") or ""), str(job.get("title") or ""),
+        str(job.get("location") or ""), str(job.get("description") or "")[:3200],
+    ]))
+    if job_text:
+        candidate.append(EvidenceItem("job.0", "job", job_text, "job"))
+    return candidate
 
 
 @dataclass(frozen=True)
@@ -129,10 +149,35 @@ class LLMGroundingAdapter:
         self.provider = provider
 
     def review(self, draft: dict, plan: dict, ledger: list[EvidenceItem]) -> GroundingReport:
-        packet = format_evidence_packet(ledger)
-        valid_ids = {item.id for item in ledger}
-        valid_paths = {path for path, _ in _draft_claims(draft)}
+        is_letter = plan.get("artifact_kind") == "cover_letter"
+        selected = set(selected_evidence_ids(plan, ledger)) if plan else set()
+        if selected:
+            selected.update(item.id for item in ledger if item.kind == "job")
+        packet = format_evidence_packet(
+            [item for item in ledger if item.kind != "job"], selected,
+            max_chars_per_item=1800 if is_letter else 900,
+        )
+        if is_letter:
+            packet += "\n" + format_evidence_packet(
+                [item for item in ledger if item.kind == "job"], max_chars_per_item=3200,
+            )
+        valid_ids = {item.id for item in ledger if not selected or item.id in selected}
+        direct_skills = {
+            item.text.split(":", 1)[-1].strip().casefold()
+            for item in ledger if item.kind == "skill" and item.support == "direct"
+        }
+        review_claims = [
+            (path, claim) for path, claim in _draft_claims(draft)
+            if not (path.startswith("skills.") and claim.casefold() in direct_skills)
+        ]
+        if is_letter and draft.get("summary"):
+            paragraphs = [part.strip() for part in re.split(r"\n\s*\n", str(draft["summary"])) if part.strip()]
+            if len(paragraphs) > 1:
+                review_claims = [(f"summary.{index}", part) for index, part in enumerate(paragraphs)]
+        valid_paths = {path for path, _ in review_claims}
         required_paths = set(valid_paths)
+        if not review_claims:
+            return GroundingReport()
 
         system = (
             "You are a factual editor for resumes. Audit every material claim against the "
@@ -151,13 +196,71 @@ class LLMGroundingAdapter:
             "accepted verdict must cite valid evidence IDs. Set action=accept only for safe final "
             "wording; otherwise choose qualify, rewrite, or remove. Return JSON only."
         )
-        user = (
-            f"CONTENT PLAN:\n{json.dumps(plan, indent=2)}\n\n"
-            f"SOURCE EVIDENCE:\n{packet}\n\n"
-            f"DRAFT RESUME:\n{json.dumps(draft, indent=2)}\n\n"
-            "Audit the draft. Do not reward keyword overlap unless the evidence supports the claim."
-        )
-        raw = self.provider.json_call(system, user, max_tokens=2600, schema=GROUNDING_SCHEMA)
+        if is_letter:
+            system = (
+                "You are a factual editor for cover letters. Split each paragraph into atomic "
+                "candidate and job-description facts, using the summary path for every verdict. "
+                "Candidate experience, skills, metrics, employers, and outcomes require candidate "
+                "evidence IDs; job-description facts require job IDs. A job fact can explain interest "
+                "or fit but cannot prove that the candidate has used the employer's tools. "
+                "Faithful paraphrase and clearly qualified transfer are allowed; invented hands-on "
+                "experience is not. Audit every material candidate claim and every material company "
+                "claim. Statements of interest and reasoned fit are editorial judgments, not "
+                "claims that a source must say verbatim: accept them when the cited candidate "
+                "experience and job requirements support the comparison. Do not mark a grounded "
+                "fit statement 'qualify' just to soften tone; reserve that action for wording that "
+                "actually implies an unsupported fact. Every accepted verdict needs a relevant "
+                "citation. Return one JSON object "
+                "with verdicts and passed keys, not a bare array. In each verdict, make claim a "
+                "brief identifying fragment (at most 12 words) and reason similarly brief; do not "
+                "repeat whole paragraphs. Return JSON only."
+            )
+        def audit(claims: list[tuple[str, str]], max_tokens: int) -> object:
+            user = (
+                f"SOURCE EVIDENCE:\n{packet}\n\n"
+                f"CLAIMS TO REVIEW ({'COVER LETTER' if is_letter else 'RESUME'}):\n"
+                f"{json.dumps([{'path': path, 'text': claim} for path, claim in claims], indent=2)}\n\n"
+                "Audit every listed claim. Keep the exact paths. Do not reward keyword overlap "
+                "unless the evidence supports the claim."
+            )
+            return self.provider.json_call(system, user, max_tokens=max_tokens, schema=GROUNDING_SCHEMA)
+
+        try:
+            raw = audit(review_claims, 2600)
+        except Exception:
+            if not is_letter or len(review_claims) <= 1:
+                raise
+            # A long cover letter can make one all-claims JSON response
+            # malformed. Review its short paragraphs independently; every
+            # paragraph still needs a complete verdict or the audit fails.
+            raw = {"verdicts": []}
+            for claim in review_claims:
+                part = audit([claim], 1400)
+                raw["verdicts"].extend(part if isinstance(part, list) else part.get("verdicts") or [])
+        if isinstance(raw, list):
+            raw = {"verdicts": raw}
+        if not isinstance(raw, dict):
+            raise ValueError("semantic verifier returned a non-object response")
+        # Models sometimes answer only the first claim. Retry only absent
+        # paths in small batches, instead of approving them or rewriting the
+        # entire resume from scratch.
+        returned_paths = {
+            str(row.get("path") or "") for row in raw.get("verdicts") or []
+            if isinstance(row, dict)
+        }
+        missing_claims = [row for row in review_claims if row[0] not in returned_paths]
+        batch_size = 1 if is_letter else 4
+        for offset in range(0, len(missing_claims), batch_size):
+            batch = missing_claims[offset:offset + batch_size]
+            try:
+                part = audit(batch, 1600)
+                raw.setdefault("verdicts", []).extend(
+                    part if isinstance(part, list) else part.get("verdicts") or []
+                )
+            except Exception:
+                # Missing paths become blocking verdicts below. A transient
+                # failure cannot silently certify generated claims.
+                continue
         verdicts: list[ClaimVerdict] = []
         for raw_verdict in raw.get("verdicts") or [] if isinstance(raw, dict) else []:
             if not isinstance(raw_verdict, dict):
@@ -173,6 +276,18 @@ class LLMGroundingAdapter:
             action = str(raw_verdict.get("action") or "rewrite")
             # A supposedly accepted claim with no real citation is not grounded.
             if action == "accept" and support in {"direct", "entailed", "adjacent"} and not evidence_ids:
+                support, action = "unsupported", "rewrite"
+            if is_letter and action == "accept" and evidence_ids and all(
+                value.startswith("job.") for value in evidence_ids
+            ) and re.search(
+                r"\b(?:I|we)\s+(?:(?:have|had)\s+)?(?:built|shipped|led|designed|implemented|developed|"
+                r"engineered|managed|maintained|used|delivered|deployed|created|achieved|"
+                r"reduced|increased|worked|have\s+experience)\b|"
+                r"\b(?:my|our)\s+(?:experience|expertise|work|skills|projects|responsibilities)\b|"
+                r"^\s*(?:built|shipped|led|designed|implemented|developed|engineered|"
+                r"managed|maintained)\b",
+                str(raw_verdict.get("claim") or ""), re.IGNORECASE,
+            ):
                 support, action = "unsupported", "rewrite"
             if (
                 action == "accept"

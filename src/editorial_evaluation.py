@@ -6,11 +6,12 @@ import json
 import time
 from typing import Any
 
-from .evidence import build_evidence_ledger
+from .evidence import _recency, build_evidence_ledger
 from .grounding import unsupported_numbers_in_text
 from .model_evaluation import EvaluationCandidate, MAX_CASES
 from .profile import derive_profile
 from .providers import get_provider
+from .resume_builder import skill_line_capacity
 from .tailor import Tailor, validate_cover_letter
 
 
@@ -81,6 +82,18 @@ def score_resume(resume: dict, master: dict, metrics: dict) -> dict:
     visible = json.dumps(resume, ensure_ascii=False)
     audit = metrics.get("audit") or {}
     final_grounding = audit.get("final_grounding") or {}
+    required_sections = ["summary", "education", "skills", "experience", "projects", "certifications", "awards"]
+    expected_sections = [key for key in required_sections if master.get(key) or key == "summary"]
+    visible_skills = {
+        str(skill).casefold() for group in resume.get("skills") or []
+        for skill in group.get("items") or []
+    }
+    width = skill_line_capacity(float((metrics.get("layout") or {}).get("base_font_size") or 10))
+
+    def ordered(rows: list[dict]) -> bool:
+        dates = [_recency(row if isinstance(row, dict) else {"date": str(row)}) for row in rows]
+        return dates == sorted(dates, reverse=True)
+
     return {
         "bullet_count": len(bullets),
         "verbatim_source_bullets": sum(value.strip().lower() in source_bullets for value in bullets),
@@ -98,12 +111,24 @@ def score_resume(resume: dict, master: dict, metrics: dict) -> dict:
         "grounding_degraded": bool(final_grounding.get("degraded", False)),
         "selected_experience": [entry.get("company", "") for entry in resume.get("experience") or []],
         "selected_projects": [entry.get("name", "") for entry in resume.get("projects") or []],
+        "missing_sections": [key for key in expected_sections if not resume.get(key)],
+        "missing_core_skills": [skill for skill in master.get("core_skills") or []
+                                if str(skill).casefold() not in visible_skills],
+        "skill_rows_over_width": [group.get("group", "") for group in resume.get("skills") or []
+                                  if len(f"{group.get('group', '')}: {', '.join(group.get('items') or [])}") > width],
+        "two_projects_target_met": len(resume.get("projects") or []) >= min(2, len(master.get("projects") or [])),
+        "chronological": {
+            key: ordered(resume.get(key) or []) for key in ("experience", "projects", "education", "awards")
+        },
+        "rendered_pdf_pages": (metrics.get("layout") or {}).get("rendered_pdf_pages"),
         "warnings": list(metrics.get("warnings") or []),
     }
 
 
-def score_cover_letter(letter: str, master: dict, stories: list[dict]) -> dict:
+def score_cover_letter(letter: str, master: dict, stories: list[dict], job: dict | None = None) -> dict:
     evidence_text = "\n".join(item.text for item in build_evidence_ledger(master, stories))
+    if job:
+        evidence_text += "\n" + "\n".join(str(job.get(key) or "") for key in ("company", "title", "description"))
     return {
         "word_count": len((letter or "").split()),
         "paragraph_count": len([part for part in (letter or "").split("\n\n") if part.strip()]),
@@ -174,7 +199,7 @@ def run_editorial_evaluation(
                 "cover_letter": letter,
                 "scores": {
                     "resume": score_resume(resume, case.master_resume, tailor.last_tailor_metrics),
-                    "cover_letter": score_cover_letter(letter, case.master_resume, case.stories),
+                    "cover_letter": score_cover_letter(letter, case.master_resume, case.stories, case.job),
                     "expectations": score_expectations(resume, letter, case.expectations),
                 },
                 "audit": tailor.last_tailor_audit,

@@ -11,12 +11,14 @@ from copy import deepcopy
 import json
 import logging
 import time
+from typing import Callable
 
 from .evidence import (
     EvidenceItem,
     build_evidence_ledger,
     finalize_resume,
     format_evidence_packet,
+    job_focus_text,
     normalize_content_plan,
     selected_evidence_ids,
 )
@@ -43,14 +45,15 @@ def _call_json_chain(
     schema: dict,
     max_tokens: int,
     stage: str,
+    validate: Callable[[dict], bool] | None = None,
 ) -> tuple[dict, str]:
     last_error: Exception | None = None
     for provider in providers:
         try:
             value = provider.json_call(system, user, max_tokens=max_tokens, schema=schema)
-            if isinstance(value, dict) and value:
+            if isinstance(value, dict) and value and (validate is None or validate(value)):
                 return value, provider.name
-            raise ValueError("provider returned an empty or non-object JSON value")
+            raise ValueError("provider returned empty or structurally invalid JSON")
         except Exception as exc:
             last_error = exc
             LOG.warning("%s failed on %s: %s", stage, provider.name, str(exc)[:180])
@@ -80,24 +83,49 @@ def _plan_content(
         "future bullets when it contains distinct facts. Do not write resume prose.\n\n"
         "Classify skill support carefully: direct means the source names the skill; entailed "
         "means it is unavoidable from the work; adjacent means only transferable knowledge. "
-        "You may propose at most four adjacent skills only when the job explicitly asks for "
+        "You may propose at most two adjacent skills only when the job explicitly asks for "
         "them and the cited evidence shows a technically defensible transfer. They must be "
         "presented as familiarity or transferable foundations, never as hands-on experience. "
         "Use variable bullet counts. Plan roughly 8-12 bullets total, with more space for the "
-        "most relevant work and less for weakly related history. Return JSON only."
+        "most relevant work and less for weakly related history. Keep core_skills in every plan, "
+        "normally select two job-relevant projects when at least two exist, and preserve all "
+        "available resume sections. Prefer concrete technical impact over award-only bullets "
+        "when the Awards section already carries the same recognition. Keep this plan compact: "
+        "at most five requirement rows, "
+        "6-12 selected skill rows (including core skills), eight ATS keywords, and reasons under "
+        "eight words. The downstream finalizer preserves broader direct skills; do not enumerate "
+        "the entire source inventory. Return one JSON object with the contract's top-level keys."
     )
     guideline_text = "\n".join(
         (item.get("body") or "")[:500] for item in guidelines[:3] if item.get("body")
     )
     user = (
         f"JOB:\n{job.get('company', '')} | {job.get('title', '')} | {job.get('location', '')}\n"
-        f"{(job.get('description') or '')[:5000]}\n\n"
-        f"SOURCE EVIDENCE:\n{format_evidence_packet(ledger)}\n\n"
+        f"{job_focus_text(job)[:3000]}\n\n"
+        f"SOURCE EVIDENCE:\n{format_evidence_packet([item for item in ledger if item.kind != 'story'], max_chars_per_item=400)}\n\n"
+        f"PINNED CORE SKILLS:\n{json.dumps(master.get('core_skills') or [])}\n\n"
+        f"CURATED PROJECT PREFERENCES (soft tie-breaker only):\n"
+        f"{json.dumps(master.get('preferred_projects') or [])}\n\n"
         f"OPTIONAL EDITORIAL GUIDELINES:\n{guideline_text}\n\n"
         "Produce the content plan. Every selected item must cite IDs exactly as shown."
     )
+    required_lists = ("selected_experience", "selected_projects", "selected_skills", "summary_evidence_ids")
+    valid_sources = {item.source_id for item in ledger}
+    def valid_plan(plan: dict) -> bool:
+        return (
+            all(isinstance(plan.get(key), list) for key in required_lists)
+            and (not master.get("experience") or bool(plan["selected_experience"]))
+            and (not master.get("projects") or bool(plan["selected_projects"]))
+            and all(
+                isinstance(row, dict) and str(row.get("source_id")) in valid_sources
+                for key in ("selected_experience", "selected_projects")
+                for row in plan[key]
+            )
+        )
+
     return _call_json_chain(
-        providers, system, user, schema=CONTENT_PLAN_SCHEMA, max_tokens=3200, stage="content_plan",
+        providers, system, user, schema=CONTENT_PLAN_SCHEMA, max_tokens=2200,
+        stage="content_plan", validate=valid_plan,
     )
 
 
@@ -126,17 +154,23 @@ def _writer_prompt(
         "Knowledge' group and qualify every item in the item text, for example 'MongoDB (transferable "
         "familiarity)'. Never imply production use.\n"
         "4. Never invent a number, tool, employer, title, responsibility, ownership level, or outcome.\n"
-        "5. Use only selected source identities and return valid JSON matching the schema.\n\n"
+        "5. Use only selected source identities and return valid JSON matching the schema.\n"
+        "6. Include the source's certifications and awards unchanged; do not invent honors. "
+        "Include every pinned core skill.\n\n"
         "EDITORIAL PREFERENCES, NOT VALIDATION BANDS:\n"
-        "- Order sections and bullets strongest-first for this job. Select; do not preserve every item.\n"
+        "- Select and order bullets strongest-first for this job. Identities will be displayed "
+        "newest-first; do not distort their dates.\n"
         "- Most bullets should be compact enough for roughly one printed line (usually 85-145 "
         "characters). A 1.5-line bullet is fine. Reserve a full two-line bullet (up to roughly "
         "230 characters) for at most 1-3 genuinely important achievements. Do not pad text to a target.\n"
         "- Use variable bullet counts, generally 2-5 per experience and 1-2 per project.\n"
+        "- Avoid repeating an award as an experience bullet when the Awards section already "
+        "shows it; use that space for distinctive technical work.\n"
         "- A bullet needs a metric only when the evidence contains one. Specific qualitative "
         "outcomes are better than invented scale.\n"
-        "- Choose 12-28 role-relevant skills. Most must be direct or entailed; include at most four "
-        "qualified adjacent items. Do not stuff the page with every skill.\n"
+        "- Aim for about 30-40 role-relevant skills across compact categories, including the "
+        "pinned core. Most must be direct or entailed; include at most two qualified adjacent "
+        "items. Keep each category short enough to fit a single printed line.\n"
         "- Write a concise 2-3 sentence summary that sounds specific to this role without adopting "
         "an unsupported job title. No em dashes."
     )
@@ -144,8 +178,9 @@ def _writer_prompt(
         f"CANDIDATE POSITIONING:\nReal identity titles: {titles}\n"
         f"Seniority: {profile.get('seniority', 'professional')}\n\n"
         f"JOB:\n{job.get('company', '')} | {job.get('title', '')}\n"
-        f"{(job.get('description') or '')[:4500]}\n\n"
-        f"APPROVED CONTENT PLAN:\n{json.dumps(plan, indent=2)}\n\n"
+        f"{job_focus_text(job)[:2800]}\n\n"
+        f"APPROVED CONTENT PLAN:\n{json.dumps(plan, separators=(',', ':'))}\n\n"
+        f"PINNED CORE SKILLS:\n{json.dumps(master.get('core_skills') or [])}\n\n"
         f"SELECTED SOURCE EVIDENCE:\n{packet}\n\n"
         f"OPTIONAL WRITING GUIDELINES:\n{guidelines_text}\n\n"
         "Return the tailored resume JSON. The final ats_keywords field is metadata, not permission "
@@ -188,6 +223,7 @@ def _fallback_draft(master: dict, plan: dict) -> dict:
         projects.append({
             "name": source.get("name", ""), "tech": source.get("tech", ""),
             "link": source.get("link", ""),
+            "dates": " - ".join(filter(None, [source.get("start_date"), source.get("end_date")])),
             "bullets": selected_bullets(source, selection)[:selection.get("target_bullets", 1)],
         })
 
@@ -207,6 +243,8 @@ def _fallback_draft(master: dict, plan: dict) -> dict:
         "experience": exp,
         "projects": projects,
         "education": deepcopy(master.get("education") or []),
+        "certifications": deepcopy(master.get("certifications") or []),
+        "awards": deepcopy(master.get("awards") or []),
         "ats_keywords": list(plan.get("ats_keywords") or []),
     }
 
@@ -232,7 +270,7 @@ def _repair_resume(
         "Return the complete resume with only the necessary factual repairs."
     )
     return _call_json_chain(
-        providers, system, user, schema=RESUME_SCHEMA, max_tokens=4800, stage="grounding_repair",
+        providers, system, user, schema=RESUME_SCHEMA, max_tokens=2800, stage="grounding_repair",
     )
 
 
@@ -275,7 +313,7 @@ def run_resume_editorial_pipeline(
     _record_stage(metrics, "evidence_selection", stage, provider=plan_provider)
 
     evidence_ids = selected_evidence_ids(plan, ledger)
-    packet = format_evidence_packet(ledger, evidence_ids)
+    packet = format_evidence_packet(ledger, evidence_ids, max_chars_per_item=650)
     profile = derive_profile(master)
 
     stage = time.time()
@@ -286,7 +324,7 @@ def run_resume_editorial_pipeline(
         )
         raw_draft, writer_provider = _call_json_chain(
             writer_chain, writer_system, writer_user,
-            schema=RESUME_SCHEMA, max_tokens=5200, stage="editorial_write",
+            schema=RESUME_SCHEMA, max_tokens=3000, stage="editorial_write",
         )
     except Exception as exc:
         LOG.error("editorial writing failed; using selected source text: %s", exc)
@@ -301,6 +339,7 @@ def run_resume_editorial_pipeline(
     engine = GroundingEngine(grounding_adapters)
     stage = time.time()
     first_report = engine.review(draft, plan, ledger)
+    first_draft = deepcopy(draft)
     _record_stage(
         metrics, "factual_validation", stage,
         passed=first_report.passed, degraded=first_report.degraded,
@@ -318,6 +357,14 @@ def run_resume_editorial_pipeline(
             draft = finalize_resume(_strip_em_dashes(repaired_raw), master, plan)
             repaired = True
             final_report = engine.review(draft, plan, ledger)
+            if final_report.degraded:
+                # The first review already certified most of the editorial
+                # draft. If the verifier disappears only during repair, keep
+                # those accepted claims and prune the first review's blocked
+                # fields below; do not erase all job-specific writing.
+                draft = first_draft
+                final_report = first_report
+                metrics.setdefault("warnings", []).append("repair_verifier_degraded_reverted")
             _record_stage(
                 metrics, "factual_repair", stage, provider=repair_provider,
                 passed=final_report.passed,

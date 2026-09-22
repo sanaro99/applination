@@ -61,6 +61,7 @@ _PROJECT_ENTRY_SCHEMA = {
         "name":    {"type": "string"},
         "tech":    {"type": "string"},
         "link":    {"type": "string"},
+        "dates":   {"type": "string"},
         "bullets": {
             "type": "array",
             "minItems": 1,
@@ -93,9 +94,14 @@ RESUME_SCHEMA = {
         "experience":   {"type": "array", "items": _EXPERIENCE_ENTRY_SCHEMA, "minItems": 1},
         "projects":     {"type": "array", "items": _PROJECT_ENTRY_SCHEMA},
         "education":    {"type": "array", "items": _EDUCATION_ENTRY_SCHEMA, "minItems": 1},
+        "certifications": {"type": "array", "items": {"type": "string"}},
+        "awards": {"type": "array", "items": {"type": "object", "properties": {
+            "name": {"type": "string"}, "date": {"type": "string"},
+            "description": {"type": "string"},
+        }, "required": ["name"], "additionalProperties": False}},
         "ats_keywords": {"type": "array", "items": {"type": "string"}, "minItems": 6},
     },
-    "required": ["summary", "skills", "experience", "education", "ats_keywords"],
+    "required": ["summary", "skills", "experience", "projects", "education", "certifications", "awards", "ats_keywords"],
     "additionalProperties": False,
 }
 

@@ -44,6 +44,8 @@ def test_resume_score_tracks_rewrite_layout_and_unsupported_numbers():
     assert score["rewritten_bullet_ratio"] == 0.5
     assert score["unsupported_numbers"] == ["99%"]
     assert score["grounding_passed"] is False
+    assert "skills" in score["missing_sections"]
+    assert "Python" in score["missing_core_skills"]
 
 
 def test_cover_letter_score_reports_shape_and_fabricated_number():
@@ -51,6 +53,14 @@ def test_cover_letter_score_reports_shape_and_fabricated_number():
     score = score_cover_letter(letter, MASTER, [])
     assert score["paragraph_count"] == 3
     assert score["unsupported_numbers"] == ["99%"]
+
+
+def test_cover_letter_score_allows_numbers_from_job_description():
+    letter = "Acme serves 200 teams.\n\nI built a queue.\n\nI would welcome a conversation."
+    score = score_cover_letter(letter, MASTER, [], {
+        "company": "Acme", "title": "Engineer", "description": "Acme serves 200 teams."
+    })
+    assert score["unsupported_numbers"] == []
 
 
 def test_editorial_eval_rejects_batch_candidate():

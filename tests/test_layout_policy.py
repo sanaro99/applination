@@ -1,4 +1,4 @@
-from src.layout_policy import repair_orphan_wraps, shrink_to_budget, trim_orphan_wrap
+from src.layout_policy import fit_skill_rows, repair_orphan_wraps, shrink_to_budget, trim_orphan_wrap
 from src.resume_builder import _fit_to_page, layout_diagnostics
 
 
@@ -49,3 +49,33 @@ def test_renderer_never_expands_from_master_when_page_is_sparse():
     fitted = _fit_to_page(resume, master=master, base_size=10.0)
     assert fitted["experience"][0]["bullets"] == ["Selected bullet."]
     assert layout_diagnostics(fitted, base_size=10.0)["within_estimated_page"] is True
+
+
+def test_page_tightening_keeps_required_sections_and_two_selected_projects():
+    from src.layout_policy import tighten_once
+
+    resume = {
+        "summary": "A focused engineer.",
+        "education": [{"school": "State University", "degree": "BS"}],
+        "skills": [{"group": "Programming Languages", "items": ["Python", "Java", "SQL"]}],
+        "experience": [{"company": "Acme", "role": "Engineer", "bullets": ["Impactful work"]}],
+        "projects": [
+            {"name": "First", "bullets": ["First outcome"]},
+            {"name": "Second", "bullets": ["Second outcome"]},
+        ],
+        "certifications": ["Azure Fundamentals"],
+        "awards": [{"name": "Engineering Award"}],
+    }
+    tightened, removed = tighten_once(resume)
+    assert removed is None
+    assert tightened == resume
+
+
+def test_skill_rows_drop_optional_tail_items_but_never_core_languages():
+    resume = {"skills": [{
+        "group": "Programming Languages",
+        "items": ["Python", "Java", "SQL", "Extremely Long Optional Technology"],
+    }]}
+    fitted, removed = fit_skill_rows(resume, 47, ["Python", "Java", "SQL"])
+    assert fitted["skills"][0]["items"] == ["Python", "Java", "SQL"]
+    assert removed == ["Extremely Long Optional Technology"]

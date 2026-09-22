@@ -32,6 +32,7 @@ from .evidence import (
 from .grounding import (
     DeterministicGroundingAdapter,
     GroundingEngine,
+    cover_letter_ledger,
     LLMProviderChainGroundingAdapter,
     blocking_verdicts,
 )
@@ -920,7 +921,7 @@ _CASUAL_CLOSERS_RE = re.compile(
 _VETTED_CLOSER = "I'd welcome the chance to discuss this further."
 
 
-def validate_cover_letter(text: str, *, target_min_words: int = 220,
+def validate_cover_letter(text: str, *, target_min_words: int = 160,
                           target_max_words: int = 380) -> list[str]:
     """Hard validation gate — returns issue codes, empty list = PASS.
 
@@ -1282,6 +1283,10 @@ class Tailor:
             evidence_ledger,
         )
         cover_evidence_ids = selected_evidence_ids(content_plan, evidence_ledger)
+        cover_evidence_ids = [
+            item_id for item_id in cover_evidence_ids
+            if next((item.kind for item in evidence_ledger if item.id == item_id), "") != "skill"
+        ]
         cover_evidence_ids.extend(
             item.id for item in evidence_ledger if item.kind == "story"
         )
@@ -1436,14 +1441,17 @@ class Tailor:
             "Style rules: no em dashes, use commas or semicolons; no 'passionate', "
             "'thrilled', or 'excited to apply'; no prose skill lists; no 'perfect fit' "
             "or 'ideal candidate'; no paragraph openers like 'Furthermore' or 'Moreover'; "
-            "no bullet points or markdown; contractions are fine; 220-380 words total. "
+            "no bullet points or markdown; contractions are fine. Aim for 200-340 words, "
+            "but a complete, specific letter from 160-380 words is acceptable. Do not pad. "
             "Three paragraphs separated by a SINGLE blank line.\n\n"
             "Evidence policy: rewrite and synthesize freely when it improves the argument. "
             "You may combine facts from multiple cited sources and explain why demonstrated "
             "knowledge transfers to the target role. Keep the distinction between demonstrated "
             "experience and adjacent knowledge explicit. Never turn a plausible relationship "
             "into a claim that the candidate used an uncited technology or held an uncited "
-            "responsibility."
+            "responsibility. State company priorities and internal workflows only as the job "
+            "description states them; express any broader connection as your own interpretation "
+            "('this experience could help with ...'), not as a fact about the company."
         )
 
         user_prompt = (
@@ -1483,8 +1491,8 @@ class Tailor:
         return self._cover_letter_retry_ladder(
             system, user_prompt, self._get_chain("cover_letter"),
             critique=critique_this_call,
-            grounding_plan=cover_grounding_plan,
-            grounding_ledger=evidence_ledger,
+            grounding_plan={**cover_grounding_plan, "artifact_kind": "cover_letter"},
+            grounding_ledger=cover_letter_ledger(evidence_ledger, job, cover_evidence_ids),
         )
 
     def _cover_letter_retry_ladder(
@@ -1497,7 +1505,8 @@ class Tailor:
 
         Attempt 1: cl_chain[0] @ max_tokens=1400 — plain prompt
         Attempt 2: cl_chain[0] @ max_tokens=1800 — hardened suffix appended
-        Attempt 3: cl_chain[1] @ max_tokens=1400 — hardened suffix (if available)
+        Attempt 3: cl_chain[1] if available, otherwise a targeted revision on
+                   the primary provider, with grounding/length feedback.
 
         Each call for a given job starts fresh from cl_chain[0] — a fallback used
         on one job does NOT demote the primary for the next job's letter.
@@ -1528,17 +1537,11 @@ class Tailor:
         attempts = [
             {"provider": primary,                      "max_tokens": 1600, "use_hardened": False},
             {"provider": primary,                      "max_tokens": 2000, "use_hardened": True},
-            {"provider": fallback or primary,          "max_tokens": 1600, "use_hardened": True},
+            {"provider": fallback or primary,          "max_tokens": 2000, "use_hardened": True},
         ]
 
         for i, plan in enumerate(attempts, start=1):
             provider = plan["provider"]
-
-            # Skip attempt 3 if there's no real fallback (same as primary — not useful)
-            if i == 3 and fallback is None:
-                LOG.debug("Cover letter attempt 3 skipped: no fallback provider in cl_chain")
-                debug_attempts.append({"attempt": i, "skipped": True, "reason": "no_fallback_provider"})
-                continue
 
             sys_prompt = system + (_HARDENED_OUTPUT_SUFFIX if plan["use_hardened"] else "")
             attempt_user = user_prompt
@@ -1546,6 +1549,14 @@ class Tailor:
                 attempt_user += (
                     "\n\nPREVIOUS DRAFT GROUNDING FAILURES. Correct these without adding new facts:\n"
                     + grounding_feedback
+                )
+            if i == 3 and fallback is None and best_recovered:
+                attempt_user += (
+                    "\n\nREVISE THIS PREVIOUS DRAFT. Keep its valid, specific story and three-paragraph "
+                    "structure. Remove or qualify every unsupported detail noted above; do not "
+                    "replace it with a new invented detail. Keep the result substantial but "
+                    "concise (160-380 words); do not pad to a target. "
+                    "Return only the revised letter:\n" + best_recovered[:2800]
                 )
 
             try:

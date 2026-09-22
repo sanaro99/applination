@@ -84,6 +84,14 @@
       "coursework": "Distributed Systems, Databases, Algorithms, Operating Systems, Machine Learning, Computer Networks"
     }
   ],
+  "certifications": [],
+  "awards": [
+    {
+      "name": "Third Place, Cascadia Civic Hack",
+      "date": "Mar 2025",
+      "description": "Transit delay predictor, 42 teams."
+    }
+  ],
   "ats_keywords": [
     "Python",
     "Kafka",

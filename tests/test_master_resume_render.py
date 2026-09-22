@@ -1,6 +1,6 @@
 """Saving the master resume must not damage what it did not touch.
 
-The form owns eight top-level keys. Everything else in the file — comments a
+The form owns ten top-level keys. Everything else in the file — comments a
 user added through the Advanced tab, keys the schema does not model, the order
 things appear in — belongs to the user, and a save that quietly discards any of
 it is data loss in a file holding someone's career history.
@@ -22,7 +22,7 @@ private_notes: "call recruiter back"
 """
 
 
-def test_the_eight_form_keys_are_exactly_what_the_form_owns():
+def test_the_ten_form_keys_are_exactly_what_the_form_owns():
     assert FORM_KEYS == (
         "profile",
         "summary_options",
@@ -32,6 +32,8 @@ def test_the_eight_form_keys_are_exactly_what_the_form_owns():
         "experience",
         "projects",
         "education",
+        "certifications",
+        "awards",
     )
 
 

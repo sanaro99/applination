@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import asdict, dataclass
+from datetime import datetime
 import re
 from typing import Iterable
 
@@ -17,7 +18,19 @@ _STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in",
     "is", "it", "of", "on", "or", "our", "that", "the", "their", "this",
     "to", "we", "will", "with", "you", "your",
+    "software", "engineer", "engineering", "team", "teams", "work", "working",
+    "project", "projects", "develop", "development", "built", "building",
+    "experience", "role", "candidate", "applications", "users", "across",
 }
+
+_ROLE_FAMILIES = (
+    {"ai", "ml", "machine", "learning", "llm", "rag", "genai", "model", "models", "embeddings", "inference"},
+    {"reliability", "sre", "monitoring", "observability", "incident", "infrastructure", "infra", "platform", "distributed", "cloud"},
+    {"backend", "api", "fastapi", "django", "flask", "server", "microservices"},
+    {"frontend", "react", "next.js", "web", "ui"},
+    {"data", "database", "sql", "mongodb", "storage", "ingestion"},
+    {"testing", "test", "tests", "ci", "cd", "automation"},
+)
 
 
 @dataclass(frozen=True)
@@ -39,6 +52,33 @@ def _dates(entry: dict) -> str:
     start = str(entry.get("start_date") or "").strip()
     end = str(entry.get("end_date") or "").strip()
     return " - ".join(part for part in (start, end) if part)
+
+
+def _recency(entry: dict) -> tuple[int, int]:
+    """Sort display identities by their most recent date, not planner rank."""
+    value = str(entry.get("end_date") or entry.get("date") or entry.get("dates") or "").strip()
+    if value.lower() in {"present", "current", "ongoing"} or re.search(
+        r"\b(?:present|current|ongoing)\b", value, re.IGNORECASE,
+    ):
+        return (9999, 12)
+    month_years = re.findall(
+        r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+        r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+        r"\.?\s+\d{4}\b",
+        value, re.IGNORECASE,
+    )
+    candidates = list(reversed(month_years)) or list(reversed(re.split(r"\s+-\s+", value)))
+    for pattern in ("%b %Y", "%B %Y", "%Y-%m", "%Y"):
+        for part in candidates:
+            try:
+                date = datetime.strptime(part.strip().replace(".", ""), pattern)
+                return date.year, date.month
+            except ValueError:
+                continue
+    years = re.findall(r"\b(?:19|20)\d{2}\b", value)
+    if years:
+        return int(years[-1]), 1
+    return (0, 0)
 
 
 def _skill_groups(master: dict) -> Iterable[tuple[str, list]]:
@@ -104,6 +144,7 @@ def build_evidence_ledger(master: dict, stories: list[dict] | None = None) -> li
             str(entry.get("name") or "").strip(),
             str(entry.get("tech") or "").strip(),
             str(entry.get("link") or "").strip(),
+            _dates(entry),
         ]))
         items.append(EvidenceItem(source_id, "project_identity", identity, source_id))
         if entry.get("tech"):
@@ -127,6 +168,20 @@ def build_evidence_ledger(master: dict, stories: list[dict] | None = None) -> li
         items.append(EvidenceItem(
             source_id, "education", " | ".join(str(p).strip() for p in parts if p), source_id,
         ))
+
+    for i, certification in enumerate(master.get("certifications") or []):
+        if str(certification).strip():
+            items.append(EvidenceItem(
+                f"certification.{i}", "certification", str(certification).strip(), "certifications",
+            ))
+
+    for i, award in enumerate(master.get("awards") or []):
+        if isinstance(award, dict):
+            value = " | ".join(str(award.get(key) or "").strip() for key in ("name", "date", "description") if award.get(key))
+        else:
+            value = str(award).strip()
+        if value:
+            items.append(EvidenceItem(f"award.{i}", "award", value, "awards"))
 
     for i, story in enumerate(stories or []):
         source_id = f"story.{i}"
@@ -159,17 +214,33 @@ def _tokens(text: str) -> set[str]:
     return {t for t in _TOKEN_RE.findall((text or "").lower()) if t not in _STOPWORDS and len(t) > 1}
 
 
-def _relevance(item: EvidenceItem, job_text: str) -> tuple[int, int]:
-    overlap = len(_tokens(item.text) & _tokens(job_text))
+def _relevance(item: EvidenceItem, job_text: str, job_title: str = "") -> tuple[int, int]:
+    item_tokens = _tokens(item.text)
+    title_tokens = _tokens(job_title)
+    overlap = len(item_tokens & _tokens(job_text))
+    overlap += 3 * len(item_tokens & title_tokens)
+    overlap += 2 * sum(bool(item_tokens & family) and bool(title_tokens & family)
+                       for family in _ROLE_FAMILIES)
     outcome_bonus = 1 if re.search(r"\d", item.text) else 0
     return overlap, outcome_bonus
 
 
+def job_focus_text(job: dict) -> str:
+    """Use requirements over company marketing copy for deterministic fallback."""
+    description = str(job.get("description") or "")
+    match = re.search(
+        r"\b(?:what we are looking for in you|about you|requirements|qualifications|"
+        r"what you(?:'|’)ll bring|who you are|must have)\b",
+        description, re.IGNORECASE,
+    )
+    focus = description[match.end():] if match else description
+    return " ".join([str(job.get("title") or ""), focus[:3000]])
+
+
 def default_content_plan(master: dict, job: dict, ledger: list[EvidenceItem]) -> dict:
     """Conservative deterministic plan used when the planning model fails."""
-    job_text = " ".join([
-        str(job.get("title") or ""), str(job.get("description") or ""),
-    ])
+    job_text = job_focus_text(job)
+    job_title = str(job.get("title") or "")
 
     def select_sections(kind: str, cap: int, default_bullets: int) -> list[dict]:
         identities = [item for item in ledger if item.kind == f"{kind}_identity"]
@@ -179,8 +250,22 @@ def default_content_plan(master: dict, job: dict, ledger: list[EvidenceItem]) ->
                 item for item in ledger
                 if item.source_id == identity.source_id and item.kind == f"{kind}_bullet"
             ]
-            bullets.sort(key=lambda item: _relevance(item, job_text), reverse=True)
-            score = max((_relevance(item, job_text) for item in bullets), default=(0, 0))
+            def bullet_score(item: EvidenceItem) -> tuple[int, int]:
+                relevance, outcome = _relevance(item, job_text, job_title)
+                source_position = int(item.id.rsplit(".", 1)[-1])
+                return relevance + max(0, 7 - source_position), outcome
+
+            bullets.sort(key=bullet_score, reverse=True)
+            score = max((bullet_score(item) for item in bullets), default=(0, 0))
+            if kind == "project":
+                # Earlier projects in the master are usually the candidate's
+                # curated showcase. A small tie-breaker keeps fallback output
+                # from chasing generic JD vocabulary into old side projects.
+                score = (score[0] + max(0, 2 - order), score[1])
+                preferred = {str(name).casefold() for name in master.get("preferred_projects") or []}
+                project_name = str((master.get("projects") or [])[order].get("name") or "").casefold()
+                if project_name in preferred:
+                    score = (score[0] + 6, score[1])
             ranked.append((score, order, identity, bullets))
         ranked.sort(key=lambda row: (-row[0][0], -row[0][1], row[1]))
 
@@ -199,7 +284,7 @@ def default_content_plan(master: dict, job: dict, ledger: list[EvidenceItem]) ->
         return out
 
     skills = [item for item in ledger if item.kind == "skill" and item.support == "direct"]
-    skills.sort(key=lambda item: _relevance(item, job_text), reverse=True)
+    skills.sort(key=lambda item: _relevance(item, job_text, job_title), reverse=True)
     selected_skills = []
     seen_skills: set[str] = set()
     for item in skills:
@@ -208,7 +293,7 @@ def default_content_plan(master: dict, job: dict, ledger: list[EvidenceItem]) ->
             continue
         selected_skills.append({"skill": label, "evidence_ids": [item.id], "support": "direct"})
         seen_skills.add(label.lower())
-        if len(selected_skills) >= 24:
+        if len(selected_skills) >= 38:
             break
 
     summary_ids = [item.id for item in ledger if item.kind == "summary"][:1]
@@ -219,7 +304,7 @@ def default_content_plan(master: dict, job: dict, ledger: list[EvidenceItem]) ->
         "role_strategy": "Lead with the strongest directly supported experience relevant to the role.",
         "requirements": [],
         "selected_experience": select_sections("experience", 3, 3),
-        "selected_projects": select_sections("project", 2, 1),
+        "selected_projects": select_sections("project", 2, 2),
         "selected_skills": selected_skills,
         "summary_evidence_ids": summary_ids,
         "ats_keywords": [],
@@ -306,7 +391,7 @@ def normalize_content_plan(plan: object, master: dict, job: dict, ledger: list[E
             # cannot crowd out demonstrated skills.
             if not _tokens(skill) or not _tokens(skill).issubset(job_tokens):
                 continue
-            if adjacent_count >= 4:
+            if adjacent_count >= 2:
                 continue
             adjacent_count += 1
         normalized["selected_skills"].append({
@@ -314,12 +399,45 @@ def normalize_content_plan(plan: object, master: dict, job: dict, ledger: list[E
             "evidence_ids": ids,
             "support": support,
         })
-        if len(normalized["selected_skills"]) >= 30:
+        if len(normalized["selected_skills"]) >= 42:
             break
+
+    # The source resume's core languages and other explicitly pinned skills
+    # are a hard contract. Planner relevance cannot silently remove them.
+    chosen = {row["skill"].casefold() for row in normalized["selected_skills"]}
+    for skill in reversed(master.get("core_skills") or []):
+        label = str(skill).strip()
+        if not label or label.casefold() in chosen or not _grounded_skill(label, direct_corpus.lower()):
+            continue
+        evidence = next((item.id for item in ledger if item.kind == "skill" and item.support == "direct" and _grounded_skill(label, item.text.lower())), None)
+        if evidence:
+            normalized["selected_skills"].insert(0, {
+                "skill": label, "evidence_ids": [evidence], "support": "direct",
+            })
+            chosen.add(label.casefold())
+
+    # A resume with an established skills inventory should not collapse to a
+    # dozen tokens because the model returned a short plan. The planner still
+    # chooses the highest-priority skills; fill only to a modest breadth floor.
+    breadth_floor = min(34, len(fallback["selected_skills"]))
+    for row in fallback["selected_skills"]:
+        direct_count = sum(item.get("support") == "direct" for item in normalized["selected_skills"])
+        if direct_count >= breadth_floor:
+            break
+        label = row["skill"]
+        if label.casefold() not in chosen:
+            normalized["selected_skills"].append(row)
+            chosen.add(label.casefold())
 
     for key in ("selected_experience", "selected_projects", "selected_skills", "summary_evidence_ids"):
         if not normalized[key]:
             normalized[key] = deepcopy(fallback[key])
+    project_target = min(2, len([item for item in ledger if item.kind == "project_identity"]))
+    for row in fallback["selected_projects"]:
+        if len(normalized["selected_projects"]) >= project_target:
+            break
+        if not any(existing["source_id"] == row["source_id"] for existing in normalized["selected_projects"]):
+            normalized["selected_projects"].append(deepcopy(row))
     return normalized
 
 
@@ -334,6 +452,7 @@ def selected_evidence_ids(plan: dict, ledger: list[EvidenceItem]) -> list[str]:
     ids.extend(plan.get("summary_evidence_ids") or [])
     # Education is identity data, not an editorial claim. Always make it available.
     ids.extend(item.id for item in ledger if item.kind == "education")
+    ids.extend(item.id for item in ledger if item.kind in {"certification", "award"})
     return list(dict.fromkeys(value for value in ids if value))
 
 
@@ -406,16 +525,13 @@ def _matches_planned_skill(candidate: str, planned: dict, master_corpus: str) ->
 
 
 def finalize_resume(draft: object, master: dict, plan: dict) -> dict:
-    """Pin identity fields, enforce selection, and remove ungrounded skill labels.
-
-    This deliberately does *not* restore omitted roles, bullets, projects, or
-    skills.  Selection is an editorial decision made upstream.
-    """
+    """Pin identities and source sections while preserving editorial bullets."""
     draft = deepcopy(draft) if isinstance(draft, dict) else {}
     selected_exp = {row["source_id"] for row in plan.get("selected_experience") or []}
     selected_projects = {row["source_id"] for row in plan.get("selected_projects") or []}
 
     experience = []
+    seen_experience: set[int] = set()
     for entry in draft.get("experience") or []:
         if not isinstance(entry, dict):
             continue
@@ -424,6 +540,10 @@ def finalize_resume(draft: object, master: dict, plan: dict) -> dict:
             continue
         index, source = matched
         if selected_exp and f"experience.{index}" not in selected_exp:
+            continue
+        # A writer can repeat a role or mislabel an older role at the same
+        # employer. Never print two entries under one source identity.
+        if index in seen_experience:
             continue
         bullets = [str(b).strip() for b in entry.get("bullets") or [] if str(b).strip()][:5]
         if not bullets:
@@ -434,22 +554,33 @@ def finalize_resume(draft: object, master: dict, plan: dict) -> dict:
             "location": source.get("location", ""),
             "dates": _dates(source),
             "bullets": bullets,
+            "_recency": _recency(source),
         })
-    if not experience:
-        for selection in plan.get("selected_experience") or []:
-            try:
-                index = int(selection["source_id"].split(".")[1])
-                source = (master.get("experience") or [])[index]
-            except (IndexError, KeyError, TypeError, ValueError):
-                continue
-            bullets = _selected_source_bullets(source, selection)
-            experience.append({
-                "company": source.get("company", ""), "role": source.get("role", ""),
-                "location": source.get("location", ""), "dates": _dates(source),
-                "bullets": bullets[:selection.get("target_bullets", 3)],
-            })
+        seen_experience.add(index)
+    # A planned source role omitted or wrongly re-titled by the model gets a
+    # conservative source-backed entry; identities are not editorial prose.
+    for selection in plan.get("selected_experience") or []:
+        try:
+            index = int(selection["source_id"].split(".")[1])
+            source = (master.get("experience") or [])[index]
+        except (IndexError, KeyError, TypeError, ValueError):
+            continue
+        if index in seen_experience:
+            continue
+        bullets = _selected_source_bullets(source, selection)
+        experience.append({
+            "company": source.get("company", ""), "role": source.get("role", ""),
+            "location": source.get("location", ""), "dates": _dates(source),
+            "bullets": bullets[:selection.get("target_bullets", 3)],
+            "_recency": _recency(source),
+        })
+        seen_experience.add(index)
+    experience.sort(key=lambda row: row["_recency"], reverse=True)
+    for entry in experience:
+        entry.pop("_recency", None)
 
     projects = []
+    seen_projects: set[int] = set()
     for entry in draft.get("projects") or []:
         if not isinstance(entry, dict):
             continue
@@ -459,12 +590,15 @@ def finalize_resume(draft: object, master: dict, plan: dict) -> dict:
         index, source = matched
         if selected_projects and f"project.{index}" not in selected_projects:
             continue
+        if index in seen_projects:
+            continue
         bullets = [str(b).strip() for b in entry.get("bullets") or [] if str(b).strip()][:3]
         if not bullets:
             continue
         projects.append({
             "name": source.get("name", ""), "tech": source.get("tech", ""),
-            "link": source.get("link", ""), "bullets": bullets,
+            "link": source.get("link", ""), "dates": _dates(source), "bullets": bullets,
+            "_recency": _recency(source),
         })
     if not projects:
         for selection in plan.get("selected_projects") or []:
@@ -476,9 +610,31 @@ def finalize_resume(draft: object, master: dict, plan: dict) -> dict:
             bullets = _selected_source_bullets(source, selection)
             projects.append({
                 "name": source.get("name", ""), "tech": source.get("tech", ""),
-                "link": source.get("link", ""),
+                "link": source.get("link", ""), "dates": _dates(source),
                 "bullets": bullets[:selection.get("target_bullets", 1)],
+                "_recency": _recency(source),
             })
+
+    # A model may omit a planned project despite the user asking for two.
+    # Restore only a selected source project, never an unselected generic one.
+    for selection in plan.get("selected_projects") or []:
+        if len(projects) >= 2:
+            break
+        try:
+            source = (master.get("projects") or [])[int(selection["source_id"].split(".")[1])]
+        except (IndexError, KeyError, TypeError, ValueError):
+            continue
+        if any(row["name"].casefold() == str(source.get("name") or "").casefold() for row in projects):
+            continue
+        projects.append({
+            "name": source.get("name", ""), "tech": source.get("tech", ""),
+            "link": source.get("link", ""), "dates": _dates(source),
+            "bullets": _selected_source_bullets(source, selection)[:1],
+            "_recency": _recency(source),
+        })
+    projects.sort(key=lambda row: row["_recency"], reverse=True)
+    for entry in projects:
+        entry.pop("_recency", None)
 
     master_corpus = "\n".join(
         item.text.lower() for item in build_evidence_ledger(master)
@@ -490,6 +646,20 @@ def finalize_resume(draft: object, master: dict, plan: dict) -> dict:
     ]
     skills = []
     seen: set[str] = set()
+    selected_direct = {
+        str(row["skill"]).casefold() for row in planned_skills
+        if row.get("support") == "direct" and _grounded_skill(str(row["skill"]), master_corpus)
+    }
+    for group_name, values in _skill_groups(master):
+        kept = []
+        for value in values:
+            label = str(value).strip()
+            if label.casefold() in selected_direct and label.casefold() not in seen:
+                kept.append(label)
+                seen.add(label.casefold())
+        if kept:
+            skills.append({"group": group_name, "items": kept})
+
     raw_skills = draft.get("skills") or []
     if isinstance(raw_skills, dict):
         raw_skills = [{"group": key, "items": value} for key, value in raw_skills.items()]
@@ -501,7 +671,7 @@ def finalize_resume(draft: object, master: dict, plan: dict) -> dict:
             skill = str(skill).strip()
             key = skill.lower()
             if key in seen or not any(
-                _matches_planned_skill(skill, planned, master_corpus)
+                planned.get("support") != "direct" and _matches_planned_skill(skill, planned, master_corpus)
                 for planned in planned_skills
             ):
                 continue
@@ -509,11 +679,24 @@ def finalize_resume(draft: object, master: dict, plan: dict) -> dict:
             kept.append(skill)
         if kept:
             skills.append({"group": str(group.get("group") or "Skills"), "items": kept})
-        if len(skills) >= 7:
-            break
+
+    # The writer may ignore a pinned skill even when the planner selected it.
+    # Put it back in its source category, without granting a new skill claim.
+    for core in master.get("core_skills") or []:
+        label = str(core).strip()
+        if not label or label.casefold() in seen or not _grounded_skill(label, master_corpus):
+            continue
+        source_group = next((group for group, values in _skill_groups(master)
+                             if any(str(value).casefold() == label.casefold() for value in values)), "Core Skills")
+        target = next((group for group in skills if group["group"].casefold() == source_group.casefold()), None)
+        if target is None:
+            target = {"group": source_group, "items": []}
+            skills.append(target)
+        target["items"].append(label)
+        seen.add(label.casefold())
 
     education = []
-    for source in (master.get("education") or [])[:2]:
+    for source in sorted(master.get("education") or [], key=_recency, reverse=True)[:2]:
         education.append({
             "school": source.get("school", ""), "degree": source.get("degree", ""),
             "location": source.get("location", ""), "dates": _dates(source),
@@ -535,6 +718,11 @@ def finalize_resume(draft: object, master: dict, plan: dict) -> dict:
         "experience": experience[:3],
         "projects": projects[:3],
         "education": education,
+        "certifications": sorted(deepcopy(master.get("certifications") or []),
+                                 key=lambda value: _recency({"date": str(value)}), reverse=True),
+        "awards": sorted(deepcopy(master.get("awards") or []),
+                         key=lambda value: _recency(value if isinstance(value, dict) else {"date": str(value)}),
+                         reverse=True),
         "ats_keywords": [
             str(value).strip() for value in draft.get("ats_keywords") or plan.get("ats_keywords") or []
             if str(value).strip()

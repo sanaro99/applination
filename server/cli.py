@@ -46,7 +46,8 @@ def resolve_user(spec: str | None = None) -> User:
                 raise UserNotFound(
                     "no accounts exist yet — sign up in the web app first"
                 )
-            return User(**user.model_dump())
+            s.expunge(user)
+            return user
 
         spec = str(spec).strip()
         # noscope: same — resolving which user to act as.
@@ -63,7 +64,8 @@ def resolve_user(spec: str | None = None) -> User:
                 f"no account matching {spec!r}. Known accounts: "
                 + (", ".join(known) if known else "(none)")
             )
-        return User(**user.model_dump())
+        s.expunge(user)
+        return user
 
 
 def context_for(spec: str | None = None) -> tuple[User, dict, UserPaths]:

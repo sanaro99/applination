@@ -726,6 +726,32 @@ def test_logout_revokes_the_session(app_env, tmp_path):
         assert c.get("/api/auth/me").status_code == 401
 
 
+def test_authenticated_dashboard_keeps_the_persisted_user_id(app_env, monkeypatch):
+    """A session must not turn a loaded account into a new, id-less User."""
+    from server.db import User
+
+    with TestClient(app_env, raise_server_exceptions=False) as client:
+        account = register(client, "persistent-id@example.com")
+        from server.db import UserSession
+
+        with db.Session(db.engine) as s:
+            stored_session = s.exec(select(UserSession)).one()
+            stored_session.last_seen_at = datetime.utcnow() - timedelta(minutes=10)
+            s.add(stored_session)
+            s.commit()
+        # Reproduce the empty SQLModel dump observed in the hosted runtime.
+        monkeypatch.setattr(User, "model_dump", lambda *_args, **_kwargs: {})
+
+        me = client.get("/api/auth/me")
+        assert me.status_code == 200, me.text
+        assert me.json()["id"] == account["id"]
+        strength = client.get("/api/profile/strength")
+        assert strength.status_code == 200, strength.text
+        from server.cli import resolve_user as resolve_cli_user
+
+        assert resolve_cli_user("persistent-id@example.com").id == account["id"]
+
+
 def test_password_change_revokes_other_sessions(app_env):
     """The point of server-side sessions: a stolen cookie dies when the password
     changes. The tab that changed it keeps working."""

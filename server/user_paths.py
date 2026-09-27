@@ -123,6 +123,10 @@ class UserPaths:
     def default_output_dir(self) -> Path:
         return self.root / "output"
 
+    @cached_property
+    def extension_documents_dir(self) -> Path:
+        return self.root / "extension_documents"
+
     # Global, shared, identical for every user. Exposed here so callers can take
     # a single UserPaths and not also have to import the module constants.
     @property

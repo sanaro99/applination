@@ -258,6 +258,34 @@ class SavedAnswer(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ExtensionPairing(SQLModel, table=True):
+    """Short-lived device authorization. The extension alone knows device_hash's secret."""
+    device_hash: str = Field(primary_key=True)
+    user_code_hash: str = Field(unique=True, index=True)
+    approved_user_id: int | None = Field(default=None, foreign_key="appuser.id")
+    expires_at: datetime
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ExtensionGrant(SQLModel, table=True):
+    """Revocable bearer credential scoped to the extension API."""
+    token_hash: str = Field(primary_key=True)
+    user_id: int = Field(foreign_key="appuser.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    expires_at: datetime
+    last_used_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ExtensionDocument(SQLModel, table=True):
+    """User-uploaded resume or cover letter for applications found anywhere."""
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="appuser.id", index=True)
+    kind: str
+    filename: str
+    stored_name: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # Every table carrying tenant data. `server/scoping.py` filters on these, and
 # `tests/test_scope_lint.py` fails the build on a bare select() against one, so
 # adding a tenant table here is what wires it into both guards. A model absent
@@ -271,6 +299,8 @@ TENANT_MODELS: tuple[type[SQLModel], ...] = (
     ChatSession,
     ChatMessage,
     SavedAnswer,
+    ExtensionGrant,
+    ExtensionDocument,
 )
 
 

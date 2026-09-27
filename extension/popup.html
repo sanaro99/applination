@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Applination Autofill</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header><strong>Applination</strong><span id="account"></span></header>
+  <main>
+    <p id="status" role="status"></p>
+    <section id="connect" hidden>
+      <label>Applination URL<input id="app-url" type="url" placeholder="https://applination.example"></label>
+      <button id="connect-button">Connect account</button>
+      <p id="pair-code" class="muted"></p>
+    </section>
+    <section id="workspace" hidden>
+      <div class="tabs"><button data-tab="apply" class="selected">Apply</button><button data-tab="profile">Profile</button><button data-tab="documents">Documents</button></div>
+      <div id="apply-tab">
+        <label>Company<input id="company"></label>
+        <label>Role<input id="title"></label>
+        <div class="row"><label>Resume<select id="resume-select"></select></label><button id="resume-upload">Attach</button></div>
+        <div class="row"><label>Cover letter<select id="cover-select"></select></label><button id="cover-upload">Attach</button></div>
+        <label class="check"><input id="draft-questions" type="checkbox" checked> Draft unanswered questions with AI</label>
+        <button id="fill-button" class="primary">Fill this page and attach selected documents</button>
+        <p id="fill-result" class="muted"></p>
+        <h2>Open questions</h2>
+        <div id="questions"></div>
+        <button id="mark-applied">I submitted this application</button>
+        <p class="muted">Applications with a recognized confirmation page are tracked automatically after you submit.</p>
+      </div>
+      <div id="profile-tab" hidden>
+        <p class="muted">Contact and experience come from your Applination profile. Add recurring application answers here.</p>
+        <div id="extra-fields"></div>
+        <button id="save-profile" class="primary">Save application answers</button>
+      </div>
+      <div id="documents-tab" hidden>
+        <p class="muted">Upload a PDF or DOCX to use on any application. Job-specific documents already in Applination also appear above.</p>
+        <label>Resume<input id="new-resume" type="file" accept=".pdf,.docx"></label>
+        <label>Cover letter<input id="new-cover" type="file" accept=".pdf,.docx"></label>
+        <button id="save-documents" class="primary">Upload selected files</button>
+      </div>
+      <button id="disconnect" class="quiet">Disconnect extension</button>
+    </section>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

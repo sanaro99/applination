@@ -62,6 +62,7 @@ Two things to know: the demo's AI answers are pre-recorded rather than live, and
 | **Close the loop** | Gmail sync that advances application status from real replies, a calendar feed, and a daily email digest |
 | **Setup** | Config editor with live provider testing, a visual editor for routing each task to a different model, and an AI-assisted editor for your resume and stories |
 | **Guided tour** | A walkthrough of the whole app that starts on first login and can be replayed any time |
+| **Browser autofill** | Chrome extension for reviewed application autofill, AI answers, document attachment, and submission tracking; see [extension setup](extension/README.md) |
 
 ---
 

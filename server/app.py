@@ -36,6 +36,13 @@ from .reminders import (
     router as reminders_router,
 )
 from .pricing import router as pricing_router
+from .extension import (
+    pair_router as extension_pair_router,
+    data_router as extension_data_router,
+    download_router as extension_download_router,
+    require_extension_user,
+    resolve_extension_user,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -65,6 +72,8 @@ PUBLIC_PATHS: frozenset[str] = frozenset({
     # is rate limited per IP, and lands the caller in an account that holds
     # nothing but committed fixture data (server/demo.py).
     "/api/auth/demo",
+    "/api/extension/pair/start",
+    "/api/extension/pair/complete",
     "/docs",
     "/docs/oauth2-redirect",
     "/openapi.json",
@@ -126,6 +135,14 @@ def create_app() -> FastAPI:
         if request.method == "OPTIONS" or _is_public(path):
             return await call_next(request)
 
+        if path.startswith("/api/extension/data/"):
+            user = resolve_extension_user(request)
+            if user is None:
+                return JSONResponse({"detail": "extension is not connected"}, status_code=401)
+            request.state.extension_user = user
+            request.state.user_id = user.id
+            return await call_next(request)
+
         user = resolve_user(request)
         if user is None:
             return JSONResponse({"detail": "not authenticated"}, status_code=401)
@@ -175,6 +192,9 @@ def create_app() -> FastAPI:
     # signup obviously cannot require a session. Its own routes that do
     # (/me, /change-password) declare the dependency individually.
     app.include_router(auth_router)
+    app.include_router(extension_pair_router)
+    app.include_router(extension_data_router, dependencies=[Depends(require_extension_user)])
+    app.include_router(extension_download_router, dependencies=[Depends(require_user)])
 
     # Also mounted without require_user, for the same reason auth is: the
     # calendar feed authenticates with a signed token instead of a session. It

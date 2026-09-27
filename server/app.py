@@ -40,6 +40,7 @@ from .extension import (
     pair_router as extension_pair_router,
     data_router as extension_data_router,
     download_router as extension_download_router,
+    site_router as application_profile_router,
     require_extension_user,
     resolve_extension_user,
 )
@@ -206,6 +207,7 @@ def create_app() -> FastAPI:
     protected = (
         runs_router,
         applications_router,
+        application_profile_router,
         single_job_router,
         config_router,
         master_data_router,

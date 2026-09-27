@@ -65,7 +65,7 @@ function Connect() {
               <li>Open <strong>chrome://extensions</strong> in Chrome and turn on <strong>Developer mode</strong>.</li>
               <li>Choose <strong>Load unpacked</strong> and select the extracted <strong>applination-extension</strong> folder, which contains <strong>manifest.json</strong>.</li>
               <li>Pin <strong>Applination Autofill</strong>, open its popup, and choose <strong>Connect account</strong>.</li>
-              <li>Approve the pairing code on the Applination page that opens. Then open a job application and use the extension to fill it.</li>
+              <li>Approve the pairing code on the Applination page that opens. Then open a job application. The extension detects its fields; choose <strong>Autofill application</strong> to generate a tailored resume and fill the form.</li>
             </ol>
             <p className="text-sm text-muted-foreground">For updates, download and extract the new ZIP over the same folder, then click Reload on chrome://extensions. Chrome does not update manually installed extensions automatically.</p>
           </CardContent>
@@ -80,7 +80,7 @@ function Connect() {
             <p>Connected. Return to the application tab and open the extension.</p>
           ) : (
             <>
-              <p>The extension is requesting access to your application profile, saved answers, and documents. It can add applications to your tracker and draft answers using your configured AI provider.</p>
+              <p>The extension is requesting access to your application profile and saved answers. It can generate a tailored resume, fill the form, and track applications using your configured AI provider.</p>
               <p className="font-mono text-lg tracking-widest">{code || "No pairing code"}</p>
               <p>Only approve if you started this connection from the Applination extension.</p>
               {state === "error" && <p role="alert" className="text-destructive">{message}</p>}

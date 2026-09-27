@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import secrets
 import uuid
 import zipfile
@@ -238,6 +239,17 @@ def profile(user: User = Depends(require_extension_user)) -> dict:
     }
 
 
+@data_router.get("/local-ollama")
+def local_ollama_status(user: User = Depends(require_extension_user)) -> dict:
+    from .local_ollama import worker_online
+    llm = load_config(user).get("llm") or {}
+    tasks = llm.get("tasks") or {}
+    selected = llm.get("primary") == "ollama" or any(
+        (routing or {}).get("primary") == "ollama" for routing in tasks.values()
+    )
+    return {"selected": selected, "online": worker_online(user.id) if selected else False}
+
+
 class ProfileBody(BaseModel):
     extra: dict[str, str]
 
@@ -316,6 +328,13 @@ class GenerateAnswerBody(BaseModel):
     title: str = Field(default="", max_length=200)
     description: str = Field(default="", max_length=15000)
     word_limit: int | None = Field(default=None, ge=20, le=1000)
+    character_limit: int | None = Field(default=None, ge=1, le=10000)
+
+
+def _draft_is_incomplete(content: str, character_limit: int | None) -> bool:
+    if character_limit and len(content) > character_limit:
+        return True
+    return len(content) >= 100 and re.search(r"[.!?…][\"')\]]*$", content) is None
 
 
 @data_router.post("/generate-answer")
@@ -328,10 +347,21 @@ def generate_answer(request: Request, body: GenerateAnswerBody, user: User = Dep
     stories = pick_stories(bundle, question=body.prompt, app=job)
     system_prompt, user_prompt = build_essay_prompt(
         bundle, prompt=body.prompt, word_limit=body.word_limit,
-        instructions="Answer this job application question accurately.",
+        instructions="Answer this job application question accurately. End with a complete sentence."
+        + (f" Keep the entire answer within {body.character_limit} characters including spaces."
+           if body.character_limit else ""),
         app=job, stories=stories, user=load_config(user).get("user"),
     )
-    return {"content": _run_chain(user, system_prompt, user_prompt, task="essay")}
+    content = _run_chain(user, system_prompt, user_prompt, task="essay", max_tokens=3200)
+    if _draft_is_incomplete(content, body.character_limit):
+        content = _run_chain(user, system_prompt,
+                             user_prompt + "\nRewrite the answer as complete prose. Finish the final sentence."
+                             + (f" Use at most {body.character_limit} characters."
+                                if body.character_limit else ""),
+                             task="essay", max_tokens=6000)
+    if _draft_is_incomplete(content, body.character_limit):
+        raise HTTPException(502, "the generated answer was incomplete; please write or review this field")
+    return {"content": content}
 
 
 def _document_rows(user: User) -> list[dict]:

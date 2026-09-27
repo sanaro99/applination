@@ -18,30 +18,35 @@ function progressPanel() {
   host.id = "applination-progress-host";
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = `<style>
-    :host { all: initial; position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;
-      width: min(380px, calc(100vw - 32px)); color: #20202a; font: 13px/1.45 Inter, system-ui, sans-serif; }
+    :host { all: initial; display: block; position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;
+      width: min(380px, calc(100vw - 32px)); color: #20202a; font: 13px/1.45 Inter, system-ui, sans-serif;
+      color-scheme: light; }
     * { box-sizing: border-box; } button { font: inherit; cursor: pointer; }
-    .panel { overflow: hidden; border: 1px solid #e4e3eb; border-radius: 15px; background: white;
+    .panel { display: flex; flex-direction: column; max-height: calc(100vh - 32px); overflow: hidden;
+      border: 1px solid #e4e3eb; border-radius: 15px; background: white;
       box-shadow: 0 18px 55px #1b173a30, 0 3px 9px #1b173a12; }
-    .head { padding: 17px 18px 13px; border-bottom: 1px solid #efedf4; }
+    .head { flex: none; padding: 17px 18px 13px; border-bottom: 1px solid #efedf4; }
     .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-    h2 { margin: 0; font-size: 16px; font-weight: 750; letter-spacing: -.02em; }
-    .brand { margin: 4px 0 0; color: #736f82; font-size: 11px; }
+    .top > div { min-width: 0; }
+    h2 { margin: 0; font-size: 16px; line-height: 1.3; font-weight: 750; letter-spacing: -.02em; }
+    .brand { margin: 4px 0 0; color: #736f82; font-size: 11px; line-height: 1.4; }
     .stop { width: 25px; height: 25px; border: 0; border-radius: 7px; color: #51496b; background: #f2f0f8; font-size: 15px; }
-    .stage { margin: 13px 0 7px; color: #5a51ba; font-weight: 650; }
-    .count { color: #777383; font-size: 11px; }
+    .stage { margin: 13px 0 7px; color: #5a51ba; line-height: 1.4; font-weight: 650; }
+    .count { display: block; color: #777383; font-size: 11px; line-height: 1.4; }
     .bar { height: 5px; margin-top: 10px; overflow: hidden; border-radius: 10px; background: #efedf7; }
     .bar > span { display: block; height: 100%; width: 0; border-radius: inherit;
       background: linear-gradient(90deg, #5d54d9, #a65ad3); transition: width .2s ease; }
-    .list { max-height: min(45vh, 330px); min-height: 64px; overflow-y: auto; padding: 6px 18px; }
-    .item { display: flex; align-items: flex-start; gap: 9px; padding: 6px 0; color: #565362; }
+    .list { flex: 1 1 auto; max-height: min(45vh, 330px); min-height: 64px; overflow-y: auto; padding: 6px 18px; }
+    .item { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start;
+      gap: 9px; min-height: 32px; padding: 6px 0; color: #565362; line-height: 1.4; }
+    .words { display: block; min-width: 0; }
     .icon { display: grid; flex: 0 0 18px; place-items: center; width: 18px; height: 18px;
       border-radius: 50%; color: white; background: #b6b0c8; font-size: 11px; font-weight: 750; }
     .done .icon { background: #6156d6; } .active .icon { background: #aa83e7; }
     .review .icon { background: #d19a49; } .failed .icon { background: #c87976; }
-    .item strong { display: block; color: #34303e; font-weight: 600; }
-    .item small { display: block; color: #8a8595; font-size: 10px; }
-    .foot { padding: 12px 18px 15px; border-top: 1px solid #efedf4; }
+    .item strong { display: block; color: #34303e; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
+    .item small { display: block; color: #8a8595; font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; }
+    .foot { flex: none; padding: 12px 18px 15px; border-top: 1px solid #efedf4; }
     .summary { margin: 0 0 10px; color: #777383; font-size: 11px; }
     .again { width: 100%; padding: 9px; border: 1px solid #e1deee; border-radius: 9px;
       color: #5b50b8; background: #f8f7fc; font-weight: 700; }
@@ -81,7 +86,8 @@ function progressItem(run, key, label, state, detail = "") {
     row.className = "item";
     const icon = document.createElement("span");
     icon.className = "icon";
-    const words = document.createElement("span");
+    const words = document.createElement("div");
+    words.className = "words";
     const heading = document.createElement("strong");
     const note = document.createElement("small");
     words.append(heading, note);
@@ -133,13 +139,23 @@ function controls() {
   });
 }
 
+function groupLabelOf(el) {
+  let parent = el.parentElement;
+  for (let depth = 0; parent && depth < 6; depth++, parent = parent.parentElement) {
+    if (parent.matches("form, main, article, section")) break;
+    const heading = [...parent.children].find((child) =>
+      child.matches?.("label, legend") && !child.contains(el) && child.textContent?.trim());
+    if (heading) return heading.innerText.trim();
+  }
+  return "";
+}
+
 function labelOf(el) {
   const direct = [...(el.labels || [])].map((node) => node.innerText).join(" ");
   const aria = el.getAttribute("aria-label") || "";
   const labelledBy = (el.getAttribute("aria-labelledby") || "").split(/\s+/)
     .map((id) => document.getElementById(id)?.innerText || "").join(" ");
-  const parent = el.closest("fieldset")?.querySelector("legend")?.innerText || "";
-  return [direct, aria, labelledBy, el.placeholder, parent, el.name, el.id,
+  return [aria, labelledBy, groupLabelOf(el), direct, el.placeholder, el.name, el.id,
     el.getAttribute("data-testid"), el.tagName === "BUTTON" ? el.innerText : ""]
     .find((value) => value?.trim())?.replace(/[_-]/g, " ").replace(/\s+/g, " ").trim() || "";
 }
@@ -151,13 +167,21 @@ function classify(el) {
     if (/resume|cv\b|curriculum vitae/.test(label)) return "resume";
     return "file_unknown";
   }
+  if (el.closest(".ashby-application-form-input-education-entry")) {
+    if (/field of study|\bmajor\b/.test(label)) return "field_of_study";
+    if (/\b(start|end) date\b/.test(label) && el.tagName === "SELECT") {
+      const part = /month/i.test(el.options[0]?.textContent || "") ? "month" : "year";
+      return `education_${label.includes("start") ? "start" : "end"}_${part}`;
+    }
+  }
   if (/cover\s*letter/.test(label)) return "cover_text";
   if (/email/.test(label) || el.autocomplete === "email") return "email";
   if (/phone\s*(country|region|code)|dial(?:ling|ing)?\s*code/.test(label)) return "phone_country";
   if (/phone|mobile|telephone/.test(label) || el.autocomplete === "tel") return "phone";
   if (/first\s*name|given\s*name/.test(label) || el.autocomplete === "given-name") return "first_name";
   if (/last\s*name|family\s*name|surname/.test(label) || el.autocomplete === "family-name") return "last_name";
-  if (/full\s*name|your\s*name|candidate\s*name/.test(label) || el.autocomplete === "name") return "full_name";
+  if (/full\s*name|your\s*name|candidate\s*name/.test(label) || normalize(label) === "name" ||
+    el.name === "_systemfield_name" || el.autocomplete === "name") return "full_name";
   if (/linkedin/.test(label)) return "linkedin";
   if (/preferred\s*name/.test(label)) return "preferred_name";
   if (/pronouns/.test(label)) return "pronouns";
@@ -237,7 +261,8 @@ function pageSnapshot() {
     type: el.type || el.tagName.toLowerCase(),
     filled: el.type === "radio" ? radioGroup(el).some((candidate) => candidate.checked) : isFilled(el),
     required: el.required || el.getAttribute("aria-required") === "true",
-    maxLength: el.maxLength > 0 ? el.maxLength : null }));
+    maxLength: el.maxLength > 0 ? el.maxLength : null,
+    options: fieldOptions(el) }));
   const relevant = fields.filter((field) => !["unknown", "file_unknown"].includes(field.kind));
   const isApplication = fields.length >= 2 && relevant.length >= 2 &&
     (Boolean(document.querySelector("form")) || relevant.length >= 3);
@@ -252,6 +277,21 @@ function findField(id) {
 function radioGroup(el) {
   return controls().filter((candidate) => candidate.type === "radio" &&
     candidate.form === el.form && (el.name ? candidate.name === el.name : candidate === el));
+}
+
+function fieldOptions(el) {
+  if (el.tagName === "SELECT") return [...el.options].map((option) => ({
+    value: option.value, label: option.textContent.trim(), disabled: option.disabled,
+  }));
+  if (el.type === "radio") return radioGroup(el).map((option) => ({
+    value: option.value, label: [...(option.labels || [])].map((label) => label.innerText).join(" "),
+    disabled: option.disabled,
+  }));
+  const yesNo = el.type === "checkbox" && el.closest(".ashby-application-form-input-yesno");
+  if (yesNo) return [...yesNo.querySelectorAll("button[data-option]")].map((option) => ({
+    value: option.dataset.option, label: option.textContent.trim(), disabled: option.disabled,
+  }));
+  return [];
 }
 
 const US_STATES = {
@@ -285,6 +325,9 @@ function answerTerms(value) {
       terms.add(normalize(name));
       break;
     }
+    if (word.endsWith(` ${normalize(code)}`)) {
+      terms.add(`${word.slice(0, -code.length).trim()} ${normalize(name)}`);
+    }
   }
   return [...terms].filter(Boolean);
 }
@@ -296,6 +339,11 @@ function matchChoice(choices, answer) {
     .some((value) => terms.includes(normalize(value))));
   if (exact.length === 1) return exact[0];
   if (exact.length > 1) return exact.find((choice) => normalize(choice.value) === normalize(answer)) || exact[0];
+  if (["yes", "no"].includes(normalize(answer))) {
+    const boolean = available.filter((choice) => normalize(choice.label).startsWith(`${normalize(answer)} `)
+      || normalize(choice.label) === normalize(answer));
+    if (boolean.length === 1) return boolean[0];
+  }
   const phrases = terms.filter((term) => term.length >= 3);
   const partial = available.filter((choice) => phrases.some((term) => {
     const label = normalize(choice.label);
@@ -306,6 +354,8 @@ function matchChoice(choices, answer) {
 }
 
 function isFilled(el) {
+  const yesNo = el.type === "checkbox" && el.closest(".ashby-application-form-input-yesno");
+  if (yesNo) return Boolean(yesNo.querySelector('button[aria-pressed="true"]'));
   if (el.type === "checkbox" || el.type === "radio") return el.checked;
   if (el.type === "file") return Boolean(el.files?.length);
   if (el.tagName === "SELECT") {
@@ -359,7 +409,10 @@ function setValue(el, value) {
   }
   if (el.type === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
   if (el.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) return false;
-  if (el.type === "url" && !/^https?:\/\/\S+$/i.test(text)) return false;
+  if (el.type === "url" && !/^https?:\/\/\S+$/i.test(text)) {
+    if (!/^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/\S*)?$/i.test(text)) return false;
+    text = `https://${text}`;
+  }
   const prototype = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   Object.getOwnPropertyDescriptor(prototype, "value").set.call(el, text);
   el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -367,29 +420,63 @@ function setValue(el, value) {
   return el.value === text;
 }
 
+function clearTextControl(el) {
+  if (el.isContentEditable) el.textContent = "";
+  else {
+    const prototype = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, "value").set.call(el, "");
+  }
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
 async function setControl(el, value) {
+  const yesNo = el.type === "checkbox" && el.closest(".ashby-application-form-input-yesno");
+  if (yesNo) {
+    const answer = normalize(value);
+    if (!["yes", "no", "true", "false"].includes(answer)) return false;
+    const option = yesNo.querySelector(`button[data-option="${["yes", "true"].includes(answer) ? "yes" : "no"}"]`);
+    if (!option || option.disabled) return false;
+    option.click();
+    return option.getAttribute("aria-pressed") === "true";
+  }
   if (el.tagName === "SELECT" || (el.getAttribute("role") !== "combobox" &&
     el.getAttribute("aria-haspopup") !== "listbox")) {
     return setValue(el, value);
   }
   const before = el.value ?? el.textContent;
+  const choices = () => {
+    const lists = [...document.querySelectorAll('[role="listbox"]')]
+      .filter((list) => list.getClientRects().length > 0 && (!el.getAttribute("aria-controls") ||
+        list.id === el.getAttribute("aria-controls")));
+    const options = lists.length ? lists.flatMap((list) => [...list.querySelectorAll('[role="option"]')])
+      : [...document.querySelectorAll('[role="option"]')];
+    return options.filter((option) => option.getClientRects().length > 0 &&
+      option.getAttribute("aria-disabled") !== "true")
+      .map((option) => ({ value: option.getAttribute("data-value") || option.textContent,
+      label: option.getAttribute("aria-label") || option.querySelector("span")?.textContent || option.textContent,
+        element: option }));
+  };
+  const waitForChoice = async () => {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const choice = matchChoice(choices(), value);
+      if (choice) return choice;
+      await pause(100);
+    }
+    return null;
+  };
   el.click();
-  await pause(80);
-  let choices = [...document.querySelectorAll('[role="option"]')].filter((option) =>
-    option.getClientRects().length > 0 && option.getAttribute("aria-disabled") !== "true"
-  ).map((option) => ({ value: option.getAttribute("data-value") || option.textContent,
-    label: option.textContent, element: option }));
-  let choice = matchChoice(choices, value);
+  let choice = matchChoice(choices(), value);
   if (!choice && el.tagName === "INPUT") {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, String(value));
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    await pause(150);
-    choices = [...document.querySelectorAll('[role="option"]')].filter((option) =>
-      option.getClientRects().length > 0 && option.getAttribute("aria-disabled") !== "true"
-    ).map((option) => ({ value: option.getAttribute("data-value") || option.textContent,
-      label: option.textContent, element: option }));
-    choice = matchChoice(choices, value);
-  }
+    const candidates = [String(value)];
+    if (classify(el) === "location" && String(value).includes(",")) candidates.push(String(value).split(",")[0].trim());
+    for (const query of candidates) {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, query);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      choice = await waitForChoice();
+      if (choice) break;
+    }
+  } else if (!choice) choice = await waitForChoice();
   if (!choice) {
     if (el.tagName === "INPUT") {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, before);
@@ -399,16 +486,31 @@ async function setControl(el, value) {
     return false;
   }
   choice.element.click();
-  return true;
+  await pause(80);
+  return el.tagName !== "INPUT" || Boolean(el.value && el.value !== before);
 }
 
 function valuesFrom(profile) {
   const c = profile.contact || {};
   const x = profile.extra || {};
-  const name = String(c.full_name || "").trim();
+  const name = String(c.full_name || profile.resume?.full_name || profile.resume?.name || "").trim();
   const words = name.split(/\s+/);
   const recent = profile.resume?.experience?.[0] || {};
   const education = profile.resume?.education?.[0] || {};
+  const educationDate = (value) => {
+    const input = String(value || "").trim();
+    const year = input.match(/\b(?:19|20)\d{2}\b/)?.[0] || "";
+    const names = ["January", "February", "March", "April", "May", "June", "July", "August",
+      "September", "October", "November", "December"];
+    const namedMonth = names.find((month) => new RegExp(`\\b${month.slice(0, 3)}`, "i").test(input));
+    const numericMonth = input.match(/(?:^|\D)(\d{1,2})[-/](?:19|20)\d{2}/)?.[1]
+      || input.match(/^(?:19|20)\d{2}[-/](\d{1,2})/)?.[1];
+    return { month: namedMonth || names[Number(numericMonth) - 1] || "", year };
+  };
+  const start = educationDate(education.start_date);
+  const end = educationDate(education.end_date);
+  const field = education.field_of_study || education.major || education.field ||
+    String(education.degree || "").replace(/^(?:b\.?s\.?|b\.?a\.?|m\.?s\.?|m\.?a\.?|bachelor(?:'s)?(?: of \w+)?|master(?:'s)?(?: of \w+)?)\s*(?:in\s+)?/i, "").trim();
   return {
     full_name: name, first_name: words[0] || "", last_name: words.slice(1).join(" "),
     preferred_name: x.preferred_name, pronouns: x.pronouns,
@@ -417,7 +519,9 @@ function valuesFrom(profile) {
     address: x.address, city: x.city, state: x.state, postal_code: x.postal_code,
     country: x.country, phone_country: x.country, work_authorization: x.work_authorization,
     sponsorship: x.sponsorship, relocation: x.relocation, salary: x.salary, availability: x.availability,
-    school: education.school, degree: education.degree,
+    school: education.school, degree: education.degree, field_of_study: field,
+    education_start_month: start.month, education_start_year: start.year,
+    education_end_month: end.month, education_end_year: end.year,
     recent_company: recent.company, recent_role: recent.role,
     veteran: x.veteran, disability: x.disability, gender: x.gender, ethnicity: x.ethnicity,
   };
@@ -473,7 +577,8 @@ async function executeFill(run, payload) {
         discovered++;
         processed.add(el);
         const kind = classify(el);
-        if (kind === "unknown" || kind === "file_unknown" || el.type === "file") {
+        const saved = bank.get(normalize(labelOf(el)));
+        if (((kind === "unknown" || kind === "file_unknown") && !saved) || el.type === "file") {
           if (el.required && el.type !== "file") progressItem(run, idFor(el), displayLabel(el), "review", "Check this field manually");
           continue;
         }
@@ -488,7 +593,7 @@ async function executeFill(run, payload) {
           progressItem(run, key, label, "done", "Already completed");
           continue;
         }
-        const answer = kind === "question" ? bank.get(normalize(labelOf(el))) : values[kind];
+        const answer = saved || values[kind];
         if (!answer) {
           if (kind !== "question" && el.required) progressItem(run, key, label, "review", "No profile answer available");
           continue;
@@ -518,12 +623,26 @@ async function executeFill(run, payload) {
         const generated = await backgroundMessage({ type: "GENERATE_ANSWER", question: {
           prompt: question.label, ...payload.job,
           word_limit: question.maxLength ? Math.max(20, Math.min(1000, Math.floor(question.maxLength / 6))) : null,
+          character_limit: question.maxLength,
         } });
         if (run.cancelled) break;
         if (!generated?.ok) throw new Error(generated?.error || "Answer generation failed");
+        if (typeof generated.content !== "string" ||
+          (generated.content.length >= 100 && !/[.!?…]["')\]]*$/.test(generated.content.trim()))) {
+          throw new Error("Draft appears incomplete; review this answer manually");
+        }
         if (question.maxLength && generated.content.length > question.maxLength) throw new Error("Draft exceeds the field limit");
         const el = findField(key);
-        if (!el || !(await setControl(el, generated.content))) throw new Error("The field rejected the draft");
+        if (!el) throw new Error("The field is no longer available");
+        if (!(await setControl(el, generated.content))) {
+          if (el.value || el.textContent?.trim()) clearTextControl(el);
+          throw new Error("The field rejected the draft");
+        }
+        await pause(150);
+        if ((el.value ?? el.textContent) !== generated.content.trim()) {
+          clearTextControl(el);
+          throw new Error("The page shortened the draft; review this answer manually");
+        }
         run.added++;
         progressItem(run, key, question.label, "done", "Drafted answer added");
       } catch (error) { progressItem(run, key, question.label, "review", error.message); }
@@ -557,7 +676,8 @@ function normalize(text) {
 
 function fileTarget(kind) {
   const files = controls().filter((el) => el.type === "file");
-  return files.find((el) => classify(el) === kind)
+  return files.find((el) => classify(el) === kind && el.required)
+    || files.find((el) => classify(el) === kind)
     || (kind === "resume" && files.length === 1 && classify(files[0]) === "file_unknown" ? files[0] : null);
 }
 

@@ -277,7 +277,8 @@ def delete_session(sid: int, user: User = Depends(require_user)) -> dict:
 _DEFAULT_TITLES = {"chat": "New chat", "interview": "New interview"}
 
 
-def _run_chain(user: User, sys_prompt: str, user_prompt: str, *, task: str) -> str:
+def _run_chain(user: User, sys_prompt: str, user_prompt: str, *, task: str,
+               max_tokens: int = 1200) -> str:
     """Call the per-task provider chain and return a non-empty reply.
 
     Shared by the chat, interview-kickoff, and essay flows. ``task`` selects
@@ -302,7 +303,7 @@ def _run_chain(user: User, sys_prompt: str, user_prompt: str, *, task: str) -> s
     try:
         reply = try_chain(
             chain,
-            lambda p: p.text_call(sys_prompt, user_prompt, max_tokens=1200),
+            lambda p: p.text_call(sys_prompt, user_prompt, max_tokens=max_tokens),
             any_error=True,
             task_name=task,
         )

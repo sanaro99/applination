@@ -1,7 +1,10 @@
 """Ops & insight endpoints: provider connectivity tests + run comparison."""
 from __future__ import annotations
 import logging
+import re
 import time
+
+import requests
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -29,6 +32,7 @@ class ProviderInfo(BaseModel):
     model: str
     configured: bool
     role: str  # "primary" | "fallback" | "available"
+    account_id: str = ""
 
 
 @router.get("/providers", response_model=list[ProviderInfo])
@@ -61,11 +65,96 @@ def list_providers(
             model=str(block.get("model", "")),
             configured=configured,
             role=role,
+            account_id=str(block.get("account_id", "")) if name == "cloudflare" else "",
         ))
     # primary first, then fallbacks in order, then the rest
     order = {"primary": 0, "fallback": 1, "available": 2}
     out.sort(key=lambda p: (order[p.role], p.name))
     return out
+
+
+class ProviderConfigurationBody(BaseModel):
+    model: str
+    api_key: str | None = None
+    account_id: str | None = None
+
+
+class ProviderModelsBody(BaseModel):
+    api_key: str | None = None
+    account_id: str | None = None
+
+
+def _account_id(value: str) -> str:
+    account_id = value.strip()
+    if not re.fullmatch(r"[a-fA-F0-9]{32}", account_id):
+        raise HTTPException(400, "Cloudflare account ID must be 32 hexadecimal characters")
+    return account_id
+
+
+@router.put("/providers/{name}/configuration")
+def put_provider_configuration(
+    name: str, body: ProviderConfigurationBody, user: User = Depends(require_user)
+) -> dict:
+    name = _validate_provider(name)
+    model = body.model.strip()
+    if not model or len(model) > 200 or any(ch.isspace() or ord(ch) < 32 for ch in model):
+        raise HTTPException(400, "model must be a single model ID of at most 200 characters")
+    if body.api_key is not None and len(body.api_key) > 4096:
+        raise HTTPException(400, "API key is too long")
+    if name == "ollama" and body.api_key:
+        raise HTTPException(400, "Ollama does not use an API key")
+    if body.account_id is not None and name != "cloudflare":
+        raise HTTPException(400, "account ID is only used by Cloudflare")
+    account_id = _account_id(body.account_id) if body.account_id is not None else None
+
+    def _mutate(llm: dict) -> None:
+        block = llm.get(name)
+        if not isinstance(block, dict):
+            block = {}
+            llm[name] = block
+        block["model"] = model
+        if body.api_key and body.api_key.strip():
+            block["api_token" if name == "cloudflare" else "api_key"] = body.api_key.strip()
+        if account_id is not None:
+            block["account_id"] = account_id
+
+    # update_llm_config moves a submitted key to encrypted UserSecret storage.
+    # An omitted/blank key leaves the currently stored credential in place.
+    update_llm_config(user, _mutate)
+    return {"ok": True}
+
+
+@router.post("/providers/{name}/models")
+@limiter.limit(LLM_LIMIT)
+def list_provider_models(
+    request: Request, name: str, body: ProviderModelsBody,
+    user: User = Depends(require_user),
+) -> dict:
+    name = _validate_provider(name)
+    block = (load_config(user).get("llm") or {}).get(name) or {}
+    key = (body.api_key or "").strip() or str(
+        block.get("api_token" if name == "cloudflare" else "api_key") or ""
+    ).strip()
+    if not key and name != "ollama":
+        raise HTTPException(400, "Enter an API key to load this provider's models")
+    if len(key) > 4096 or any(ord(ch) < 32 for ch in key):
+        raise HTTPException(400, "Invalid API key")
+    account_id = (body.account_id or block.get("account_id") or "") if name == "cloudflare" else ""
+    if name == "cloudflare":
+        account_id = _account_id(account_id)
+
+    from .provider_models import discover_models
+    try:
+        return {"models": discover_models(
+            name, key, account_id=account_id,
+            base_url=str(block.get("base_url") or "") if name == "ollama" else "",
+        )}
+    except (requests.RequestException, ValueError) as exc:
+        # Do not send upstream error bodies back: vendors may echo credentials.
+        log.warning("model discovery failed for %s: %s", name, type(exc).__name__)
+        status = exc.response.status_code if isinstance(exc, requests.HTTPError) and exc.response is not None else None
+        detail = f"Could not load {name} models" + (f" (HTTP {status})" if status else "")
+        raise HTTPException(502, detail) from exc
 
 
 class TestBody(BaseModel):

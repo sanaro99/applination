@@ -175,8 +175,11 @@ def dispatch_due_scheduled_runs() -> None:
             .where(Run.status == RunStatus.scheduled, Run.scheduled_for <= now)
             .order_by(Run.scheduled_for)
         ).all()
-        # Detached copies: the session closes before dispatch.
-        ordered = _round_robin([Run(**r.model_dump()) for r in due])
+        # The session closes before dispatch. Keep the loaded rows and their
+        # persisted IDs instead of rebuilding them through model_dump().
+        for run in due:
+            s.expunge(run)
+        ordered = _round_robin(due)
 
     # Tracked in-loop as well as in the DB. A run claimed a moment ago is
     # already `queued` and so is counted by _active_run_count(), but re-querying
@@ -200,7 +203,8 @@ def dispatch_due_scheduled_runs() -> None:
             s.add(run)
             s.commit()
             s.refresh(run)
-            thread_run = Run(**run.model_dump())
+            s.expunge(run)
+            thread_run = run
         started_per_user[uid] = started_per_user.get(uid, 0) + 1
         log.info(
             "dispatching scheduled run %d for user %d (was due %s)",
@@ -521,8 +525,9 @@ def start_run(
         s.commit()
         s.refresh(run)
         out = _run_to_out(run)
-        # Detached copy so the worker thread can read fields after the session closes.
-        thread_run = Run(**run.model_dump())
+        # The worker reads this persisted row after the session closes.
+        s.expunge(run)
+        thread_run = run
 
     if is_scheduled:
         log.info("run %d scheduled for %s UTC (max_jobs=%s)", out.id, sched, max_jobs)

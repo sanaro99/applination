@@ -747,6 +747,8 @@ def test_authenticated_dashboard_keeps_the_persisted_user_id(app_env, monkeypatc
         assert me.json()["id"] == account["id"]
         strength = client.get("/api/profile/strength")
         assert strength.status_code == 200, strength.text
+        assert client.get("/api/reminders/status").status_code == 200
+        assert client.get("/api/reminders/calendar-feed").status_code == 200
         from server.cli import resolve_user as resolve_cli_user
 
         assert resolve_cli_user("persistent-id@example.com").id == account["id"]

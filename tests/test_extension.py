@@ -67,6 +67,23 @@ def test_pairing_and_scoped_access(tmp_path, monkeypatch):
         assert generated.status_code == 200, generated.text
         assert generated.json() == {"content": "A grounded draft"}
 
+        calls = []
+        incomplete = ("I built a reliable data pipeline and learned how to connect the work "
+                      "to the needs of the people using it. " * 3) + "The result was"
+        def draft_with_retry(_user, _system, _prompt, *, task, max_tokens=1200):
+            calls.append(max_tokens)
+            return incomplete if len(calls) == 1 else "I built a reliable data pipeline and improved its accuracy."
+        monkeypatch.setattr(chat, "_run_chain", draft_with_retry)
+        completed = anonymous.post("/api/extension/data/generate-answer", headers=headers,
+                                   json={"prompt": "What did you build?", "company": "Acme", "title": "Engineer"})
+        assert completed.status_code == 200, completed.text
+        assert completed.json()["content"] == "I built a reliable data pipeline and improved its accuracy."
+        assert len(calls) == 2 and calls[1] > calls[0]
+        monkeypatch.setattr(chat, "_run_chain", lambda *_args, **_kwargs: incomplete)
+        still_partial = anonymous.post("/api/extension/data/generate-answer", headers=headers,
+                                       json={"prompt": "What did you build?", "company": "Acme"})
+        assert still_partial.status_code == 502
+
         payload = {"url": "https://boards.example/jobs/123?posting=abc#apply", "company": "Acme", "title": "Engineer"}
         first = anonymous.post("/api/extension/data/track", headers=headers, json=payload).json()
         assert first["status"] == "generated"

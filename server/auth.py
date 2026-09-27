@@ -25,6 +25,7 @@ from sqlmodel import select
 
 from .db import User, UserSession, session
 from .limits import LOGIN_LIMIT, SIGNUP_LIMIT, limiter
+from .time_utils import as_utc, utc_now
 
 log = logging.getLogger("server.auth")
 
@@ -81,7 +82,7 @@ def create_session(s, user_id: int) -> str:
     s.add(UserSession(
         token_hash=_hash_token(token),
         user_id=user_id,
-        expires_at=datetime.utcnow() + SESSION_TTL,
+        expires_at=utc_now() + SESSION_TTL,
     ))
     s.commit()
     return token
@@ -142,15 +143,15 @@ def resolve_user(request: Request) -> User | None:
         row = s.get(UserSession, _hash_token(token))
         if row is None:
             return None
-        now = datetime.utcnow()
-        if row.expires_at <= now:
+        now = utc_now()
+        if as_utc(row.expires_at) <= now:
             s.delete(row)
             s.commit()
             return None
         user = s.get(User, row.user_id)
         if user is None or user.disabled:
             return None
-        if now - row.last_seen_at > _LAST_SEEN_INTERVAL:
+        if now - as_utc(row.last_seen_at) > _LAST_SEEN_INTERVAL:
             row.last_seen_at = now
             s.add(row)
             s.commit()

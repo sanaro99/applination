@@ -26,6 +26,7 @@ from .db import (
 from .deps import load_config, paths_for
 from .events import bus, sse_format
 from .scoping import get_owned, owned
+from .time_utils import utc_now
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 log = logging.getLogger("server.runs")
@@ -163,7 +164,7 @@ def dispatch_due_scheduled_runs() -> None:
     """
     if _active_run_count() >= MAX_CONCURRENT_RUNS:
         return
-    now = datetime.utcnow()
+    now = utc_now()
     with session() as s:
         # noscope: the scheduler runs outside any request and must dispatch
         # every user's due runs, so there is no caller to scope to. Ownership

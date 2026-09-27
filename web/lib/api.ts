@@ -426,6 +426,16 @@ export const api = {
   getStats: () => http<StatsResponse>("/api/stats"),
 
   listProviders: () => http<ProviderInfo[]>("/api/providers"),
+  listProviderModels: (provider: string, body: { api_key?: string; account_id?: string }) =>
+    http<{ models: string[] }>(`/api/providers/${encodeURIComponent(provider)}/models`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  configureProvider: (provider: string, body: { model: string; api_key?: string; account_id?: string }) =>
+    http<{ ok: boolean }>(`/api/providers/${encodeURIComponent(provider)}/configuration`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   testProvider: (provider: string) =>
     http<ProviderTestResult>("/api/providers/test", {
       method: "POST",

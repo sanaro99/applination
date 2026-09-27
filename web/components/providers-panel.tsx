@@ -1,15 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, XCircle, Zap } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2, Loader2, Settings2, XCircle, Zap } from "lucide-react";
+import { toast } from "sonner";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
-import type { ProviderTestResult } from "@/lib/types";
+import type { ProviderInfo, ProviderTestResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function ProvidersPanel() {
@@ -19,6 +23,7 @@ export function ProvidersPanel() {
   });
   const [results, setResults] = useState<Record<string, ProviderTestResult>>({});
   const [testing, setTesting] = useState<string | null>(null);
+  const [editing, setEditing] = useState<ProviderInfo | null>(null);
 
   const test = useMutation({
     mutationFn: (provider: string) => api.testProvider(provider),
@@ -101,6 +106,9 @@ export function ProvidersPanel() {
                   ) : null}
                   Test
                 </Button>
+                <Button size="sm" variant="outline" onClick={() => setEditing(p)}>
+                  <Settings2 className="size-3.5" /> Configure
+                </Button>
               </div>
             );
           })
@@ -109,6 +117,174 @@ export function ProvidersPanel() {
           A test makes one tiny real API call to check connectivity and latency.
         </p>
       </CardContent>
+      <Dialog open={editing !== null} onOpenChange={(open) => { if (!open) setEditing(null); }}>
+        {editing && (
+          <DialogContent className="sm:max-w-lg">
+            <ProviderConfiguration
+              key={editing.name}
+              provider={editing}
+              onSaved={() => {
+                setResults((prev) => {
+                  const next = { ...prev };
+                  delete next[editing.name];
+                  return next;
+                });
+                setEditing(null);
+              }}
+            />
+          </DialogContent>
+        )}
+      </Dialog>
     </Card>
+  );
+}
+
+function ProviderConfiguration({ provider, onSaved }: {
+  provider: ProviderInfo;
+  onSaved: () => void;
+}) {
+  const qc = useQueryClient();
+  const [model, setModel] = useState(provider.model);
+  const [apiKey, setApiKey] = useState("");
+  const [accountId, setAccountId] = useState(provider.account_id || "");
+  const [models, setModels] = useState<string[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [manual, setManual] = useState(false);
+  const isOllama = provider.name === "ollama";
+  const isCloudflare = provider.name === "cloudflare";
+
+  const discover = useMutation({
+    mutationFn: () => api.listProviderModels(provider.name, {
+      api_key: apiKey.trim() || undefined,
+      account_id: isCloudflare ? accountId.trim() : undefined,
+    }),
+    onSuccess: ({ models }) => {
+      setModels(models);
+      setLoaded(true);
+    },
+  });
+  const save = useMutation({
+    mutationFn: () => api.configureProvider(provider.name, {
+      model: model.trim(),
+      api_key: apiKey.trim() || undefined,
+      account_id: isCloudflare ? accountId.trim() : undefined,
+    }),
+    onSuccess: () => {
+      void Promise.all([
+        qc.invalidateQueries({ queryKey: ["providers"] }),
+        qc.invalidateQueries({ queryKey: ["llm-config"] }),
+        qc.invalidateQueries({ queryKey: ["secrets"] }),
+        qc.invalidateQueries({ queryKey: ["config"] }),
+      ]);
+      toast.success(`${provider.name} configuration saved`);
+      onSaved();
+    },
+  });
+  const options = model && !models.includes(model) ? [model, ...models] : models;
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle className="capitalize">Configure {provider.name}</DialogTitle>
+        <DialogDescription>
+          {isOllama
+            ? "Choose the local model used for Ollama."
+            : "Choose the model used for this provider. A new key replaces the stored key; leave it blank to keep the current one."}
+        </DialogDescription>
+      </DialogHeader>
+      <div className="space-y-4">
+        {!isOllama && (
+          <div className="space-y-1.5">
+            <Label htmlFor="provider-api-key">{isCloudflare ? "API token" : "API key"}</Label>
+            <Input
+              id="provider-api-key"
+              type="password"
+              autoComplete="off"
+              value={apiKey}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                setLoaded(false);
+                setModels([]);
+              }}
+              placeholder={provider.configured ? "Stored key (enter a new one to replace it)" : "Paste your key"}
+            />
+          </div>
+        )}
+        {isCloudflare && (
+          <div className="space-y-1.5">
+            <Label htmlFor="provider-account-id">Account ID</Label>
+            <Input
+              id="provider-account-id"
+              value={accountId}
+              onChange={(e) => {
+                setAccountId(e.target.value);
+                setLoaded(false);
+                setModels([]);
+              }}
+              placeholder="Cloudflare account ID"
+            />
+          </div>
+        )}
+        <div className="space-y-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={discover.isPending || (!isOllama && !apiKey.trim() && !provider.configured)}
+            onClick={() => discover.mutate()}
+          >
+            {discover.isPending && <Loader2 className="size-3.5 animate-spin" />}
+            Load available models
+          </Button>
+          {discover.isError && <p className="text-xs text-destructive">{String(discover.error)}</p>}
+          {loaded && models.length === 0 && (
+            <p className="text-xs text-muted-foreground">This provider returned no model IDs. Enter the model ID below.</p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="provider-model">Model ID</Label>
+          {models.length > 0 && !manual ? (
+            <select
+              id="provider-model"
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+            >
+              {!model && <option value="">Select a model</option>}
+              {options.map((id) => <option key={id} value={id}>{id}</option>)}
+            </select>
+          ) : (
+            <Input
+              id="provider-model"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="Enter the exact provider model ID"
+            />
+          )}
+          {models.length > 0 && (
+            <button
+              type="button"
+              className="text-xs text-primary underline-offset-4 hover:underline"
+              onClick={() => setManual((value) => !value)}
+            >
+              {manual ? "Choose from the list" : "Enter a different model ID"}
+            </button>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Models are fetched from the provider. Test your selection after saving; some listed models may not support this app’s requests.
+          </p>
+        </div>
+      </div>
+      {save.isError && <p className="text-xs text-destructive">{String(save.error)}</p>}
+      <DialogFooter>
+        <Button
+          disabled={save.isPending || !model.trim() || (isCloudflare && !accountId.trim())}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending && <Loader2 className="size-3.5 animate-spin" />}
+          Save configuration
+        </Button>
+      </DialogFooter>
+    </>
   );
 }

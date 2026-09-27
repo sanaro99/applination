@@ -150,6 +150,7 @@ export interface ProviderInfo {
   model: string;
   configured: boolean;
   role: "primary" | "fallback" | "available";
+  account_id: string;
 }
 
 export interface TaskRouting {

@@ -44,3 +44,59 @@ test("tracks only after an armed submission is confirmed", async () => {
   assert.equal((await send({ type: "APPLICATION_CONFIRMED" })).ok, false);
   assert.equal(requests.length, 1);
 });
+
+test("drafts answers and streams generated documents through the trusted background", async () => {
+  const local = { appUrl: "https://applination.example", token: "test-token" };
+  const requests = [];
+  const pageMessages = [];
+  let listener;
+  const chrome = {
+    storage: {
+      local: {
+        setAccessLevel: async () => {},
+        get: async () => local,
+      },
+    },
+    runtime: { onMessage: { addListener: (fn) => { listener = fn; } } },
+    tabs: {
+      sendMessage: async (tabId, message) => {
+        pageMessages.push({ tabId, message });
+        return { ok: true };
+      },
+      onRemoved: { addListener: () => {} },
+    },
+  };
+  const fetch = async (url, options) => {
+    requests.push({ url, options });
+    if (url.endsWith("/generate-answer")) return {
+      ok: true, json: async () => ({ content: "A specific answer" }),
+    };
+    return {
+      ok: true,
+      headers: { get: (key) => ({
+        "content-disposition": 'attachment; filename="tailored.pdf"',
+        "content-type": "application/pdf",
+      })[key] },
+      arrayBuffer: async () => Uint8Array.from([37, 80, 68, 70]).buffer,
+    };
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "background.js"), "utf8"),
+    { chrome, fetch, Date, Error });
+  const send = (message) => new Promise((resolve) => listener(message, { tab: { id: 7 } }, resolve));
+  const answer = await send({ type: "GENERATE_ANSWER", question: { prompt: "Why this role?" } });
+  assert.equal(answer.content, "A specific answer");
+  assert.equal(requests[0].options.headers.Authorization, "Bearer test-token");
+  assert.equal(JSON.parse(requests[0].options.body).prompt, "Why this role?");
+
+  const attached = await send({ type: "ATTACH_DOCUMENT", documentId: "app:12:resume", kind: "resume" });
+  assert.equal(attached.filename, "tailored.pdf");
+  assert.equal(requests[1].options.headers.Authorization, "Bearer test-token");
+  assert.deepEqual(pageMessages.map(({ message }) => message.type),
+    ["UPLOAD_START", "UPLOAD_CHUNK", "UPLOAD_COMMIT"]);
+  assert.deepEqual(Array.from(pageMessages[1].message.bytes), [37, 80, 68, 70]);
+  assert.ok(pageMessages.every(({ tabId }) => tabId === 7));
+
+  const invalid = await send({ type: "ATTACH_DOCUMENT", documentId: "app:12:cover", kind: "resume" });
+  assert.equal(invalid.ok, false);
+  assert.equal(requests.length, 2);
+});

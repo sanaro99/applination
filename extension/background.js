@@ -6,6 +6,41 @@ async function settings() {
   return chrome.storage.local.get({ appUrl: "https://applination.sanchitarora.me", token: "" });
 }
 
+async function extensionRequest(path, options = {}) {
+  const { appUrl, token } = await settings();
+  if (!token) throw new Error("Connect Applination before filling this page");
+  const response = await fetch(`${appUrl}${path}`, {
+    ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail.detail || `Applination request failed (${response.status})`);
+  }
+  return response;
+}
+
+async function attachDocument(tabId, documentId, kind) {
+  if (!/^app:\d+:(resume|cover)$/.test(documentId) || !documentId.endsWith(`:${kind}`)) {
+    throw new Error("Invalid generated document");
+  }
+  const response = await extensionRequest(`/api/extension/data/documents/${encodeURIComponent(documentId)}`);
+  const disposition = response.headers.get("content-disposition") || "";
+  const match = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
+  const name = match ? decodeURIComponent(match[1].replace(/^"|"$/g, "")) : `${kind}.pdf`;
+  const buffer = new Uint8Array(await response.arrayBuffer());
+  const send = async (message) => {
+    const result = await chrome.tabs.sendMessage(tabId, message);
+    if (!result?.ok) throw new Error(result?.error || "The page rejected the upload");
+    return result;
+  };
+  await send({ type: "UPLOAD_START", kind, name, mime: response.headers.get("content-type") || "application/pdf" });
+  for (let offset = 0; offset < buffer.length; offset += 128 * 1024) {
+    await send({ type: "UPLOAD_CHUNK", bytes: Array.from(buffer.slice(offset, offset + 128 * 1024)) });
+  }
+  await send({ type: "UPLOAD_COMMIT" });
+  return name;
+}
+
 async function track(job) {
   const { appUrl, token } = await settings();
   if (!token) return false;
@@ -22,6 +57,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     const tabId = sender.tab?.id;
     if (tabId == null) return { ok: false };
+    if (message.type === "GENERATE_ANSWER") {
+      const response = await extensionRequest("/api/extension/data/generate-answer", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(message.question),
+      });
+      const data = await response.json();
+      return { ok: true, content: data.content };
+    }
+    if (message.type === "ATTACH_DOCUMENT") {
+      return { ok: true, filename: await attachDocument(tabId, message.documentId, message.kind) };
+    }
     if (message.type === "ARM_APPLICATION") {
       await chrome.storage.session.set({ [`armed:${tabId}`]: { job: message.job, at: Date.now() } });
       return { ok: true };

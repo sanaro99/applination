@@ -11,6 +11,7 @@ import { GmailConnectCard } from "@/components/gmail-connect-card";
 import { StoredSecretsCard } from "@/components/stored-secrets-card";
 import { ConfigForm } from "@/components/config/config-form";
 import { DeploymentVersion } from "@/components/deployment-version";
+import { LocalOllamaSetup } from "@/components/local-ollama-setup";
 import { api } from "@/lib/api";
 
 export default function ConfigPage() {
@@ -19,6 +20,7 @@ export default function ConfigPage() {
       <div id="tour-providers">
         <ProvidersPanel />
       </div>
+      <LocalOllamaSetup />
       <StoredSecretsCard />
       <GmailConnectCard />
       <Card>

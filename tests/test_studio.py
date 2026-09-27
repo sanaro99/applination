@@ -56,11 +56,11 @@ def client(tmp_path, monkeypatch):
     shutil.copy(EXAMPLE_CONFIG_PATH, owner_paths.config_path)
 
     fake = _FakeProvider()
-    monkeypatch.setattr(providers, "get_provider_chain", lambda cfg: [fake])
+    monkeypatch.setattr(providers, "get_provider_chain", lambda cfg, **kwargs: [fake])
     monkeypatch.setattr(providers, "get_provider", lambda name, cfg, **k: fake)
     # Return no task chains so callers fall back to the (faked) global chain —
     # keeps tests offline instead of building real providers from config.
-    monkeypatch.setattr(providers, "get_task_chains", lambda cfg: {})
+    monkeypatch.setattr(providers, "get_task_chains", lambda cfg, **kwargs: {})
 
     from server.app import app
 

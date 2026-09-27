@@ -44,6 +44,12 @@ from .extension import (
     require_extension_user,
     resolve_extension_user,
 )
+from .local_ollama import (
+    site_router as local_ollama_site_router,
+    worker_router as local_ollama_worker_router,
+    require_worker_user,
+    resolve_worker_user,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -144,6 +150,14 @@ def create_app() -> FastAPI:
             request.state.user_id = user.id
             return await call_next(request)
 
+        if path.startswith("/api/local-ollama/worker/"):
+            user = resolve_worker_user(request)
+            if user is None:
+                return JSONResponse({"detail": "local Ollama worker is not connected"}, status_code=401)
+            request.state.local_worker_user = user
+            request.state.user_id = user.id
+            return await call_next(request)
+
         user = resolve_user(request)
         if user is None:
             return JSONResponse({"detail": "not authenticated"}, status_code=401)
@@ -196,6 +210,7 @@ def create_app() -> FastAPI:
     app.include_router(extension_pair_router)
     app.include_router(extension_data_router, dependencies=[Depends(require_extension_user)])
     app.include_router(extension_download_router, dependencies=[Depends(require_user)])
+    app.include_router(local_ollama_worker_router, dependencies=[Depends(require_worker_user)])
 
     # Also mounted without require_user, for the same reason auth is: the
     # calendar feed authenticates with a signed token instead of a session. It
@@ -224,6 +239,7 @@ def create_app() -> FastAPI:
         inbox_router,
         reminders_router,
         pricing_router,
+        local_ollama_site_router,
     )
     for r in protected:
         app.include_router(r, dependencies=[Depends(require_user)])
@@ -238,10 +254,12 @@ async def _scheduled_run_poller() -> None:
     the event loop. Scheduled runs persist in the DB, so a restart re-arms them.
     """
     from .runs import dispatch_due_scheduled_runs
+    from .local_ollama import cleanup_stale_tasks
 
     while True:
         try:
             await asyncio.to_thread(dispatch_due_scheduled_runs)
+            await asyncio.to_thread(cleanup_stale_tasks)
         except asyncio.CancelledError:
             raise
         except Exception:

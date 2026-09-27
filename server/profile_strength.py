@@ -123,12 +123,9 @@ def contact_ok(cfg: dict) -> bool:
 def _ollama_chosen(llm: dict) -> bool:
     """True when Ollama is the provider this user actually picked.
 
-    ``base_url`` alone proves nothing: the template ships localhost:11434 for
-    everyone, installed or not. Selecting it — as primary or as a fallback — is
-    the deliberate act, and it is what ``PUT /api/onboarding/provider`` records.
+    Selecting Ollama as primary or fallback is the deliberate act. The hosted
+    worker transport does not need a ``base_url`` in the account config.
     """
-    if not str((llm.get("ollama") or {}).get("base_url") or "").strip():
-        return False
     if str(llm.get("primary") or "").strip().lower() == "ollama":
         return True
     return any(
@@ -151,6 +148,13 @@ def provider_ready(llm: dict, user_id: int) -> bool:
     """
     from src.providers import env_api_keys_allowed
 
+    if str(llm.get("primary") or "").lower() == "ollama" and not (llm.get("fallbacks") or []) and not (llm.get("tasks") or {}):
+        block = llm.get("ollama") or {}
+        if block.get("transport") == "direct":
+            return True
+        from .local_ollama import worker_online
+        return worker_online(user_id)
+
     allow_env = env_api_keys_allowed()
     for name, env in _PROVIDER_ENV.items():
         block = llm.get(name) or {}
@@ -160,7 +164,12 @@ def provider_ready(llm: dict, user_id: int) -> bool:
         if allow_env and os.environ.get(env):
             return True
     if _ollama_chosen(llm):
-        return True
+        block = llm.get("ollama") or {}
+        if block.get("transport") == "direct":
+            return True
+        from .local_ollama import worker_online
+        if worker_online(user_id):
+            return True
     stored = set(secret_names(user_id))
     return any(
         p in stored for p in SECRET_PATHS

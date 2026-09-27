@@ -8,6 +8,7 @@ bio/stories reuses studio.py.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from functools import lru_cache
 
@@ -222,8 +223,18 @@ def set_provider(
             block["model"] = body.model
         if body.base_url:
             block["base_url"] = body.base_url
+        if name == "ollama":
+            # Hosted requests must travel outward to the user's local worker.
+            block["transport"] = "worker"
         if body.make_primary:
             llm["primary"] = name
+            if name == "ollama":
+                # New accounts inherit cloud per-task defaults from the template.
+                # Choosing local inference must apply to every workflow, not
+                # just the global chain, and must not silently fail over to an
+                # AI company if the worker is offline.
+                llm["fallbacks"] = []
+                llm["tasks"] = {}
     # update_config diverts block["api_key"] into encrypted UserSecret storage
     # and writes the file with it blanked — the wizard does not have to know.
     update_config(user, mut)
@@ -317,7 +328,7 @@ async def resume_import(
         raise HTTPException(400, "no file uploaded")
     data = await file.read()
     text = _extract_text(file.filename or "resume", data)
-    return _do_import(user, text, None)
+    return await asyncio.to_thread(_do_import, user, text, None)
 
 
 @router.post("/resume-import-text")

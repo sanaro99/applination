@@ -23,6 +23,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, type EnrichStep, type ProviderSetup } from "@/lib/api";
+import { LocalOllamaSetup } from "@/components/local-ollama-setup";
 import { SAMPLE } from "@/lib/sample-data";
 import { cn } from "@/lib/utils";
 
@@ -62,6 +63,7 @@ export function ChapterIgnition({ onBack }: { onBack: () => void }) {
   });
   const [providerId, setProviderId] = useState("deepseek");
   const [apiKey, setApiKey] = useState("");
+  const [ollamaReady, setOllamaReady] = useState(false);
   const [cascade, setCascade] = useState<EnrichStep[] | null>(null);
 
   const { data } = useQuery({
@@ -82,8 +84,6 @@ export function ChapterIgnition({ onBack }: { onBack: () => void }) {
           provider: chosen.id,
           api_key: apiKey.trim(),
           model: chosen.model,
-          base_url:
-            chosen.id === "ollama" ? "http://localhost:11434" : undefined,
           make_primary: true,
         });
       }
@@ -119,6 +119,10 @@ export function ChapterIgnition({ onBack }: { onBack: () => void }) {
       heading="Last thing."
       onBack={onBack}
       onNext={() => {
+        if (providerId === "ollama" && !ollamaReady) {
+          toast.error("Start the Ollama worker on your computer before finishing setup.");
+          return;
+        }
         if (keyProblem && apiKey.trim()) {
           toast.error(keyProblem);
           return;
@@ -229,6 +233,9 @@ export function ChapterIgnition({ onBack }: { onBack: () => void }) {
                   </div>
                 ) : null}
                 <p className="text-xs text-muted-foreground">{p.cost_note}</p>
+                {p.id === "ollama" ? (
+                  <LocalOllamaSetup compact onReadyChange={setOllamaReady} />
+                ) : null}
                 {p.stale ? (
                   <p className="text-xs text-muted-foreground">
                     These steps were checked on {p.verified_on} and may have

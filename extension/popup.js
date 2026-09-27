@@ -194,12 +194,19 @@ async function pollFillProgress() {
 async function loadWorkspace() {
   $("connect").hidden = true;
   $("workspace").hidden = false;
-  const [profileResult, answerResult] = await Promise.all([
+  const [profileResult, answerResult, ollamaResult] = await Promise.all([
     request("/api/extension/data/profile"), request("/api/extension/data/answers"),
+    request("/api/extension/data/local-ollama"),
   ]);
   profile = profileResult.data;
   answers = answerResult.data;
   $("account").textContent = profile.account;
+  $("ollama-connection").hidden = !ollamaResult.data.selected;
+  if (ollamaResult.data.selected) {
+    $("ollama-connection-text").textContent = ollamaResult.data.online
+      ? "Your Ollama worker is online. AI requests can run on your computer."
+      : "Your Ollama worker is offline. Start it on your computer to use local models.";
+  }
   await scanPage();
 }
 
@@ -291,6 +298,7 @@ $("open-application").onclick = () => {
   if (generation?.applicationId) chrome.tabs.create({ url: `${appUrl}/applications/${generation.applicationId}` });
 };
 $("edit-profile").onclick = () => chrome.tabs.create({ url: `${appUrl}/application-profile` });
+$("open-ollama-settings").onclick = () => chrome.tabs.create({ url: `${appUrl}/config` });
 $("mark-applied").onclick = async () => {
   try {
     const { data } = await request("/api/extension/data/track", {

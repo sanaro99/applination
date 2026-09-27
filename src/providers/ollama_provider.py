@@ -8,6 +8,7 @@ Install Ollama from https://ollama.com and pull a model:
 from __future__ import annotations
 import json
 import logging
+from typing import Callable
 
 import requests
 
@@ -72,3 +73,18 @@ class OllamaProvider(LLMProvider):
             return super().json_call(system, user, max_tokens, schema=schema)
         raw = self._chat(system, user, format_json=True, max_tokens=max_tokens)
         return _parse_json(raw)
+
+
+class RelayOllamaProvider(OllamaProvider):
+    """Same Ollama behavior, with inference dispatched to the account's worker."""
+
+    def __init__(self, model: str, user_id: int, dispatch: Callable[..., str]):
+        super().__init__(base_url="local-worker", model=model)
+        self.user_id = user_id
+        self.dispatch = dispatch
+
+    def _chat(self, system: str, user: str, format_json: bool, max_tokens: int) -> str:
+        return self.dispatch(
+            self.user_id, model=self.model, system=system, user=user,
+            max_tokens=max_tokens, format_json=format_json,
+        )

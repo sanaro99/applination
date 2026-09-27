@@ -48,6 +48,9 @@ def list_providers(
             continue
         has_key = bool(block.get("api_token" if name == "cloudflare" else "api_key"))
         configured = has_key or name in LOCAL_PROVIDERS
+        if name == "ollama" and block.get("transport") != "direct":
+            from .local_ollama import worker_online
+            configured = worker_online(user.id)
         role = (
             "primary" if name == primary
             else "fallback" if name in fallbacks
@@ -96,7 +99,7 @@ def test_provider(
     from src.providers import get_provider
 
     try:
-        provider = get_provider(name, llm)
+        provider = get_provider(name, llm, user_id=user.id)
     except Exception as e:
         return TestResult(ok=False, provider=name, model=model,
                           error=f"could not build provider: {e}")

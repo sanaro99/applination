@@ -60,6 +60,7 @@ function Connect() {
           <CardContent className="space-y-5">
             <p>Download the current test version and install it in Chrome. You only need to do this once on each computer. Download a new ZIP when a newer version is available.</p>
             <a className={buttonVariants()} href="/api/extension/download" download>Download extension ZIP</a>
+            <p className="text-sm text-muted-foreground">The extension uses the model choices in <a className="underline" href="/workflows">Workflows</a> for resumes and drafted answers. To run those requests on your computer, choose Ollama there and connect your worker in <a className="underline" href="/config">Config</a>.</p>
             <ol className="list-decimal space-y-2 pl-5">
               <li>Extract the ZIP. Keep the extracted <strong>applination-extension</strong> folder somewhere you will not delete it.</li>
               <li>Open <strong>chrome://extensions</strong> in Chrome and turn on <strong>Developer mode</strong>.</li>

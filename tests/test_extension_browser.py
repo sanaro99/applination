@@ -25,6 +25,15 @@ def test_content_script_fills_and_attaches_in_browser():
               <label for="email">Email</label><input id="email">
               <label for="work">Work authorization</label>
               <select id="work"><option value="">Choose one</option><option>Yes</option><option>No</option></select>
+              <label for="state">State</label><select id="state"><option value="">Choose state</option>
+                <option value="California">California</option><option value="Nevada">Nevada</option></select>
+              <label for="salary">Salary expectation</label><select id="salary"><option value="">Choose salary</option>
+                <option value="100000">100,000</option><option value="150000">150,000</option></select>
+              <label for="relocate"><input id="relocate" type="checkbox">Willing to relocate</label>
+              <label for="dial">Phone country code</label><button id="dial" type="button" role="combobox"
+                onclick="document.querySelector('#dial-options').hidden = false">Choose phone country</button>
+              <div id="dial-options" hidden><div role="option" onclick="document.querySelector('#dial').textContent = 'United States (+1)'; this.parentElement.hidden = true">United States (+1)</div>
+                <div role="option" onclick="document.querySelector('#dial').textContent = 'Canada (+1)'; this.parentElement.hidden = true">Canada (+1)</div></div>
               <fieldset><legend>Will you require sponsorship?</legend>
                 <label><input type="radio" name="sponsor" value="Yes">Yes</label>
                 <label><input type="radio" name="sponsor" value="No">No</label>
@@ -59,18 +68,30 @@ def test_content_script_fills_and_attaches_in_browser():
           window.extensionHandler({
             type: 'AUTOFILL', job: {company: 'Acme', title: 'Software Engineer', url: location.href},
             profile: {contact: {full_name: 'Ada Lovelace', email: 'ada@example.com'},
-                      extra: {work_authorization: 'Yes', sponsorship: 'No'}, resume: {}},
+                      extra: {work_authorization: 'Yes', sponsorship: 'No', state: 'CA',
+                        salary: '120000', relocation: 'Yes', country: 'US'}, resume: {}},
             answers: [{prompt: 'Why this role?', content: 'My relevant work fits this role.'}]
           }, {}, (value) => { response = value; });
           return response;
         }""")
-        assert result["ok"] is True
+        assert result == {"ok": True, "started": True}
+        page.wait_for_function("""() => {
+          let result;
+          window.extensionHandler({type: 'GET_PROGRESS'}, {}, (value) => { result = value; });
+          return result?.started && !result.running;
+        }""")
         assert page.locator("#first").input_value() == "Ada"
         assert page.locator("#last").input_value() == "Lovelace"
         assert page.locator("#email").input_value() == "ada@example.com"
         assert page.locator("#work").input_value() == "Yes"
+        assert page.locator("#state").input_value() == "California"
+        assert page.locator("#salary").input_value() == ""
+        assert page.locator("#relocate").is_checked()
+        assert page.locator("#dial").inner_text() == "United States (+1)"
         assert page.locator('input[name="sponsor"][value="No"]').is_checked()
         assert page.locator("#essay").input_value() == "My relevant work fits this role."
+        assert page.evaluate("document.querySelector('#applination-progress-host').shadowRoot.querySelector('#title').textContent") == "Autofill complete"
+        assert "Salary expectation" in page.evaluate("document.querySelector('#applination-progress-host').shadowRoot.querySelector('#list').textContent")
 
         upload = page.evaluate("""() => {
           let result;
@@ -83,6 +104,54 @@ def test_content_script_fills_and_attaches_in_browser():
         }""")
         assert upload == {"result": {"ok": True, "filename": "Ada_Resume.pdf"},
                           "name": "Ada_Resume.pdf", "size": 8}
+        page.evaluate("""() => {
+          const panel = document.querySelector('#applination-progress-host').shadowRoot;
+          panel.querySelector('#again').click();
+          panel.querySelector('#stop').click();
+        }""")
+        page.wait_for_function("""() => {
+          let result;
+          window.extensionHandler({type: 'GET_PROGRESS'}, {}, (value) => { result = value; });
+          return result?.cancelled && !result.running;
+        }""")
+        browser.close()
+
+
+@pytest.mark.skipif(not CHROME.exists(), reason="Chrome is unavailable")
+def test_greenhouse_embed_uses_board_token_not_embed_as_company():
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=str(CHROME), headless=True)
+        page = browser.new_page()
+        page.route("**/*", lambda route: route.fulfill(status=200, content_type="text/html", body="""
+          <h1>Engineer</h1><main>Job description: Build great software. Responsibilities include design and testing.</main>
+          <form><label>First name<input name="first_name"></label><label>Last name<input name="last_name"></label></form>
+        """))
+        page.goto("https://boards.greenhouse.io/embed/job_app?for=acme&token=123")
+        page.evaluate("""() => { window.chrome = {runtime: {
+          onMessage: {addListener: (handler) => window.extensionHandler = handler},
+          sendMessage: (_message, callback) => callback?.({ok: true})
+        }}; }""")
+        page.add_script_tag(path=str(ROOT / "extension" / "content.js"))
+        company = page.evaluate("""() => {
+          let result;
+          window.extensionHandler({type: 'GET_PAGE'}, {}, (value) => result = value);
+          return result.job.company;
+        }""")
+        assert company == "acme"
+        page.goto("https://boards.greenhouse.io/embed/job_app?token=123")
+        page.evaluate("""() => { window.chrome = {runtime: {
+          onMessage: {addListener: (handler) => window.extensionHandler = handler},
+          sendMessage: (_message, callback) => callback?.({ok: true})
+        }}; }""")
+        page.add_script_tag(path=str(ROOT / "extension" / "content.js"))
+        company_without_board = page.evaluate("""() => {
+          let result;
+          window.extensionHandler({type: 'GET_PAGE'}, {}, (value) => result = value);
+          return result.job.company;
+        }""")
+        assert company_without_board == ""
         browser.close()
 
 
@@ -112,7 +181,8 @@ def test_popup_tailors_only_after_autofill_click():
                     title: 'Software Engineer', description: 'Build great software.'},
                   fields: [{id: '1', kind: 'first_name', required: true},
                     {id: '2', kind: 'resume', required: true}], questions: []};
-                if (message.type === 'AUTOFILL') return {ok: true, filled: ['First name'], questions: []};
+                if (message.type === 'AUTOFILL') return {ok: true, started: true};
+                if (message.type === 'GET_PROGRESS') return {ok: true, started: true, running: false, filled: 1, review: 0};
                 return {ok: true};
               },
               create: async () => {},
@@ -138,5 +208,5 @@ def test_popup_tailors_only_after_autofill_click():
         page.locator("#fill-button").click()
         page.locator("#resume-actions").wait_for(state="visible")
         assert page.evaluate("window.requests.filter(url => url.endsWith('/generate-resume')).length") == 1
-        assert "Filled 1 fields" in page.locator("#fill-result").inner_text()
+        assert "1 fields filled" in page.locator("#fill-result").inner_text()
         browser.close()

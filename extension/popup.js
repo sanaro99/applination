@@ -10,6 +10,7 @@ let resumeFile = null;
 let previewUrl = null;
 let pollTimer = null;
 let pairingTimer = null;
+let fillTimer = null;
 
 function status(message) {
   $("status").textContent = message || "";
@@ -76,6 +77,7 @@ function renderPage() {
 
 async function scanPage() {
   clearTimeout(pollTimer);
+  clearTimeout(fillTimer);
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   previewUrl = null;
   generation = null;
@@ -137,7 +139,7 @@ async function pollGeneration() {
       generation.fillPending = false;
       await chrome.storage.session.set({ [`generation:${tabId}`]: generation });
       await fillForm();
-    }
+    } else await pollFillProgress();
   } catch (error) {
     clearTimeout(pollTimer);
     generationState("Unavailable", error.message, "error");
@@ -167,15 +169,26 @@ async function loadResume() {
   if (pdf) $("resume-preview").src = previewUrl;
 }
 
-async function attach(id, kind) {
-  const file = await documentFile(id);
-  const buffer = new Uint8Array(await file.blob.arrayBuffer());
-  await siteMessage({ type: "UPLOAD_START", kind, name: file.name, mime: file.mime });
-  for (let offset = 0; offset < buffer.length; offset += 128 * 1024) {
-    await siteMessage({ type: "UPLOAD_CHUNK", bytes: Array.from(buffer.slice(offset, offset + 128 * 1024)) });
+async function pollFillProgress() {
+  clearTimeout(fillTimer);
+  fillTimer = null;
+  const progress = await siteMessage({ type: "GET_PROGRESS" });
+  if (!progress.started) return;
+  if (progress.running) {
+    $("fill-button").disabled = true;
+    $("fill-button").textContent = "Filling application…";
+    $("fill-result").textContent = `${progress.stage || "Filling fields"} — ${progress.filled} filled so far. Follow progress on the application page.`;
+    fillTimer = setTimeout(() => pollFillProgress().catch((error) => status(error.message)), 700);
+    return;
   }
-  await siteMessage({ type: "UPLOAD_COMMIT" });
-  return file.name;
+  $("fill-button").disabled = false;
+  $("fill-button").innerHTML = 'Autofill application <span aria-hidden="true">→</span>';
+  page = await siteMessage({ type: "GET_PAGE" });
+  const remaining = page.fields.filter((field) => field.required && !field.filled).length;
+  $("fill-result").textContent = progress.cancelled
+    ? "Autofill stopped. Review the fields that were filled."
+    : `${progress.filled} fields filled; ${remaining} required fields still need review. Review the form before submitting.${progress.error ? ` ${progress.error}` : ""}`;
+  renderPage();
 }
 
 async function loadWorkspace() {
@@ -255,47 +268,16 @@ async function fillForm() {
     status("");
     $("fill-button").disabled = true;
     $("fill-button").textContent = "Filling application…";
-    $("fill-result").textContent = "Adding your profile and answers to the open form…";
+    $("fill-result").textContent = "Starting the progress panel on the application page…";
     const refreshed = await siteMessage({ type: "GET_PAGE" });
     if (refreshed.job.url !== page.job.url) throw new Error("The application page changed. Scan it again first.");
     page = refreshed;
-    const result = await siteMessage({ type: "AUTOFILL", profile, answers,
-      job: { ...job(), application_id: generation?.applicationId || null } });
-    const failures = [];
-    let drafted = 0;
-    for (const question of result.questions.slice(0, 10)) {
-      if (!question.label || question.label.length < 3) continue;
-      try {
-        $("fill-result").textContent = `Drafting an answer for “${question.label.slice(0, 55)}”…`;
-        const { data } = await request("/api/extension/data/generate-answer", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: question.label, ...job(),
-            word_limit: question.maxLength ? Math.max(20, Math.min(1000, Math.floor(question.maxLength / 6))) : null }),
-        });
-        if (question.maxLength && data.content.length > question.maxLength) {
-          failures.push(`Review ${question.label}: the draft is too long.`);
-          continue;
-        }
-        await siteMessage({ type: "INSERT_ANSWER", fieldId: question.id, content: data.content });
-        drafted++;
-      } catch (error) { failures.push(`${question.label}: ${error.message}`); }
-    }
-    let attached = 0;
-    for (const [kind, id] of [["resume", generation?.resumeId], ["cover", generation?.coverId]]) {
-      if (!id || !page.fields.some((field) => field.kind === kind ||
-        (kind === "resume" && field.kind === "file_unknown"))) continue;
-      try { await attach(id, kind); attached++; }
-      catch (error) { failures.push(`${kind}: ${error.message}`); }
-    }
-    page = await siteMessage({ type: "GET_PAGE" });
-    const remaining = page.fields.filter((field) => field.required && !field.filled).length;
-    $("fill-result").textContent = `Filled ${result.filled.length} fields, drafted ${drafted} answers, attached ${attached} documents. ${remaining} required fields still need review. Review the form before submitting.${failures.length ? ` ${failures.join(" ")}` : ""}`;
-    renderPage();
+    await siteMessage({ type: "AUTOFILL", profile, answers,
+      job: { ...job(), application_id: generation?.applicationId || null },
+      resumeId: generation?.resumeId || null, coverId: generation?.coverId || null });
+    await pollFillProgress();
   } catch (error) { status(error.message); }
-  finally {
-    $("fill-button").disabled = false;
-    $("fill-button").innerHTML = 'Autofill application <span aria-hidden="true">→</span>';
-  }
+  finally { if (!fillTimer) $("fill-button").disabled = false; }
 }
 
 $("download-resume").onclick = () => {
@@ -329,6 +311,7 @@ $("disconnect").onclick = async () => {
 
 window.addEventListener("unload", () => {
   clearTimeout(pollTimer);
+  clearTimeout(fillTimer);
   clearInterval(pairingTimer);
   if (previewUrl) URL.revokeObjectURL(previewUrl);
 });

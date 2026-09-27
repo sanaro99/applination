@@ -11,7 +11,8 @@ playwright>=1.44.0
 beautifulsoup4>=4.12.0
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
-sqlmodel>=0.0.22
+# 0.0.47 rejects legacy UTC-naive datetime fields; migrate all timestamp paths before upgrading.
+sqlmodel==0.0.38
 alembic>=1.13
 psycopg[binary]>=3.2
 argon2-cffi>=23.1

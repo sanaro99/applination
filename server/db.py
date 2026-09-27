@@ -15,6 +15,8 @@ from pathlib import Path
 from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel, create_engine, Session
 
+from .time_utils import utc_now
+
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
@@ -110,9 +112,9 @@ class UserSession(SQLModel, table=True):
     password-change able to actually revoke."""
     token_hash: str = Field(primary_key=True)
     user_id: int = Field(foreign_key="appuser.id", index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
     expires_at: datetime
-    last_seen_at: datetime = Field(default_factory=datetime.utcnow)
+    last_seen_at: datetime = Field(default_factory=utc_now)
 
 
 class UserSecret(SQLModel, table=True):

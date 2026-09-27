@@ -151,12 +151,15 @@ def resolve_user(request: Request) -> User | None:
         user = s.get(User, row.user_id)
         if user is None or user.disabled:
             return None
+        # Keep the loaded scalar fields when the session closes. Rebuilding a
+        # table model through model_dump() can yield an empty User at runtime.
+        # Detach before a possible last-seen commit, which expires ORM rows.
+        s.expunge(user)
         if now - as_utc(row.last_seen_at) > _LAST_SEEN_INTERVAL:
             row.last_seen_at = now
             s.add(row)
             s.commit()
-        # Detached copy: the caller outlives this session.
-        return User(**user.model_dump())
+        return user
 
 
 def require_user(request: Request) -> User:

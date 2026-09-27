@@ -43,6 +43,9 @@ def test_pairing_and_scoped_access(tmp_path, monkeypatch):
         assert anonymous.post("/api/extension/pair/approve", json={"user_code": started["user_code"]}).status_code == 401
         assert owner.post("/api/extension/pair/approve", json={"user_code": started["user_code"]}).status_code == 200
         token = anonymous.post("/api/extension/pair/complete", json=device).json()["token"]
+        from server.db import User
+
+        monkeypatch.setattr(User, "model_dump", lambda *_args, **_kwargs: {})
         headers = {"Authorization": f"Bearer {token}"}
         grants = owner.get("/api/extension/pair/grants").json()
         assert len(grants) == 1

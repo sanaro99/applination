@@ -76,11 +76,12 @@ def resolve_extension_user(request: Request) -> User | None:
         user = s.get(User, grant.user_id)
         if user is None or user.disabled:
             return None
+        s.expunge(user)
         if datetime.utcnow() - grant.last_used_at > timedelta(minutes=5):
             grant.last_used_at = datetime.utcnow()
             s.add(grant)
             s.commit()
-        return User(**user.model_dump())
+        return user
 
 
 def require_extension_user(request: Request) -> User:

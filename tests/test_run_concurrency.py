@@ -191,3 +191,29 @@ def test_dispatch_skips_a_user_who_is_already_running(engine, monkeypatch):
 
     runs_mod.dispatch_due_scheduled_runs()
     assert started == [b]
+
+
+def test_scheduled_dispatch_keeps_run_identity_when_dump_is_empty(engine, monkeypatch):
+    from server import runs as runs_mod
+
+    started: list[tuple[int, int]] = []
+    monkeypatch.setattr(runs_mod, "_start_worker_thread", lambda r: started.append((r.id, r.user_id)))
+    user_id = _user(engine, "scheduled@example.com")
+    run_id = _run(engine, user_id, RunStatus.scheduled, datetime.utcnow() - timedelta(minutes=5))
+    monkeypatch.setattr(Run, "model_dump", lambda *_args, **_kwargs: {})
+
+    runs_mod.dispatch_due_scheduled_runs()
+    assert started == [(run_id, user_id)]
+
+
+def test_immediate_worker_keeps_run_identity_when_dump_is_empty(engine, monkeypatch):
+    from server import runs as runs_mod
+    from server.db import User
+
+    started: list[tuple[int, int]] = []
+    monkeypatch.setattr(runs_mod, "_start_worker_thread", lambda r: started.append((r.id, r.user_id)))
+    user_id = _user(engine, "immediate@example.com")
+    monkeypatch.setattr(Run, "model_dump", lambda *_args, **_kwargs: {})
+
+    result = runs_mod.start_run(runs_mod.StartRunBody(), user=User(id=user_id, email="immediate@example.com", password_hash="x"))
+    assert started == [(result.id, user_id)]

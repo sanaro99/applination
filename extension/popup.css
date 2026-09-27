@@ -1,0 +1,29 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { width: 370px; margin: 0; background: #f8f7f3; color: #242b2b; font-size: 13px; }
+header { display: flex; justify-content: space-between; align-items: center; padding: 14px 17px; background: #153e3c; color: white; }
+header strong { font-size: 17px; }
+#account { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+main { padding: 15px; max-height: 550px; overflow-y: auto; }
+section { margin-bottom: 12px; }
+label { display: block; margin: 9px 0; font-weight: 600; flex: 1; min-width: 0; }
+.check { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.check input { width: auto; margin: 0; }
+input, select, textarea { display: block; width: 100%; margin-top: 4px; padding: 8px; border: 1px solid #b8c2c0; border-radius: 6px; background: white; color: #242b2b; font: inherit; }
+textarea { min-height: 75px; resize: vertical; }
+button { padding: 8px 11px; border: 1px solid #7d9290; border-radius: 6px; background: white; color: #153e3c; font: inherit; font-weight: 650; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: #156b63; color: white; border-color: #156b63; width: 100%; margin: 8px 0; }
+button.quiet { border: 0; background: none; padding-left: 0; margin-top: 8px; color: #6e7674; }
+.row { display: flex; gap: 8px; align-items: end; }
+.row button { margin-bottom: 9px; }
+.muted { color: #566360; line-height: 1.4; }
+#status { margin-top: 0; color: #a43f30; }
+#status:empty { display: none; }
+.tabs { display: flex; gap: 5px; margin-bottom: 12px; }
+.tabs button { flex: 1; }
+.tabs .selected { background: #d9e9e3; }
+h2 { font-size: 14px; margin: 20px 0 8px; }
+.question { border-top: 1px solid #ccd4d0; padding: 10px 0; }
+.question strong { display: block; margin-bottom: 6px; }
+.question button { margin-right: 5px; }

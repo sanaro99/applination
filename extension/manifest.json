@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Applination Autofill",
+  "version": "0.1.0",
+  "description": "Fill job applications with your Applination profile and track submissions.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "Applination Autofill" },
+  "content_scripts": [{ "matches": ["http://*/*", "https://*/*"], "js": ["content.js"], "run_at": "document_idle" }]
+}

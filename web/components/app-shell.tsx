@@ -19,6 +19,7 @@ import {
   PanelLeftOpen,
   PenLine,
   Play,
+  Puzzle,
   Route,
   Settings,
   Sun,
@@ -83,6 +84,7 @@ const navSections: NavSection[] = [
       { href: "/config", label: "Config", icon: Settings },
       { href: "/workflows", label: "Workflows", icon: Route },
       { href: "/master-data", label: "Master data", icon: Library },
+      { href: "/extension/connect", label: "Extension", icon: Puzzle },
     ],
   },
 ];
@@ -103,6 +105,7 @@ const PAGE_TITLES: { match: (p: string) => boolean; title: string }[] = [
   { match: (p) => p.startsWith("/config"), title: "Config" },
   { match: (p) => p.startsWith("/workflows"), title: "Workflows" },
   { match: (p) => p.startsWith("/master-data"), title: "Master data" },
+  { match: (p) => p.startsWith("/extension"), title: "Browser extension" },
   { match: (p) => p.startsWith("/stats"), title: "Stats" },
 ];
 

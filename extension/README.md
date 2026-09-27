@@ -1,34 +1,19 @@
-# Applination Autofill extension
+# Applination browser extension
 
-This is a Chrome Manifest V3 extension. It fills standard job application form controls from an Applination profile, inserts saved answers, drafts new answers with the account's configured AI provider, attaches selected PDF/DOCX documents, and tracks confirmed submissions.
+The Chrome extension recognizes an open job application form and its job description. Opening the popup scans the page; it does not spend an AI call. **Autofill application** starts a tailored resume run using the current page, shows the result in the popup, and then fills the form with profile details, saved answers, drafted answers, and generated documents. The resume can be downloaded or opened in Applination's full application view. The run continues if the popup closes and resumes when it is reopened.
 
-## Install as an early tester
+## Install
 
 1. Sign in to Applination and open **Extension** in the Setup menu.
-2. Download the extension ZIP and extract it. Keep the extracted `applination-extension` folder in a permanent location.
-3. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the extracted folder containing `manifest.json`.
-4. Pin Applination Autofill, open its popup, and choose **Connect account**. Approve the pairing code on the Applination page that opens.
-5. To update, download the new ZIP, replace the contents of the same extracted folder, and click **Reload** on `chrome://extensions`.
+2. Download and extract the extension ZIP. Keep the extracted folder in a permanent location.
+3. Open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the extracted folder containing `manifest.json`.
+4. Pin Applination. Choose **Connect account** and approve the pairing code on the website.
+5. Open a job application page, open the extension, and choose **Autofill application**. Review the resume and all form fields before submitting.
 
-The website downloads a ZIP assembled from the runtime extension files on the hosted backend. Manual installations do not update automatically.
+For development, load the repository's `extension/` folder instead of a ZIP and point the popup to `http://localhost:3000`. Apply the current Alembic migrations first. To update a manual installation, replace the extracted files and click **Reload** on `chrome://extensions`.
 
-## Install for development
+Edit contact details and your master resume on the Applination website. The **Application profile** page holds recurring form details and saved answers. The extension popup does not edit profile data.
 
-1. Start Applination and run the latest Alembic migration (`alembic upgrade head`).
-2. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select this `extension/` folder.
-3. Pin the extension. Open its popup, set the Applination URL (the hosted URL by default, or `http://localhost:3000` for local development), and choose **Connect account**.
-4. Sign in to Applination in the tab that opens and approve the displayed code. Reopen the extension popup if it closed; the pending connection is retained for five minutes.
-5. On a job application page, check the detected company and role, choose documents, then select **Fill this page and attach selected documents**. Review every field and file before submitting.
+The extension can read HTTP/HTTPS pages to find forms. Its revocable credential stays in Chrome's trusted extension storage; the content script does not receive the credential or AI provider keys. Connections expire after 90 days and can be revoked on the website.
 
-The extension has access to HTTP/HTTPS pages so it can recognize application forms and their confirmation pages across job sites. It stores a revocable extension credential in Chrome's local extension storage; the content script never receives the credential or an AI provider key. Connections expire after 90 days and can be revoked from **Browser extension** in Applination.
-
-## Current behavior and limits
-
-- Standard native text inputs, select menus, radio controls, and file inputs are supported. Job sites with custom widgets may need site-specific adapters.
-- Contact details and explicitly saved application answers fill directly; the first education entry and most recent employer can fill when the form asks for those specifically. Repeating work-history sections still need site-specific support.
-- Saved answers are reused only for the same normalized question text. **Fill this page** can draft and insert up to ten unanswered essay fields when its AI checkbox is enabled. Drafts remain editable and are saved to the answer bank only when you choose **Insert and save answer**.
-- The extension observes a submission only after **Fill this page** has armed tracking for that tab. It marks a job applied after recognizing a confirmation page. If a site does not show a recognizable confirmation, use **I submitted this application**.
-- File fields must be identifiable as a resume or cover letter. If a site uses an unsupported upload control, attach the document manually. Always check that the site accepted the file.
-- Browser and application site restrictions can prevent an extension from running on some pages.
-
-The source is plain JavaScript and CSS; no build step is required for the unpacked extension.
+Native text inputs, selects, radio buttons, and file inputs are supported. Some application sites use custom widgets, inaccessible frames, or upload controls that require site-specific handling. The extension reports what it filled or could not attach; always review the site's form and confirm the uploaded file before submitting. Submission tracking observes recognized confirmation pages after autofill, and the popup also offers a manual **I submitted this application** action.

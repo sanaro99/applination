@@ -92,3 +92,70 @@ def test_pairing_and_scoped_access(tmp_path, monkeypatch):
 
         assert anonymous.post("/api/extension/data/disconnect", headers=headers).status_code == 200
         assert anonymous.get("/api/extension/data/profile", headers=headers).status_code == 401
+
+
+def test_open_page_generation_and_website_profile(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "engine", make_engine(tmp_path))
+    from server.app import app
+    from server import single_job
+    from server.db import Application, Run, RunStatus, session
+
+    captured = []
+
+    def start(body, user_id):
+        captured.append(body)
+        with session() as s:
+            run = Run(user_id=user_id, status=RunStatus.queued)
+            s.add(run)
+            s.commit()
+            s.refresh(run)
+            return run.id
+
+    monkeypatch.setattr(single_job, "start_generation", start)
+    with TestClient(app) as owner, TestClient(app) as other, TestClient(app) as extension:
+        owner_id = register(owner, "owner@example.com")["id"]
+        register(other, "other@example.com")
+        code = extension.post("/api/extension/pair/start").json()
+        owner.post("/api/extension/pair/approve", json={"user_code": code["user_code"]})
+        token = extension.post("/api/extension/pair/complete", json={"device_code": code["device_code"]}).json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        assert other.get("/api/application-profile").json()["account"] == "other@example.com"
+        assert owner.put("/api/application-profile", json={"extra": {"work_authorization": "Yes"}}).status_code == 200
+        assert extension.get("/api/extension/data/profile", headers=headers).json()["extra"] == {"work_authorization": "Yes"}
+        saved = owner.post("/api/application-profile/answers", json={"prompt": "Why us?", "content": "I like the team."}).json()
+        assert extension.get("/api/extension/data/answers", headers=headers).json()[0]["id"] == saved["id"]
+        assert other.delete(f"/api/application-profile/answers/{saved['id']}").status_code == 404
+
+        job = {"url": "https://jobs.example/apply#form", "company": "Acme", "title": "Engineer",
+               "description": "Build software for customers."}
+        assert extension.post("/api/extension/data/generate-resume", json=job).status_code == 401
+        started = extension.post("/api/extension/data/generate-resume", headers=headers, json=job)
+        assert started.status_code == 200, started.text
+        run_id = started.json()["run_id"]
+        assert captured[0].description == job["description"]
+        assert captured[0].url == "https://jobs.example/apply"
+        assert captured[0].source == "extension"
+        assert extension.get(f"/api/extension/data/generate-resume/{run_id}", headers=headers).json()["status"] == "queued"
+
+        folder = tmp_path / "resume-output"
+        folder.mkdir()
+        (folder / "resume.pdf").write_bytes(b"%PDF-1.4\n%%EOF")
+        with session() as s:
+            run = s.get(Run, run_id)
+            run.status = RunStatus.done
+            app_row = Application(user_id=owner_id, run_id=run_id, company="Acme", title="Engineer",
+                                  url="https://jobs.example/apply", source="extension",
+                                  folder_path=str(folder), description=job["description"])
+            s.add(run)
+            s.add(app_row)
+            s.commit()
+            s.refresh(app_row)
+            app_id = app_row.id
+        ready = extension.get(f"/api/extension/data/generate-resume/{run_id}", headers=headers).json()
+        assert ready["resume_id"] == f"app:{app_id}:resume"
+        assert extension.get(f"/api/extension/data/documents/{ready['resume_id']}", headers=headers).content.startswith(b"%PDF-")
+        tracked = extension.post("/api/extension/data/track", headers=headers,
+                                 json={**job, "application_id": app_id, "submitted": True}).json()
+        assert tracked == {"id": app_id, "status": "applied"}
+        assert owner.delete(f"/api/application-profile/answers/{saved['id']}").status_code == 200

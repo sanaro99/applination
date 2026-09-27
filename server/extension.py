@@ -22,7 +22,7 @@ from src.master_resume import load_master
 from .auth import require_user
 from .db import (
     Application, ApplicationStatus, ExtensionDocument, ExtensionGrant,
-    ExtensionPairing, SavedAnswer, Setting, User, session,
+    ExtensionPairing, Run, RunStatus, SavedAnswer, Setting, User, session,
 )
 from .deps import load_config, output_root, paths_for
 from .limits import LOGIN_LIMIT, LLM_LIMIT, limiter
@@ -32,6 +32,7 @@ from .user_paths import resolve_within
 pair_router = APIRouter(prefix="/api/extension/pair", tags=["extension"])
 data_router = APIRouter(prefix="/api/extension/data", tags=["extension"])
 download_router = APIRouter(prefix="/api/extension", tags=["extension"])
+site_router = APIRouter(prefix="/api/application-profile", tags=["application-profile"])
 EXTENSION_DIR = Path(__file__).resolve().parent.parent / "extension"
 EXTENSION_PACKAGE_FILES = (
     "manifest.json", "background.js", "content.js", "popup.html", "popup.css", "popup.js",
@@ -280,6 +281,35 @@ def save_answer(body: AnswerBody, user: User = Depends(require_extension_user)) 
     return {"id": row.id}
 
 
+@site_router.get("")
+def site_profile(user: User = Depends(require_user)) -> dict:
+    return profile(user)
+
+
+@site_router.put("")
+def site_update_profile(body: ProfileBody, user: User = Depends(require_user)) -> dict:
+    return update_profile(body, user)
+
+
+@site_router.get("/answers")
+def site_answers(user: User = Depends(require_user)) -> list[dict]:
+    return answers(user)
+
+
+@site_router.post("/answers")
+def site_save_answer(body: AnswerBody, user: User = Depends(require_user)) -> dict:
+    return save_answer(body, user)
+
+
+@site_router.delete("/answers/{answer_id}")
+def site_delete_answer(answer_id: int, user: User = Depends(require_user)) -> dict:
+    with session() as s:
+        row = get_owned(s, SavedAnswer, answer_id, user, detail="answer not found")
+        s.delete(row)
+        s.commit()
+    return {"ok": True}
+
+
 class GenerateAnswerBody(BaseModel):
     prompt: str = Field(min_length=3, max_length=2000)
     company: str = Field(default="", max_length=200)
@@ -387,6 +417,49 @@ def document_file(document_id: str, user: User = Depends(require_extension_user)
     return FileResponse(path, filename=filename, headers={"Cache-Control": "no-store"})
 
 
+class GenerateResumeBody(BaseModel):
+    url: str = Field(max_length=3000)
+    company: str = Field(min_length=1, max_length=200)
+    title: str = Field(min_length=1, max_length=200)
+    location: str = Field(default="", max_length=200)
+    description: str = Field(min_length=1, max_length=15000)
+
+
+@data_router.post("/generate-resume")
+@limiter.limit(LLM_LIMIT)
+def generate_resume(request: Request, body: GenerateResumeBody,
+                    user: User = Depends(require_extension_user)) -> dict:
+    from .runs import MAX_CONCURRENT_RUNS, _active_run_count, _active_run_exists
+    from .single_job import GenerateBody, start_generation
+
+    if _active_run_exists(user.id) or _active_run_count() >= MAX_CONCURRENT_RUNS:
+        raise HTTPException(409, "a generation run is already active; try again when it finishes")
+    payload = GenerateBody(
+        url=_normal_url(body.url), company=body.company.strip(), title=body.title.strip(),
+        location=body.location.strip(), description=body.description.strip(),
+        source="extension", match_reason="opened in browser extension",
+    )
+    if not payload.company or not payload.title or not payload.description:
+        raise HTTPException(400, "company, role, and job description are required")
+    return {"run_id": start_generation(payload, user.id)}
+
+
+@data_router.get("/generate-resume/{run_id}")
+def generated_resume(run_id: int, user: User = Depends(require_extension_user)) -> dict:
+    with session() as s:
+        run = get_owned(s, Run, run_id, user, detail="generation not found")
+        app = s.exec(owned(select(Application), Application, user).where(
+            Application.run_id == run_id
+        )).first()
+        return {
+            "status": run.status.value,
+            "error": run.error or ("No resume was generated" if run.status == RunStatus.done and app is None else ""),
+            "application_id": app.id if app else None,
+            "resume_id": f"app:{app.id}:resume" if app else None,
+            "cover_id": f"app:{app.id}:cover" if app else None,
+        }
+
+
 class TrackBody(BaseModel):
     url: str = Field(max_length=3000)
     company: str = Field(min_length=1, max_length=200)
@@ -394,14 +467,20 @@ class TrackBody(BaseModel):
     location: str = Field(default="", max_length=200)
     description: str = Field(default="", max_length=15000)
     submitted: bool = False
+    application_id: int | None = None
 
 
 @data_router.post("/track")
 def track(body: TrackBody, user: User = Depends(require_extension_user)) -> dict:
     url = _normal_url(body.url)
     with session() as s:
-        rows = s.exec(owned(select(Application), Application, user).where(Application.url == url)).all()
-        app = rows[0] if rows else None
+        app = get_owned(s, Application, body.application_id, user, detail="application not found") if body.application_id else None
+        if app is not None and _normal_url(app.url) != url:
+            raise HTTPException(400, "application URL does not match")
+        if app is None:
+            app = s.exec(owned(select(Application), Application, user).where(
+                Application.url == url
+            ).order_by(Application.created_at.desc())).first()
         if app is None:
             folder = output_root(user) / date.today().isoformat() / f"extension_{uuid.uuid4().hex[:12]}"
             folder.mkdir(parents=True, exist_ok=True)

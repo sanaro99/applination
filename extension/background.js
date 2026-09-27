@@ -48,5 +48,5 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  chrome.storage.session.remove([`armed:${tabId}`, `pending:${tabId}`, `tracked:${tabId}`]);
+  chrome.storage.session.remove([`armed:${tabId}`, `pending:${tabId}`, `tracked:${tabId}`, `generation:${tabId}`]);
 });

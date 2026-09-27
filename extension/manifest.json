@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Applination Autofill",
-  "version": "0.1.0",
-  "description": "Fill job applications with your Applination profile and track submissions.",
+  "version": "0.2.0",
+  "description": "Detect applications, generate tailored resumes, and fill forms with Applination.",
   "permissions": ["storage", "tabs"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "background.js" },

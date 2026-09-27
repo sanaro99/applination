@@ -69,22 +69,55 @@ function classify(el) {
 }
 
 function jobDetails() {
-  const title = document.querySelector("h1")?.textContent?.trim()
-    || document.querySelector('meta[property="og:title"]')?.content
-    || document.title;
+  let posting = null;
+  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+    try {
+      const nodes = JSON.parse(script.textContent);
+      const candidates = Array.isArray(nodes) ? nodes : [nodes];
+      posting = candidates.flatMap((node) => node?.["@graph"] || [node])
+        .find((node) => String(node?.["@type"] || "").includes("JobPosting"));
+      if (posting) break;
+    } catch { /* Invalid structured data should not prevent page detection. */ }
+  }
+  const title = posting?.title || document.querySelector("h1")?.textContent?.trim()
+    || document.querySelector('meta[property="og:title"]')?.content || document.title;
   const host = location.hostname.replace(/^www\./, "");
-  const company = document.querySelector('[data-testid="company-name"]')?.textContent?.trim()
+  const company = posting?.hiringOrganization?.name
+    || document.querySelector('[data-testid="company-name"]')?.textContent?.trim()
     || document.querySelector('[class*="company-name"]')?.textContent?.trim()
+    || document.querySelector('[data-automation-id="companyName"]')?.textContent?.trim()
+    || (host.includes("myworkdayjobs.com") ? host.split(".")[0] : "")
+    || (!/greenhouse|lever|ashbyhq|workday|smartrecruiters|icims|linkedin/.test(host)
+      ? document.querySelector('meta[property="og:site_name"]')?.content : "")
     || (host.includes("greenhouse.io") || host.includes("lever.co") || host.includes("ashbyhq.com")
       ? location.pathname.split("/").filter(Boolean)[0] : "");
-  const description = document.querySelector('[class*="job-description"], [id*="job-description"], article')?.innerText?.slice(0, 15000) || "";
-  return { url: location.href, title: title.slice(0, 200), company: company.slice(0, 200), description };
+  const descriptionElement = document.querySelector(
+    '[class*="job-description"], [id*="job-description"], [data-testid*="job-description"], article'
+  );
+  const structuredDescription = posting?.description
+    ? new DOMParser().parseFromString(posting.description, "text/html").body.textContent : "";
+  const mainText = document.querySelector("main")?.innerText || document.body.innerText || "";
+  const fallbackDescription = mainText.length >= 300 && /responsibilit|qualif|about the role|job description|what you.ll do/i.test(mainText)
+    ? mainText : "";
+  const description = (structuredDescription || descriptionElement?.innerText || fallbackDescription)
+    .trim().slice(0, 15000);
+  const locationText = posting?.jobLocation?.address?.addressLocality || "";
+  return { url: location.href, title: String(title).trim().slice(0, 200),
+    company: String(company || "").trim().slice(0, 200), description,
+    location: String(locationText).slice(0, 200) };
 }
 
 function pageSnapshot() {
   const fields = controls().map((el) => ({ id: idFor(el), label: labelOf(el), kind: classify(el),
-    type: el.type || el.tagName.toLowerCase(), filled: Boolean(el.value), maxLength: el.maxLength > 0 ? el.maxLength : null }));
-  return { job: jobDetails(), fields, questions: fields.filter((field) => field.kind === "question" && !field.filled) };
+    type: el.type || el.tagName.toLowerCase(),
+    filled: el.type === "checkbox" || el.type === "radio" ? el.checked : Boolean(el.value),
+    required: el.required || el.getAttribute("aria-required") === "true",
+    maxLength: el.maxLength > 0 ? el.maxLength : null }));
+  const relevant = fields.filter((field) => !["unknown", "file_unknown"].includes(field.kind));
+  const isApplication = fields.length >= 2 && relevant.length >= 2 &&
+    (Boolean(document.querySelector("form")) || relevant.length >= 3);
+  return { job: jobDetails(), fields, isApplication,
+    questions: fields.filter((field) => field.kind === "question" && !field.filled) };
 }
 
 function findField(id) {
@@ -143,7 +176,11 @@ function valuesFrom(profile) {
 
 function autofill(profile, answers) {
   const values = valuesFrom(profile);
-  const bank = new Map((answers || []).filter((a) => a.prompt).map((a) => [normalize(a.prompt), a.content]));
+  const bank = new Map();
+  for (const answer of answers || []) {
+    const key = normalize(answer.prompt);
+    if (key && !bank.has(key)) bank.set(key, answer.content);
+  }
   const filled = [];
   const skipped = [];
   for (const el of controls()) {
@@ -164,7 +201,9 @@ function normalize(text) {
 }
 
 function fileTarget(kind) {
-  return controls().find((el) => el.type === "file" && classify(el) === kind);
+  const files = controls().filter((el) => el.type === "file");
+  return files.find((el) => classify(el) === kind)
+    || (kind === "resume" && files.length === 1 && classify(files[0]) === "file_unknown" ? files[0] : null);
 }
 
 function commitUpload() {

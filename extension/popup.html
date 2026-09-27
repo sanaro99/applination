@@ -3,45 +3,61 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Applination Autofill</title>
+  <title>Applination</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <header><strong>Applination</strong><span id="account"></span></header>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">✦</span><span>Applination<small>APPLICATION ASSISTANT</small></span></div>
+    <span id="account" class="account"></span>
+  </header>
   <main>
-    <p id="status" role="status"></p>
-    <section id="connect" hidden>
-      <label>Applination URL<input id="app-url" type="url" placeholder="https://applination.example"></label>
-      <button id="connect-button">Connect account</button>
+    <p id="status" role="status" aria-live="polite" hidden></p>
+    <section id="connect" class="card" hidden>
+      <span class="eyebrow">GET STARTED</span>
+      <h1>Connect your account</h1>
+      <p class="muted">Use your Applination profile to tailor a resume for the application you have open.</p>
+      <label for="app-url">Applination URL</label>
+      <input id="app-url" type="url" placeholder="https://applination.example">
+      <button id="connect-button" class="primary">Connect account <span aria-hidden="true">↗</span></button>
       <p id="pair-code" class="muted"></p>
     </section>
     <section id="workspace" hidden>
-      <div class="tabs"><button data-tab="apply" class="selected">Apply</button><button data-tab="profile">Profile</button><button data-tab="documents">Documents</button></div>
-      <div id="apply-tab">
-        <label>Company<input id="company"></label>
-        <label>Role<input id="title"></label>
-        <div class="row"><label>Resume<select id="resume-select"></select></label><button id="resume-upload">Attach</button></div>
-        <div class="row"><label>Cover letter<select id="cover-select"></select></label><button id="cover-upload">Attach</button></div>
-        <label class="check"><input id="draft-questions" type="checkbox" checked> Draft unanswered questions with AI</label>
-        <button id="fill-button" class="primary">Fill this page and attach selected documents</button>
-        <p id="fill-result" class="muted"></p>
-        <h2>Open questions</h2>
-        <div id="questions"></div>
-        <button id="mark-applied">I submitted this application</button>
-        <p class="muted">Applications with a recognized confirmation page are tracked automatically after you submit.</p>
-      </div>
-      <div id="profile-tab" hidden>
-        <p class="muted">Contact and experience come from your Applination profile. Add recurring application answers here.</p>
-        <div id="extra-fields"></div>
-        <button id="save-profile" class="primary">Save application answers</button>
-      </div>
-      <div id="documents-tab" hidden>
-        <p class="muted">Upload a PDF or DOCX to use on any application. Job-specific documents already in Applination also appear above.</p>
-        <label>Resume<input id="new-resume" type="file" accept=".pdf,.docx"></label>
-        <label>Cover letter<input id="new-cover" type="file" accept=".pdf,.docx"></label>
-        <button id="save-documents" class="primary">Upload selected files</button>
-      </div>
-      <button id="disconnect" class="quiet">Disconnect extension</button>
+      <div class="intro"><span class="eyebrow">YOUR OPEN TAB</span><button id="refresh-page" class="icon-button" title="Scan page again" aria-label="Scan page again">↻</button></div>
+      <section id="no-page" class="card empty" hidden>
+        <span class="empty-icon">▣</span>
+        <h1>Open a job application</h1>
+        <p class="muted">Go to the application form and reopen Applination. We’ll detect its fields and job details here.</p>
+      </section>
+      <section id="job-card" class="card" hidden>
+        <span class="pill"><span class="dot"></span> Application detected</span>
+        <h1 id="job-title"></h1>
+        <p id="job-company" class="muted"></p>
+        <div class="field-summary">
+          <div><strong id="field-count">0</strong><span>Fields found</span></div>
+          <div><strong id="required-count">0</strong><span>Required</span></div>
+          <div><strong id="question-count">0</strong><span>Open questions</span></div>
+        </div>
+        <p id="context-warning" class="notice" hidden></p>
+      </section>
+      <section id="resume-card" class="card" hidden>
+        <div class="section-head"><div><span class="eyebrow">TAILORED FOR THIS ROLE</span><h2>Your resume</h2></div><span id="generation-state" class="state">Preparing</span></div>
+        <p id="generation-detail" class="muted"></p>
+        <div id="preview-wrap" class="preview-wrap" hidden><iframe id="resume-preview" title="Generated resume preview"></iframe></div>
+        <div id="resume-actions" class="actions" hidden>
+          <button id="download-resume" class="secondary">↓ Download resume</button>
+          <button id="open-application" class="text-button">Full view ↗</button>
+        </div>
+      </section>
+      <section id="apply-card" class="card" hidden>
+        <span class="eyebrow">READY TO APPLY</span>
+        <h2>Fill the application</h2>
+        <p class="muted">Generate a tailored resume, then add your profile, saved answers, and documents to this form. Review everything before submitting.</p>
+        <button id="fill-button" class="primary">Autofill application <span aria-hidden="true">→</span></button>
+        <p id="fill-result" class="muted" role="status"></p>
+        <button id="mark-applied" class="text-button" hidden>I submitted this application</button>
+      </section>
+      <footer><button id="edit-profile" class="text-button">Edit profile on Applination ↗</button><button id="disconnect" class="text-button subdued">Disconnect</button></footer>
     </section>
   </main>
   <script src="popup.js"></script>

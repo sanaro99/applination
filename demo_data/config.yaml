@@ -91,6 +91,7 @@ sources:
 # do this for you and test connectivity.
 # =====================================================================
 llm:
+  routing_preset_version: 1  # keep the demo provider instead of applying the free-pool preset
   # The demo account never makes a real model call. `demo` serves
   # committed fixtures from demo_data/llm/ so every AI flow works without
   # an API key - see src/providers/demo_provider.py. No fallbacks: a

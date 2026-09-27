@@ -397,6 +397,7 @@ def test_popup_tailors_only_after_autofill_click():
             window.requests.push(url);
             if (url.endsWith('/profile')) return Response.json({account: 'ada@example.com', contact: {}, extra: {}, resume: {}});
             if (url.endsWith('/answers')) return Response.json([]);
+            if (url.endsWith('/local-ollama')) return Response.json({selected: false, online: false});
             if (url.endsWith('/generate-resume') && !url.match(/\\/generate-resume\\/\\d+$/)) return Response.json({run_id: 7});
             if (url.endsWith('/generate-resume/7')) return Response.json({status: 'done', application_id: 12,
               resume_id: 'app:12:resume', cover_id: null, error: ''});

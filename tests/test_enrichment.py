@@ -47,9 +47,9 @@ def client(tmp_path, monkeypatch):
     engine = make_engine(tmp_path)
     monkeypatch.setattr(db, "engine", engine)
     fake = _FakeProvider()
-    monkeypatch.setattr(providers, "get_provider_chain", lambda cfg: [fake])
+    monkeypatch.setattr(providers, "get_provider_chain", lambda cfg, **kwargs: [fake])
     monkeypatch.setattr(providers, "get_provider", lambda name, cfg, **k: fake)
-    monkeypatch.setattr(providers, "get_task_chains", lambda cfg: {})
+    monkeypatch.setattr(providers, "get_task_chains", lambda cfg, **kwargs: {})
     from server.app import app
 
     with TestClient(app) as c:

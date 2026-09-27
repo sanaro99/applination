@@ -62,6 +62,7 @@ def get_provider(
     *,
     model_override: str | None = None,
     thinking: str = "on",
+    user_id: int | None = None,
 ) -> LLMProvider:
     """Construct a provider by name.
 
@@ -101,7 +102,27 @@ def get_provider(
         )
 
     if name == "ollama":
-        from .ollama_provider import OllamaProvider
+        from .ollama_provider import OllamaProvider, RelayOllamaProvider
+        transport = sub.get("transport") or ("worker" if user_id is not None else "direct")
+        if transport == "worker":
+            if user_id is None:
+                raise RuntimeError("Local Ollama worker requires a signed-in Applination user")
+            from server.local_ollama import run_inference
+            return RelayOllamaProvider(
+                model=_model("llama3.2"), user_id=user_id, dispatch=run_inference,
+            )
+        if transport != "direct":
+            raise ValueError(f"Unknown Ollama transport: {transport}")
+        if user_id is not None:
+            # A user's config must not turn the hosted API into a general HTTP
+            # proxy for internal services. Direct mode only addresses a server's
+            # own standard Ollama listener; worker mode is for a user's PC.
+            from urllib.parse import urlsplit
+            parsed = urlsplit(sub.get("base_url", "http://localhost:11434"))
+            if (parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}
+                    or parsed.port != 11434 or parsed.username or parsed.password
+                    or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
+                raise ValueError("Server-side Ollama may only use localhost:11434; use a local worker for your own computer")
         return OllamaProvider(
             base_url=sub.get("base_url", "http://localhost:11434"),
             model=_model("llama3.2"),
@@ -167,7 +188,7 @@ def get_provider(
     )
 
 
-def get_provider_with_fallback(llm_cfg: dict) -> LLMProvider:
+def get_provider_with_fallback(llm_cfg: dict, *, user_id: int | None = None) -> LLMProvider:
     """Try primary, then each fallback in order. Returns first working provider."""
     primary = llm_cfg.get("primary", "claude")
     fallbacks = llm_cfg.get("fallbacks", []) or []
@@ -175,7 +196,7 @@ def get_provider_with_fallback(llm_cfg: dict) -> LLMProvider:
     errors = []
     for name in [primary, *fallbacks]:
         try:
-            p = get_provider(name, llm_cfg)
+            p = get_provider(name, llm_cfg, user_id=user_id)
             LOG.info("Using LLM provider: %s", p.name)
             return p
         except Exception as e:
@@ -186,7 +207,7 @@ def get_provider_with_fallback(llm_cfg: dict) -> LLMProvider:
     )
 
 
-def get_provider_chain(llm_cfg: dict) -> list[LLMProvider]:
+def get_provider_chain(llm_cfg: dict, *, user_id: int | None = None) -> list[LLMProvider]:
     """Return all working providers in priority order (primary first, then fallbacks).
 
     Used to enable per-call fallback: if the primary hits a quota error mid-run,
@@ -198,7 +219,7 @@ def get_provider_chain(llm_cfg: dict) -> list[LLMProvider]:
 
     for name in [primary, *fallbacks]:
         try:
-            p = get_provider(name, llm_cfg)
+            p = get_provider(name, llm_cfg, user_id=user_id)
             chain.append(p)
         except Exception as e:
             _warn_unavailable(name, e)
@@ -255,7 +276,7 @@ def try_chain(
     raise RuntimeError(f"Provider chain is empty for task '{task_name}'")
 
 
-def get_task_chains(llm_cfg: dict) -> dict[str, list[LLMProvider]]:
+def get_task_chains(llm_cfg: dict, *, user_id: int | None = None) -> dict[str, list[LLMProvider]]:
     """Build per-task provider chains from config.
 
     For each task, uses the task-specific primary/fallbacks defined under
@@ -299,6 +320,7 @@ def get_task_chains(llm_cfg: dict) -> dict[str, list[LLMProvider]]:
                     name, llm_cfg,
                     model_override=model_overrides.get(name),
                     thinking=thinking,
+                    user_id=user_id,
                 ))
             except Exception as e:
                 _warn_unavailable(name, e)

@@ -34,15 +34,15 @@ def _resolve_chain(user: User, provider: str | None):
         from src.providers import get_provider
         name = provider.strip().lower()
         try:
-            return [get_provider(name, llm)]
+            return [get_provider(name, llm, user_id=user.id)]
         except Exception as e:  # noqa: BLE001
             raise HTTPException(400, f"could not build provider '{name}': {e}")
     from src.providers import get_provider_chain, get_task_chains
     try:
-        chain = get_task_chains(llm).get("content_studio")
+        chain = get_task_chains(llm, user_id=user.id).get("content_studio")
     except Exception:  # noqa: BLE001
         chain = None
-    return chain or get_provider_chain(llm)
+    return chain or get_provider_chain(llm, user_id=user.id)
 
 
 def _call(chain, fn):

@@ -81,10 +81,10 @@ def extract(
     cfg = load_config(user)
     llm = cfg.get("llm") or {}
     try:
-        chain = get_task_chains(llm).get("job_extraction")
+        chain = get_task_chains(llm, user_id=user.id).get("job_extraction")
     except Exception:  # fall back to legacy/global config gracefully
         chain = None
-    chain = chain or get_provider_chain(llm)
+    chain = chain or get_provider_chain(llm, user_id=user.id)
     if not chain:
         raise HTTPException(502, "no LLM provider is configured")
     extractor = JobExtractor(chain)
@@ -168,7 +168,7 @@ def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
             # Guidelines are committed and shared by every user.
             all_guidelines = load_guidelines(paths.guidelines_dir)
 
-            task_chains = get_task_chains(cfg["llm"])
+            task_chains = get_task_chains(cfg["llm"], user_id=user_id)
             tailor = Tailor(task_chains=task_chains,
                             critique_cover_letters=cfg["llm"].get(
                                 "critique_cover_letters", False))

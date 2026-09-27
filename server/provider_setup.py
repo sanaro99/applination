@@ -191,18 +191,18 @@ PROVIDERS: tuple[dict, ...] = (
         "id": "ollama",
         "label": "Ollama (local)",
         "recommended": False,
-        "why": "Runs on your own machine. Nothing leaves it, and it costs nothing.",
+        "why": "Runs AI requests on your computer, so AI companies cannot use data processed by your local model.",
         "model": "llama3.2",
         "console_url": "https://ollama.com/download",
         "steps": [
             "Install Ollama.",
-            "Pull a model from a terminal.",
-            "Leave the key blank and continue.",
+            "Pull the suggested model from a terminal.",
+            "Connect the Applination Ollama worker below. No AI provider key is needed.",
         ],
         "key_shape": {"prefix": "", "min_len": 0},
-        "cost_note": "Free. Quality depends on your hardware.",
+        "cost_note": "No AI provider charge. Speed and quality depend on your computer and model.",
         "needs_key": False,
-        "verified_on": "2026-08-24",
+        "verified_on": "2026-09-27",
     },
 )
 

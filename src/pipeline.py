@@ -197,7 +197,7 @@ def run_pipeline(
             return _stopped_early(mode, len(jobs))
 
         # --- LLM PROVIDERS ---
-        task_chains = get_task_chains(cfg["llm"])
+        task_chains = get_task_chains(cfg["llm"], user_id=getattr(paths, "user_id", None))
         critique_cl = cfg["llm"].get("critique_cover_letters", False)
         critique_top_n = int(cfg["llm"].get("critique_top_n", 0) or 0)
         # Top-N ranked jobs route through tailoring_premium (deepseek-v4-pro);

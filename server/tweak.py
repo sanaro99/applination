@@ -187,13 +187,13 @@ def tweak(
 
     llm_cfg = cfg.get("llm", {})
     if body.provider:
-        chain = [get_provider(body.provider, llm_cfg)]
+        chain = [get_provider(body.provider, llm_cfg, user_id=user.id)]
     else:
         try:
-            chain = get_task_chains(llm_cfg).get("tweak")
+            chain = get_task_chains(llm_cfg, user_id=user.id).get("tweak")
         except Exception:  # bad optional task routing should not brick editing
             chain = None
-        chain = chain or get_provider_chain(llm_cfg)
+        chain = chain or get_provider_chain(llm_cfg, user_id=user.id)
 
     # Determine next version by inspecting existing files
     versions = _list_versions(folder)

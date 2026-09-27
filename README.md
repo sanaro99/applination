@@ -42,7 +42,7 @@ Two things to know: the demo's AI answers are pre-recorded rather than live, and
 
 **One job at a time, when you want that instead.** Found a posting yourself? Paste the link, and it will pull out the details and write the documents for that single job.
 
-**Your own AI, your own bill.** Applination does not resell anyone's AI. You bring a key from whichever provider you prefer — Anthropic, Google, DeepSeek, Mistral, OpenRouter, Nvidia — or run a model on your own machine with Ollama and pay nothing at all. Your key is encrypted before it is stored, and you can point different jobs at different models: something cheap and fast for scoring hundreds of postings, something stronger for writing the documents you will actually send.
+**Your own AI, your own bill.** Applination does not resell anyone's AI. You bring a key from whichever provider you prefer — Anthropic, Google, DeepSeek, Mistral, OpenRouter, Nvidia — or run a model on your own machine with Ollama without AI provider charges. Your key is encrypted before it is stored, and you can point different jobs at different models: something cheap and fast for scoring hundreds of postings, something stronger for writing the documents you will actually send.
 
 **Your data stays yours.** Every account is separate, with its own profile, settings and generated documents. Nothing personal is ever committed to this repository.
 
@@ -84,7 +84,7 @@ Applination is **multi-user**. Anyone can sign up; each account brings its own A
 - **Python 3.11+**
 - **Node.js 20+** and npm
 - **PostgreSQL 18** — `scripts/dev.ps1` starts one in Docker automatically if nothing is listening on port 5432; otherwise point `DATABASE_URL` at your own
-- At least one LLM provider key, or a running Ollama instance (free)
+- At least one LLM provider key, or Ollama plus the local Applination worker
 - **PDF conversion** (optional): Microsoft Word (Windows/macOS) or LibreOffice (`soffice` on PATH, Linux). Use `--no-pdf` if you have neither.
 
 ## Getting started
@@ -223,10 +223,21 @@ Ten providers, any of which can be primary or fallback. Keys are entered in the 
 | **DeepSeek** | Cheapest cloud path; `deepseek-flash` (DeepSeek-V4.1-Flash) standard, `deepseek-v4-pro` premium |
 | **Mistral** | Solid mid-tier |
 | **OpenRouter** | Many models behind one key |
-| **Ollama** (local) | Free; requires `ollama serve` |
+| **Ollama** (local) | No AI provider key; requires Ollama and the local Applination worker |
 | **Nvidia NIM** | Cloud or self-hosted inference |
 
 Each workflow — scoring, tailoring, cover letters, critique, coach, interview, essay — can be routed to a different provider and model from the **Workflows** page.
+
+### Use your own Ollama with the hosted website and extension
+
+1. Install [Ollama](https://ollama.com/download) on the computer where you will use Applination, and run `ollama pull llama3.2` (or install the model you select in Workflows).
+2. On Applination's **Config** page, find **Ollama on your computer**, download `applination-ollama-worker.py`, and create a connection key.
+3. Install Python 3.10 or newer, run `python applination-ollama-worker.py` from the download folder, and paste the key. The worker remembers it for later runs. Keep the worker running for website generation, extension autofill, and scheduled runs.
+4. Choose Ollama during onboarding or in Workflows. Onboarding makes Ollama the provider for every workflow and removes cloud fallbacks. If you use Workflows instead, set each task you want to run locally to Ollama and remove its cloud fallbacks.
+
+The worker connects outward to Applination and calls Ollama only on this computer's loopback address. You do not need to expose Ollama to the internet or configure browser CORS. Its connection key is revocable in Config; after revoking, create a new one and run the worker with `--reset`. Only models installed locally are accepted, so an Ollama cloud model cannot be selected accidentally through this worker. AI companies do not receive prompts handled by the local model.
+
+For a self-hosted single-machine CLI setup, the existing direct Ollama provider still calls `http://localhost:11434`. A self-hosted API can explicitly set `llm.ollama.transport: direct` to use its own loopback Ollama. Hosted accounts use the local worker by default.
 
 > **On environment variables:** `ANTHROPIC_API_KEY` and friends are **ignored** unless `ALLOW_ENV_API_KEYS` is set. They belong to the server process rather than to any account, so on a multi-user install the fallback would let a user with no key of their own quietly spend the operator's. Only enable it for a single-user deployment.
 

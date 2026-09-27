@@ -17,7 +17,7 @@ const BASE = {
   education: [{ school: "State University", degree: "BS CS" }],
 };
 
-const changes = (a: object, b: object) =>
+const changes = (a: Record<string, unknown>, b: Record<string, unknown>) =>
   diffLines(flattenMaster(a), flattenMaster(b)).filter((l) => l.type !== "same");
 
 describe("flattenMaster", () => {

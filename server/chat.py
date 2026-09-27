@@ -293,11 +293,11 @@ def _run_chain(user: User, sys_prompt: str, user_prompt: str, *, task: str,
     cfg = load_config(user)
     llm = cfg.get("llm") or {}
     try:
-        chain = get_task_chains(llm).get(task)
+        chain = get_task_chains(llm, user_id=user.id).get(task)
     except Exception:  # noqa: BLE001 — bad task config shouldn't 500 the chat
         chain = None
     if not chain:
-        chain = get_provider_chain(llm)
+        chain = get_provider_chain(llm, user_id=user.id)
     if not chain:
         raise HTTPException(502, "no LLM provider is configured")
     try:

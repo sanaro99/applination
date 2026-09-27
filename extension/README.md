@@ -10,6 +10,8 @@ The Chrome extension recognizes an open job application form and its job descrip
 4. Pin Applination. Choose **Connect account** and approve the pairing code on the website.
 5. Open a job application page, open the extension, and choose **Autofill application**. Review the resume and all form fields before submitting.
 
+The extension uses your account's existing **Workflows** model routing for tailored resumes and drafted answers. To use Ollama, choose it for those workflows, then open **Config → Ollama on your computer** on the website to install and connect the local worker. Keep the worker running during autofill.
+
 For development, load the repository's `extension/` folder instead of a ZIP and point the popup to `http://localhost:3000`. Apply the current Alembic migrations first. To update a manual installation, replace the extracted files and click **Reload** on `chrome://extensions`.
 
 Edit contact details and your master resume on the Applination website. The **Application profile** page holds recurring form details and saved answers. The extension popup does not edit profile data.

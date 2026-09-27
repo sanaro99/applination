@@ -83,9 +83,9 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "engine", test_engine)
 
     # Fake out the provider chain so post_message never hits the network.
-    monkeypatch.setattr(providers, "get_provider_chain", lambda cfg: [_FakeProvider()])
+    monkeypatch.setattr(providers, "get_provider_chain", lambda cfg, **kwargs: [_FakeProvider()])
     # Empty task chains → callers fall back to the faked global chain (offline).
-    monkeypatch.setattr(providers, "get_task_chains", lambda cfg: {})
+    monkeypatch.setattr(providers, "get_task_chains", lambda cfg, **kwargs: {})
 
     from server.app import app
 

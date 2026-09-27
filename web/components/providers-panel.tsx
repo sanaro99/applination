@@ -63,7 +63,7 @@ export function ProvidersPanel() {
                   )}
                   {!p.configured && (
                     <Badge variant="outline" className="text-xs text-amber-600 dark:text-amber-400">
-                      no api key
+                      {p.name === "ollama" ? "worker offline" : "no api key"}
                     </Badge>
                   )}
                 </div>
@@ -106,7 +106,7 @@ export function ProvidersPanel() {
           })
         )}
         <p className="pt-1 text-xs text-muted-foreground">
-          A test makes one tiny real API call to check connectivity and latency.
+          A test makes one short model call to check connectivity and latency.
         </p>
       </CardContent>
     </Card>

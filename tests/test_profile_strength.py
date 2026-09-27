@@ -160,12 +160,18 @@ def test_seeded_ollama_base_url_does_not_fill_the_provider_ridge(client):
     assert states["provider"] == "empty"
 
 
-def test_choosing_ollama_fills_the_provider_ridge(client):
+def test_choosing_ollama_requires_the_local_worker(client):
     r = client.put(
         "/api/onboarding/provider",
         json={"provider": "ollama", "base_url": "http://localhost:11434"},
     )
     assert r.status_code == 200, r.text
+    states = {r["id"]: r["state"] for r in compute(_user())["parts"]}
+    assert states["provider"] == "empty"
+    token = client.post("/api/local-ollama/tokens").json()["token"]
+    assert client.get("/api/local-ollama/worker/ping", headers={
+        "Authorization": f"Bearer {token}",
+    }).status_code == 200
     states = {r["id"]: r["state"] for r in compute(_user())["parts"]}
     assert states["provider"] == "filled"
 

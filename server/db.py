@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
-from sqlalchemy import Enum as SAEnum
+from sqlalchemy import Enum as SAEnum, Text
 from sqlmodel import Field, SQLModel, create_engine, Session
 
 from .time_utils import utc_now
@@ -278,6 +278,27 @@ class ExtensionGrant(SQLModel, table=True):
     last_used_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class LocalOllamaGrant(SQLModel, table=True):
+    """Revocable credential for a user's outbound Ollama worker."""
+    token_hash: str = Field(primary_key=True)
+    user_id: int = Field(foreign_key="appuser.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_seen_at: datetime | None = None
+
+
+class LocalOllamaTask(SQLModel, table=True):
+    """Short-lived model request; removed after its waiting caller receives it."""
+    id: str = Field(primary_key=True)
+    user_id: int = Field(foreign_key="appuser.id", index=True)
+    status: str = Field(default="pending", index=True)
+    payload: str = Field(sa_type=Text())
+    result: str = Field(default="", sa_type=Text())
+    error: str = Field(default="", sa_type=Text())
+    lease_hash: str = ""
+    lease_until: datetime | None = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ExtensionDocument(SQLModel, table=True):
     """User-uploaded resume or cover letter for applications found anywhere."""
     id: int | None = Field(default=None, primary_key=True)
@@ -302,6 +323,8 @@ TENANT_MODELS: tuple[type[SQLModel], ...] = (
     ChatMessage,
     SavedAnswer,
     ExtensionGrant,
+    LocalOllamaGrant,
+    LocalOllamaTask,
     ExtensionDocument,
 )
 

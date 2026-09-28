@@ -284,6 +284,7 @@ class LocalOllamaGrant(SQLModel, table=True):
     user_id: int = Field(foreign_key="appuser.id", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_seen_at: datetime | None = None
+    models_json: str | None = Field(default=None, sa_type=Text())
 
 
 class LocalOllamaTask(SQLModel, table=True):

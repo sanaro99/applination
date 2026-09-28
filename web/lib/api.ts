@@ -269,8 +269,27 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     let detail = "";
     try {
-      detail = await res.text();
+      const body = await res.text();
+      if (res.headers.get("content-type")?.includes("text/html") || body.trimStart().startsWith("<")) {
+        detail = "The service is temporarily unavailable. Please retry in a moment.";
+      } else {
+        try {
+          const payload = JSON.parse(body) as { detail?: unknown };
+          if (typeof payload.detail === "string") {
+            detail = payload.detail.slice(0, 500);
+          } else if (Array.isArray(payload.detail)) {
+            detail = payload.detail.map((item: { msg?: unknown }) =>
+              typeof item?.msg === "string" ? item.msg : "Invalid input",
+            ).join("; ").slice(0, 500);
+          } else {
+            detail = "The request failed. Please retry.";
+          }
+        } catch {
+          detail = body.slice(0, 500);
+        }
+      }
     } catch {}
+    if (!detail) detail = "The request failed. Please retry.";
     if (res.status === 401 && !AUTH_PATHS.some((p) => path.startsWith(p))) {
       onUnauthorized?.();
     }
@@ -426,8 +445,8 @@ export const api = {
   getStats: () => http<StatsResponse>("/api/stats"),
 
   listProviders: () => http<ProviderInfo[]>("/api/providers"),
-  listProviderModels: (provider: string, body: { api_key?: string; account_id?: string }) =>
-    http<{ models: string[] }>(`/api/providers/${encodeURIComponent(provider)}/models`, {
+  listProviderModels: (provider: string, body: { api_key?: string; account_id?: string; catalog?: boolean }) =>
+    http<{ models: string[]; source?: "catalog" }>(`/api/providers/${encodeURIComponent(provider)}/models`, {
       method: "POST",
       body: JSON.stringify(body),
     }),

@@ -105,3 +105,73 @@ def test_worker_rejects_uninstalled_models(monkeypatch):
     else:
         raise AssertionError("A cloud model was sent to Ollama")
     assert len(calls) == 3  # no second /api/chat call
+
+
+def test_worker_model_inventory_is_owned_updated_and_online_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "engine", make_engine(tmp_path))
+    from server.app import app
+    from server.local_ollama import ONLINE_FOR
+    from datetime import datetime
+
+    with TestClient(app) as owner, TestClient(app) as other, TestClient(app) as worker:
+        register(owner, "inventory-owner@example.com")
+        register(other, "inventory-other@example.com")
+        assert owner.put("/api/onboarding/provider", json={"provider": "ollama"}).status_code == 200
+        assert other.put("/api/onboarding/provider", json={"provider": "ollama"}).status_code == 200
+        token = owner.post("/api/local-ollama/tokens").json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        assert worker.post("/api/local-ollama/worker/models", json={"models": []}).status_code == 401
+        offline = owner.post("/api/providers/ollama/models", json={})
+        assert offline.status_code == 503
+        assert "Start your local Ollama worker" in offline.json()["detail"]
+
+        assert worker.get("/api/local-ollama/worker/ping", headers=headers).status_code == 200
+        outdated = owner.post("/api/providers/ollama/models", json={})
+        assert outdated.status_code == 409
+        assert "updated local Ollama worker" in outdated.json()["detail"]
+
+        report = worker.post("/api/local-ollama/worker/models", headers=headers,
+                             json={"models": ["z-model:latest", "a-model:latest", "a-model:latest"]})
+        assert report.status_code == 200, report.text
+        assert owner.post("/api/providers/ollama/models", json={}).json() == {
+            "models": ["a-model:latest", "z-model:latest"],
+        }
+        assert other.post("/api/providers/ollama/models", json={}).status_code == 503
+        assert worker.post("/api/local-ollama/worker/models", headers=headers,
+                           json={"models": ["invalid model"]}).status_code == 422
+        assert worker.post("/api/local-ollama/worker/models", headers=headers,
+                           json={"models": ["new-model:latest"]}).status_code == 200
+        assert owner.post("/api/providers/ollama/models", json={}).json() == {"models": ["new-model:latest"]}
+        assert worker.post("/api/local-ollama/worker/models", headers=headers,
+                           json={"models": []}).status_code == 200
+        assert owner.post("/api/providers/ollama/models", json={}).json() == {"models": []}
+
+        grant_id = owner.get("/api/local-ollama/status").json()["workers"][0]["id"]
+        with db.session() as s:
+            grant = s.get(db.LocalOllamaGrant, grant_id)
+            grant.last_seen_at = datetime.utcnow() - ONLINE_FOR - ONLINE_FOR
+            s.add(grant)
+            s.commit()
+        assert owner.post("/api/providers/ollama/models", json={}).status_code == 503
+        assert owner.delete(f"/api/local-ollama/tokens/{grant_id}").status_code == 200
+        assert worker.post("/api/local-ollama/worker/models", headers=headers,
+                           json={"models": ["new-model:latest"]}).status_code == 401
+
+
+def test_worker_publishes_only_local_installed_models(monkeypatch):
+    import local_ollama_worker as worker
+
+    calls = []
+
+    def request(url, **kwargs):
+        calls.append((url, kwargs))
+        if url.endswith("/api/tags"):
+            return {"models": [{"name": "z-model:latest"}, {"name": "a-model:latest"}]}
+        return {"ok": True}
+
+    monkeypatch.setattr(worker, "_request", request)
+    worker._publish_models("https://applination.example", "worker-private", "http://127.0.0.1:11434")
+    assert calls[0] == ("http://127.0.0.1:11434/api/tags", {"timeout": 10})
+    assert calls[1][0] == "https://applination.example/api/local-ollama/worker/models"
+    assert calls[1][1]["body"] == {"models": ["a-model:latest", "z-model:latest"]}
+    assert calls[1][1]["token"] == "worker-private"

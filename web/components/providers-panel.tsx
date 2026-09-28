@@ -29,6 +29,12 @@ export function ProvidersPanel() {
     mutationFn: (provider: string) => api.testProvider(provider),
     onMutate: (provider) => setTesting(provider),
     onSuccess: (r) => setResults((prev) => ({ ...prev, [r.provider]: r })),
+    onError: (error, provider) => setResults((prev) => ({
+      ...prev,
+      [provider]: {
+        ok: false, provider, model: "", latency_ms: 0, sample: "", error: error.message,
+      },
+    })),
     onSettled: () => setTesting(null),
   });
 
@@ -149,18 +155,21 @@ function ProviderConfiguration({ provider, onSaved }: {
   const [accountId, setAccountId] = useState(provider.account_id || "");
   const [models, setModels] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [catalog, setCatalog] = useState(false);
   const [manual, setManual] = useState(false);
   const isOllama = provider.name === "ollama";
   const isCloudflare = provider.name === "cloudflare";
 
   const discover = useMutation({
-    mutationFn: () => api.listProviderModels(provider.name, {
-      api_key: apiKey.trim() || undefined,
-      account_id: isCloudflare ? accountId.trim() : undefined,
+    mutationFn: (browseCatalog: boolean) => api.listProviderModels(provider.name, {
+      catalog: !isOllama && browseCatalog,
+      api_key: browseCatalog ? undefined : apiKey.trim() || undefined,
+      account_id: isCloudflare && !browseCatalog ? accountId.trim() : undefined,
     }),
-    onSuccess: ({ models }) => {
+    onSuccess: ({ models, source }) => {
       setModels(models);
       setLoaded(true);
+      setCatalog(source === "catalog");
     },
   });
   const save = useMutation({
@@ -203,8 +212,10 @@ function ProviderConfiguration({ provider, onSaved }: {
               value={apiKey}
               onChange={(e) => {
                 setApiKey(e.target.value);
-                setLoaded(false);
-                setModels([]);
+                if (!catalog) {
+                  setLoaded(false);
+                  setModels([]);
+                }
               }}
               placeholder={provider.configured ? "Stored key (enter a new one to replace it)" : "Paste your key"}
             />
@@ -218,8 +229,10 @@ function ProviderConfiguration({ provider, onSaved }: {
               value={accountId}
               onChange={(e) => {
                 setAccountId(e.target.value);
-                setLoaded(false);
-                setModels([]);
+                if (!catalog) {
+                  setLoaded(false);
+                  setModels([]);
+                }
               }}
               placeholder="Cloudflare account ID"
             />
@@ -230,12 +243,23 @@ function ProviderConfiguration({ provider, onSaved }: {
             type="button"
             size="sm"
             variant="outline"
-            disabled={discover.isPending || (!isOllama && !apiKey.trim() && !provider.configured)}
-            onClick={() => discover.mutate()}
+            disabled={discover.isPending}
+            onClick={() => discover.mutate(true)}
           >
             {discover.isPending && <Loader2 className="size-3.5 animate-spin" />}
             Load available models
           </Button>
+          {!isOllama && (apiKey.trim() || provider.configured) && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={discover.isPending || (isCloudflare && !accountId.trim())}
+              onClick={() => discover.mutate(false)}
+            >
+              Load models for my key
+            </Button>
+          )}
           {discover.isError && <p className="text-xs text-destructive">{String(discover.error)}</p>}
           {loaded && models.length === 0 && (
             <p className="text-xs text-muted-foreground">This provider returned no model IDs. Enter the model ID below.</p>
@@ -271,7 +295,11 @@ function ProviderConfiguration({ provider, onSaved }: {
             </button>
           )}
           <p className="text-xs text-muted-foreground">
-            Models are fetched from the provider. Test your selection after saving; some listed models may not support this app’s requests.
+            {isOllama
+              ? "Lists installed Ollama models. If you use Ollama on your computer, keep the local worker running."
+              : catalog
+                ? "Public model catalog from Models.dev. Add a key and test your selection after saving to confirm access."
+                : "Browse models without a key, or load the list for your key. Test your selection after saving to confirm it supports this app’s requests."}
           </p>
         </div>
       </div>

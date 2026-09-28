@@ -82,6 +82,7 @@ class ProviderConfigurationBody(BaseModel):
 class ProviderModelsBody(BaseModel):
     api_key: str | None = None
     account_id: str | None = None
+    catalog: bool = False
 
 
 def _account_id(value: str) -> str:
@@ -135,16 +136,19 @@ def list_provider_models(
     key = (body.api_key or "").strip() or str(
         block.get("api_token" if name == "cloudflare" else "api_key") or ""
     ).strip()
-    if not key and name != "ollama":
-        raise HTTPException(400, "Enter an API key to load this provider's models")
-    if len(key) > 4096 or any(ord(ch) < 32 for ch in key):
+    if not body.catalog and (len(key) > 4096 or any(ord(ch) < 32 for ch in key)):
         raise HTTPException(400, "Invalid API key")
-    account_id = (body.account_id or block.get("account_id") or "") if name == "cloudflare" else ""
-    if name == "cloudflare":
-        account_id = _account_id(account_id)
 
-    from .provider_models import discover_models
+    from .provider_models import discover_models, public_models
     try:
+        if name == "ollama" and block.get("transport") != "direct":
+            from .local_ollama import worker_models
+            return {"models": worker_models(user.id)}
+        if name != "ollama" and (body.catalog or not key):
+            return {"models": public_models(name), "source": "catalog"}
+        account_id = (body.account_id or block.get("account_id") or "") if name == "cloudflare" else ""
+        if name == "cloudflare":
+            account_id = _account_id(account_id)
         return {"models": discover_models(
             name, key, account_id=account_id,
             base_url=str(block.get("base_url") or "") if name == "ollama" else "",
@@ -153,7 +157,10 @@ def list_provider_models(
         # Do not send upstream error bodies back: vendors may echo credentials.
         log.warning("model discovery failed for %s: %s", name, type(exc).__name__)
         status = exc.response.status_code if isinstance(exc, requests.HTTPError) and exc.response is not None else None
-        detail = f"Could not load {name} models" + (f" (HTTP {status})" if status else "")
+        if name == "ollama":
+            detail = "Could not reach the API server's Ollama. Start it there, or connect a local Ollama worker on your computer."
+        else:
+            detail = f"Could not load {name} models" + (f" (HTTP {status})" if status else "")
         raise HTTPException(502, detail) from exc
 
 

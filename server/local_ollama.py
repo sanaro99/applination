@@ -16,7 +16,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, or_, update
 from sqlmodel import select
 
@@ -72,6 +72,21 @@ def worker_online(user_id: int) -> bool:
             LocalOllamaGrant.last_seen_at >= cutoff
         )).first()
         return grant is not None
+
+
+def worker_models(user_id: int) -> list[str]:
+    """Installed models reported by online workers belonging to this user."""
+    cutoff = datetime.utcnow() - ONLINE_FOR
+    with session() as s:
+        grants = s.exec(owned(select(LocalOllamaGrant), LocalOllamaGrant, user_id).where(
+            LocalOllamaGrant.last_seen_at >= cutoff
+        )).all()
+        if not grants:
+            raise HTTPException(503, "Start your local Ollama worker on your computer, then retry.")
+        inventories = [g.models_json for g in grants if g.models_json is not None]
+    if not inventories:
+        raise HTTPException(409, "Download the updated local Ollama worker and restart it to load installed models.")
+    return sorted({model for inventory in inventories for model in json.loads(inventory)}, key=str.casefold)
 
 
 @site_router.get("/status")
@@ -134,6 +149,31 @@ def _touch_grant(grant_hash: str, user_id: int) -> None:
 @worker_router.get("/ping")
 def worker_ping(request: Request, user: User = Depends(require_worker_user)) -> dict:
     _touch_grant(request.state.local_worker_grant, user.id)
+    return {"ok": True}
+
+
+class ModelsBody(BaseModel):
+    models: list[str] = Field(max_length=500)
+
+    @field_validator("models")
+    @classmethod
+    def validate_models(cls, models: list[str]) -> list[str]:
+        if any(not model or len(model) > 200 or any(ch.isspace() or ord(ch) < 32 for ch in model)
+               for model in models):
+            raise ValueError("Invalid Ollama model ID")
+        return sorted(set(models), key=str.casefold)
+
+
+@worker_router.post("/models")
+def report_models(body: ModelsBody, request: Request, user: User = Depends(require_worker_user)) -> dict:
+    with session() as s:
+        grant = find_owned(s, LocalOllamaGrant, request.state.local_worker_grant, user)
+        if grant is None:
+            raise HTTPException(401, "worker connection was revoked")
+        grant.models_json = json.dumps(body.models)
+        grant.last_seen_at = datetime.utcnow()
+        s.add(grant)
+        s.commit()
     return {"ok": True}
 
 

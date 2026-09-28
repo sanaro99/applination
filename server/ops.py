@@ -198,7 +198,8 @@ def test_provider(
         sample = provider.text_call(
             "You are a connectivity check.",
             "Reply with the single word: ok",
-            max_tokens=5,
+            # Stay above provider minimums and leave room for response overhead.
+            max_tokens=64,
         )
         latency = int((time.time() - t0) * 1000)
         return TestResult(

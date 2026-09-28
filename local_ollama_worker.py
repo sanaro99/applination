@@ -45,7 +45,8 @@ def _check_site(site: str) -> str:
 
 def _request(url: str, *, token: str = "", body: dict | None = None,
              timeout: int = 30) -> dict:
-    headers = {"Accept": "application/json"}
+    # Identify the worker explicitly; edge integrity checks can reject Python's default client.
+    headers = {"Accept": "application/json", "User-Agent": "Applination-Ollama-Worker/1.0"}
     data = None
     if token:
         headers["Authorization"] = f"Bearer {token}"

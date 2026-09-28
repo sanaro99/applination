@@ -239,6 +239,8 @@ The worker connects outward to Applination and calls Ollama only on this compute
 
 For a self-hosted single-machine CLI setup, the existing direct Ollama provider still calls `http://localhost:11434`. A self-hosted API can explicitly set `llm.ollama.transport: direct` to use its own loopback Ollama. Hosted accounts use the local worker by default.
 
+**Load available models** in Config works before you enter an AI provider key. Cloud providers use the public [Models.dev catalog](https://models.dev); **Load models for my key** optionally queries the provider with your entered or stored credentials. Public listings do not confirm account access, so test your selection after saving. Ollama lists the models reported by your online local worker. If an older worker asks you to update, download the current worker from Config and restart it; its existing connection key is kept.
+
 > **On environment variables:** `ANTHROPIC_API_KEY` and friends are **ignored** unless `ALLOW_ENV_API_KEYS` is set. They belong to the server process rather than to any account, so on a multi-user install the fallback would let a user with no key of their own quietly spend the operator's. Only enable it for a single-user deployment.
 
 ## Your profile data

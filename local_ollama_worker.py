@@ -61,13 +61,23 @@ def _request(url: str, *, token: str = "", body: dict | None = None,
         try:
             detail = json.loads(detail).get("detail", detail)
         except (ValueError, TypeError):
-            pass
+            if detail.lstrip().startswith("<"):
+                detail = "Applination is temporarily unavailable. Retry in a moment."
         raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
 
 
 def _local_models(ollama_url: str) -> set[str]:
     data = _request(f"{ollama_url}/api/tags", timeout=10)
-    return {str(row.get("name", "")) for row in data.get("models", [])}
+    rows = data.get("models")
+    if not isinstance(rows, list):
+        raise RuntimeError("Ollama returned an invalid model list")
+    return {row["name"] for row in rows if isinstance(row, dict)
+            and isinstance(row.get("name"), str) and row["name"]}
+
+
+def _publish_models(site: str, token: str, ollama_url: str) -> None:
+    _request(f"{site}/api/local-ollama/worker/models", token=token,
+             body={"models": sorted(_local_models(ollama_url))}, timeout=15)
 
 
 def _generate(ollama_url: str, payload: dict) -> str:
@@ -154,6 +164,8 @@ def main() -> int:
             return 1
     try:
         _request(f"{site}/api/local-ollama/worker/ping", token=token, timeout=15)
+        _request(f"{site}/api/local-ollama/worker/models", token=token,
+                 body={"models": sorted(models)}, timeout=15)
     except (RuntimeError, URLError, TimeoutError) as exc:
         print(f"Could not connect to Applination: {exc}", file=sys.stderr)
         return 1
@@ -163,8 +175,12 @@ def main() -> int:
         with os.fdopen(fd, "w", encoding="utf-8") as config_file:
             json.dump({"site": site, "token": token}, config_file)
     print("Connected. Keep this window open while Applination uses your model. Ctrl+C to stop.")
+    next_catalog_refresh = time.monotonic() + 30
     while True:
         try:
+            if time.monotonic() >= next_catalog_refresh:
+                _publish_models(site, token, ollama_url)
+                next_catalog_refresh = time.monotonic() + 30
             response = _request(f"{site}/api/local-ollama/worker/next", token=token, timeout=25)
             task = response.get("task")
             if task:

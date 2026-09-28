@@ -4,6 +4,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import httpx
+import requests
+import pytest
 from openai import BadRequestError
 from openai.resources.responses import Responses
 import yaml
@@ -201,15 +203,17 @@ def test_ollama_lists_only_server_local_models(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_models.requests, "get", fake_get)
     with TestClient(app) as client:
         register(client, "alice@example.com")
+        text = client.get("/api/config").json()["text"]
+        config = yaml.safe_load(text)
+        config["llm"]["ollama"]["transport"] = "direct"
+        assert client.put("/api/config", json={"text": yaml.safe_dump(config)}).status_code == 200
         r = client.post("/api/providers/ollama/models", json={})
         assert r.status_code == 200, r.text
         assert r.json() == {"models": ["llama-local:latest"]}
         assert urls == ["http://localhost:11434/api/tags"]
 
-        text = client.get("/api/config").json()["text"]
-        assert client.put("/api/config", json={"text": text.replace(
-            'base_url: "http://localhost:11434"', 'base_url: "http://example.com"'
-        )}).status_code == 200
+        config["llm"]["ollama"]["base_url"] = "http://example.com"
+        assert client.put("/api/config", json={"text": yaml.safe_dump(config)}).status_code == 200
         blocked = client.post("/api/providers/ollama/models", json={})
         assert blocked.status_code == 502
         assert urls == ["http://localhost:11434/api/tags"]
@@ -254,3 +258,68 @@ def test_cloudflare_model_list_uses_account_and_token(tmp_path, monkeypatch):
         assert all(call[1]["Authorization"] == "Bearer private-token" for call in pages)
         assert get_secret(1, "llm.cloudflare.api_token") == "private-token"
         assert "private-token" not in client.get("/api/providers").text
+
+
+def test_ollama_worker_model_list_does_not_contact_hosted_localhost(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "engine", make_engine(tmp_path))
+    from server.app import app
+    from server import local_ollama, provider_models
+
+    owners = []
+
+    def worker_models(user_id):
+        owners.append(user_id)
+        return ["llama-on-my-computer:latest"]
+
+    def no_hosted_ollama(*args, **kwargs):
+        raise requests.ConnectionError("No Ollama is installed on the hosted API server")
+
+    monkeypatch.setattr(local_ollama, "worker_models", worker_models, raising=False)
+    monkeypatch.setattr(provider_models.requests, "get", no_hosted_ollama)
+    with TestClient(app) as client:
+        owner_id = register(client, "worker-models@example.com")["id"]
+        assert client.put("/api/onboarding/provider", json={"provider": "ollama"}).status_code == 200
+        result = client.post("/api/providers/ollama/models", json={})
+        assert result.status_code == 200, result.text
+        assert result.json()["models"] == ["llama-on-my-computer:latest"]
+        assert owners == [owner_id]
+
+
+@pytest.mark.parametrize("name", ["openai", "claude", "gemini", "deepseek", "mistral", "nim", "groq", "cloudflare", "openrouter"])
+def test_model_catalog_can_load_before_entering_credentials(name, tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "engine", make_engine(tmp_path))
+    from server.app import app
+    from server import provider_models
+
+    def public_catalog(provider):
+        assert provider == name
+        return ["public-text-model"]
+
+    monkeypatch.setattr(provider_models, "public_models", public_catalog, raising=False)
+    with TestClient(app) as client:
+        register(client, "catalog@example.com")
+        result = client.post(f"/api/providers/{name}/models", json={})
+        assert result.status_code == 200, result.text
+        assert result.json()["models"] == ["public-text-model"]
+
+
+def test_catalog_browsing_ignores_stored_keys_and_cloudflare_account_requirements(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "engine", make_engine(tmp_path))
+    from server.app import app
+    from server import provider_models
+
+    def never_use_credentials(*args, **kwargs):
+        raise AssertionError("Catalog browsing must not send account credentials")
+
+    monkeypatch.setattr(provider_models, "discover_models", never_use_credentials)
+    monkeypatch.setattr(provider_models, "public_models", lambda name: [f"{name}-text-model"])
+    with TestClient(app) as client:
+        register(client, "catalog-key@example.com")
+        assert client.put("/api/providers/openai/configuration", json={
+            "model": "gpt-current", "api_key": "sk-stored-private",
+        }).status_code == 200
+        for name in ["openai", "cloudflare"]:
+            result = client.post(f"/api/providers/{name}/models", json={"catalog": True})
+            assert result.status_code == 200, result.text
+            assert result.json() == {"models": [f"{name}-text-model"], "source": "catalog"}
+        assert get_secret(1, "llm.openai.api_key") == "sk-stored-private"

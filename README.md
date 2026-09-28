@@ -231,11 +231,16 @@ Each workflow — scoring, tailoring, cover letters, critique, coach, interview,
 ### Use your own Ollama with the hosted website and extension
 
 1. Install [Ollama](https://ollama.com/download) on the computer where you will use Applination, and run `ollama pull llama3.2` (or install the model you select in Workflows).
-2. On Applination's **Config** page, find **Ollama on your computer**, download `applination-ollama-worker.py`, and create a connection key.
-3. Install Python 3.10 or newer, run `python applination-ollama-worker.py` from the download folder, and paste the key. The worker remembers it for later runs. Keep the worker running for website generation, extension autofill, and scheduled runs.
-4. Choose Ollama during onboarding or in Workflows. Onboarding makes Ollama the provider for every workflow and removes cloud fallbacks. If you use Workflows instead, set each task you want to run locally to Ollama and remove its cloud fallbacks.
+2. On Applination's **Config** page, find **Ollama on your computer**, download `applination-ollama-worker.py`, and create a pairing code. It expires in five minutes and works once.
+3. Install Python 3.10 or newer, run `python applination-ollama-worker.py`, and paste the code into its hidden terminal prompt. Enter the verification code shown in that terminal into Config and approve the matching worker. Unexpected workers should be disconnected. No prompts are released before approval.
+4. Keep the worker running for website generation, extension autofill, and scheduled runs. Sessions expire after 12 hours or one hour offline; pair again afterward. The worker saves sessions with Windows DPAPI protection on Windows or private file permissions on other systems.
+5. Choose Ollama during onboarding or in Workflows. Onboarding makes Ollama the provider for every workflow and removes cloud fallbacks. If you use Workflows instead, set each task you want to run locally to Ollama and remove its cloud fallbacks.
 
-The worker connects outward to Applination and calls Ollama only on this computer's loopback address. You do not need to expose Ollama to the internet or configure browser CORS. Its connection key is revocable in Config; after revoking, create a new one and run the worker with `--reset`. Only models installed locally are accepted, so an Ollama cloud model cannot be selected accidentally through this worker. AI companies do not receive prompts handled by the local model.
+The official worker connects outward to Applination and calls Ollama only on this computer's loopback address, without using HTTP proxies for local prompts. You do not need to expose Ollama to the internet or configure browser CORS. Disconnect a worker in Config to revoke its session and cancel its leased requests; changing your password also revokes every worker on your account. Run with `--reset` to pair again. The worker excludes cloud models from the inventory and checks `/api/show` for remote aliases before sending any inference prompt.
+
+The server treats workers as untrusted clients: credentials cannot access regular account APIs, tasks are scoped to the account and claiming worker, expired leases and replayed results are rejected, and requests and responses have size limits. Existing credentials from the old protocol are deliberately invalidated by the security migration. Download the updated worker and pair again after deploying this update.
+
+Run only a trusted worker downloaded from your Applination installation. A modified script runs with your OS permissions and could forward prompts elsewhere or fabricate answers. The server cannot attest that a response actually came from local Ollama; credential scoping contains the account access it grants, and DPAPI does not protect against malware already running as your Windows user.
 
 If an older worker fails with HTTP 403 and "blocked access based on your browser's signature," download the current worker from Config and restart it. The current worker identifies itself to Cloudflare's Browser Integrity Check with an Applination user agent.
 

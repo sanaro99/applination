@@ -49,6 +49,8 @@ from .local_ollama import (
     worker_router as local_ollama_worker_router,
     require_worker_user,
     resolve_worker_user,
+    pair_router as local_ollama_pair_router,
+    WorkerRequestGuard,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -81,6 +83,7 @@ PUBLIC_PATHS: frozenset[str] = frozenset({
     "/api/auth/demo",
     "/api/extension/pair/start",
     "/api/extension/pair/complete",
+    "/api/local-ollama/worker/connect",  # Authenticates a one-time code inside the route.
     "/docs",
     "/docs/oauth2-redirect",
     "/openapi.json",
@@ -122,6 +125,7 @@ def create_app() -> FastAPI:
     )
 
     app.state.limiter = limiter
+    app.add_middleware(WorkerRequestGuard)
 
     @app.exception_handler(RateLimitExceeded)
     async def _rate_limited(request, exc):  # noqa: ANN001
@@ -151,7 +155,7 @@ def create_app() -> FastAPI:
             return await call_next(request)
 
         if path.startswith("/api/local-ollama/worker/"):
-            user = resolve_worker_user(request)
+            user = resolve_worker_user(request, allow_pending=path == "/api/local-ollama/worker/approval")
             if user is None:
                 return JSONResponse({"detail": "local Ollama worker is not connected"}, status_code=401)
             request.state.local_worker_user = user
@@ -211,6 +215,7 @@ def create_app() -> FastAPI:
     app.include_router(extension_data_router, dependencies=[Depends(require_extension_user)])
     app.include_router(extension_download_router, dependencies=[Depends(require_user)])
     app.include_router(local_ollama_worker_router, dependencies=[Depends(require_worker_user)])
+    app.include_router(local_ollama_pair_router)
 
     # Also mounted without require_user, for the same reason auth is: the
     # calendar feed authenticates with a signed token instead of a session. It

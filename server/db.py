@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
-from sqlalchemy import Enum as SAEnum, Text
+from sqlalchemy import DateTime, Enum as SAEnum, Text
 from sqlmodel import Field, SQLModel, create_engine, Session
 
 from .time_utils import utc_now
@@ -285,6 +285,10 @@ class LocalOllamaGrant(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_seen_at: datetime | None = None
     models_json: str | None = Field(default=None, sa_type=Text())
+    pairing_expires_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    session_hash: str | None = Field(default=None, index=True, unique=True)
+    approved_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    expires_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
 
 
 class LocalOllamaTask(SQLModel, table=True):
@@ -297,6 +301,7 @@ class LocalOllamaTask(SQLModel, table=True):
     error: str = Field(default="", sa_type=Text())
     lease_hash: str = ""
     lease_until: datetime | None = None
+    worker_grant_hash: str | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

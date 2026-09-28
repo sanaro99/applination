@@ -374,6 +374,9 @@ def change_password(
         s.add(row)
         s.commit()
         revoke_all_sessions(s, user.id)  # type: ignore[arg-type]
+        from .local_ollama import revoke_all_worker_sessions
+
+        revoke_all_worker_sessions(s, user.id)
         token = create_session(s, user.id)  # type: ignore[arg-type]
     _set_cookie(response, token, request)
     return {"ok": True}

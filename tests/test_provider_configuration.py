@@ -1,6 +1,11 @@
 """Provider credentials and model IDs can be edited without exposing secrets."""
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import httpx
+from openai import BadRequestError
+from openai.resources.responses import Responses
 import yaml
 from fastapi.testclient import TestClient
 
@@ -35,18 +40,69 @@ def test_model_and_key_are_saved_for_one_user(tmp_path, monkeypatch):
         assert get_secret(1, "llm.openai.api_key") == "sk-alice-private"
         import src.providers
         seen = {}
+        budgets = []
 
         class FakeProvider:
-            def text_call(self, *_args, **_kwargs):
+            def text_call(self, *_args, **kwargs):
+                budgets.append(kwargs["max_tokens"])
                 return "ok"
 
-        def fake_provider(name, llm):
+        def fake_provider(name, llm, *, user_id):
+            assert user_id == 1
             seen.update({"name": name, "model": llm[name]["model"], "key": llm[name]["api_key"]})
             return FakeProvider()
 
         monkeypatch.setattr(src.providers, "get_provider", fake_provider)
         assert alice.post("/api/providers/test", json={"provider": "openai"}).json()["ok"] is True
         assert seen == {"name": "openai", "model": "gpt-another", "key": "sk-alice-private"}
+        assert budgets[0] >= 16
+
+
+def test_openai_connection_check_meets_responses_token_minimum(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "engine", make_engine(tmp_path))
+    from server.app import app
+
+    calls = []
+
+    def create_response(self, **kwargs):
+        calls.append(kwargs)
+        budget = kwargs["max_output_tokens"]
+        if budget < 16:
+            error = {"error": {
+                "message": "Invalid 'max_output_tokens': integer below minimum value. "
+                           f"Expected a value >= 16, but got {budget} instead.",
+                "type": "invalid_request_error",
+                "param": "max_output_tokens",
+                "code": "integer_below_min_value",
+            }}
+            raise BadRequestError(
+                str(error),
+                response=httpx.Response(
+                    400, request=httpx.Request("POST", "https://api.openai.com/v1/responses"),
+                ),
+                body=error,
+            )
+        return SimpleNamespace(output_text="ok")
+
+    # Keep the endpoint, stored credentials, factory and adapter real; replace
+    # only the SDK request with the API's documented minimum-token contract.
+    monkeypatch.setattr(Responses, "create", create_response)
+    with TestClient(app) as client:
+        register(client, "alice@example.com")
+        configured = client.put("/api/providers/openai/configuration", json={
+            "model": "gpt-5.6-luna", "api_key": "sk-test-private",
+        })
+        assert configured.status_code == 200, configured.text
+
+        result = client.post("/api/providers/test", json={"provider": "openai"})
+        assert result.status_code == 200, result.text
+        body = result.json()
+        assert body["ok"] is True, body["error"]
+        assert body["sample"] == "ok"
+        assert body["model"] == "gpt-5.6-luna"
+        assert len(calls) == 1
+        assert calls[0]["model"] == "gpt-5.6-luna"
+        assert calls[0]["max_output_tokens"] >= 16
 
 
 def test_model_list_uses_temporary_or_stored_key(tmp_path, monkeypatch):

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from src.providers.openai_provider import OpenAIProvider
 
 
@@ -28,6 +30,25 @@ def test_openai_text_call_uses_responses_api_and_reasoning_effort():
         "model": "gpt-5.6-luna", "instructions": "system", "input": "user",
         "max_output_tokens": 77, "reasoning": {"effort": "low"},
     }]
+
+
+@pytest.mark.parametrize("max_tokens", [1, 5, 15, 16])
+def test_openai_text_call_accepts_small_output_budgets(max_tokens):
+    provider, calls = _provider("ok")
+
+    assert provider.text_call("system", "user", max_tokens=max_tokens) == "ok"
+    assert calls[0]["max_output_tokens"] == 16
+
+
+@pytest.mark.parametrize("schema", [None, {
+    "type": "object", "properties": {"answer": {"type": "string"}},
+    "required": ["answer"], "additionalProperties": False,
+}])
+def test_openai_json_call_accepts_small_output_budgets(schema):
+    provider, calls = _provider('{"answer":"ok"}')
+
+    assert provider.json_call("system", "user", max_tokens=5, schema=schema) == {"answer": "ok"}
+    assert calls[0]["max_output_tokens"] == 16
 
 
 def test_openai_json_call_uses_strict_schema():

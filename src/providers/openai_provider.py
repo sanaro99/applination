@@ -8,6 +8,8 @@ from .base import LLMProvider, _parse_json, resolve_api_key
 
 LOG = logging.getLogger(__name__)
 _REQUEST_TIMEOUT = 90.0
+# The Responses API rejects output budgets below 16, even for short replies.
+_MIN_OUTPUT_TOKENS = 16
 
 
 def _with_retry(fn):
@@ -66,7 +68,7 @@ class OpenAIProvider(LLMProvider):
             "model": self.model,
             "instructions": system,
             "input": user,
-            "max_output_tokens": max_tokens,
+            "max_output_tokens": max(_MIN_OUTPUT_TOKENS, max_tokens),
             "reasoning": {"effort": self.reasoning_effort},
         }
         if text is not None:

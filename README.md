@@ -237,6 +237,8 @@ Each workflow — scoring, tailoring, cover letters, critique, coach, interview,
 
 The worker connects outward to Applination and calls Ollama only on this computer's loopback address. You do not need to expose Ollama to the internet or configure browser CORS. Its connection key is revocable in Config; after revoking, create a new one and run the worker with `--reset`. Only models installed locally are accepted, so an Ollama cloud model cannot be selected accidentally through this worker. AI companies do not receive prompts handled by the local model.
 
+If an older worker fails with HTTP 403 and "blocked access based on your browser's signature," download the current worker from Config and restart it. The current worker identifies itself to Cloudflare's Browser Integrity Check with an Applination user agent.
+
 For a self-hosted single-machine CLI setup, the existing direct Ollama provider still calls `http://localhost:11434`. A self-hosted API can explicitly set `llm.ollama.transport: direct` to use its own loopback Ollama. Hosted accounts use the local worker by default.
 
 **Load available models** in Config works before you enter an AI provider key. Cloud providers use the public [Models.dev catalog](https://models.dev); **Load models for my key** optionally queries the provider with your entered or stored credentials. Public listings do not confirm account access, so test your selection after saving. Ollama lists the models reported by your online local worker. If an older worker asks you to update, download the current worker from Config and restart it; its existing connection key is kept.

@@ -125,3 +125,24 @@ def login(client, email: str, password: str = PASSWORD) -> dict:
     )
     assert r.status_code == 200, r.text
     return r.json()
+
+
+def pair_ollama(owner, worker=None) -> str:
+    """Follow the actual one-time code and browser-approval protocol."""
+    import hashlib
+
+    worker = worker or owner
+    key_response = owner.post("/api/local-ollama/tokens")
+    assert key_response.status_code == 200, key_response.text
+    code = key_response.json()["token"]
+    result = worker.post("/api/local-ollama/worker/connect", json={}, headers={
+        "Authorization": f"Bearer {code}",
+    })
+    assert result.status_code == 200, result.text
+    paired = result.json()
+    grant_id = hashlib.sha256(code.encode()).hexdigest()
+    approval = owner.post(f"/api/local-ollama/tokens/{grant_id}/approve", json={
+        "verification_code": paired["verification_code"],
+    })
+    assert approval.status_code == 200, approval.text
+    return paired["token"]

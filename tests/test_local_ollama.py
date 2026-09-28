@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 import server.db as db
-from .conftest import make_engine, register
+from .conftest import make_engine, register, pair_ollama
 
 
 def test_local_worker_round_trip_and_tenant_scope(tmp_path, monkeypatch):
@@ -23,8 +23,8 @@ def test_local_worker_round_trip_and_tenant_scope(tmp_path, monkeypatch):
         assert llm["primary"] == "ollama"
         assert llm["fallbacks"] == [] and llm["tasks"] == {}
         assert worker.get("/api/local-ollama/status").status_code == 401
-        token = owner.post("/api/local-ollama/tokens").json()["token"]
-        other_token = other.post("/api/local-ollama/tokens").json()["token"]
+        token = pair_ollama(owner, worker)
+        other_token = pair_ollama(other, worker)
         headers = {"Authorization": f"Bearer {token}"}
         other_headers = {"Authorization": f"Bearer {other_token}"}
         grant_id = owner.get("/api/local-ollama/status").json()["workers"][0]["id"]
@@ -104,7 +104,7 @@ def test_worker_rejects_uninstalled_models(monkeypatch):
         assert "not installed locally" in str(exc)
     else:
         raise AssertionError("A cloud model was sent to Ollama")
-    assert len(calls) == 3  # no second /api/chat call
+    assert len(calls) == 4  # Includes the pre-inference metadata check; no second /api/chat.
 
 
 def test_worker_model_inventory_is_owned_updated_and_online_only(tmp_path, monkeypatch):
@@ -118,7 +118,7 @@ def test_worker_model_inventory_is_owned_updated_and_online_only(tmp_path, monke
         register(other, "inventory-other@example.com")
         assert owner.put("/api/onboarding/provider", json={"provider": "ollama"}).status_code == 200
         assert other.put("/api/onboarding/provider", json={"provider": "ollama"}).status_code == 200
-        token = owner.post("/api/local-ollama/tokens").json()["token"]
+        token = pair_ollama(owner, worker)
         headers = {"Authorization": f"Bearer {token}"}
         assert worker.post("/api/local-ollama/worker/models", json={"models": []}).status_code == 401
         offline = owner.post("/api/providers/ollama/models", json={})

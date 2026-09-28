@@ -168,7 +168,9 @@ def test_choosing_ollama_requires_the_local_worker(client):
     assert r.status_code == 200, r.text
     states = {r["id"]: r["state"] for r in compute(_user())["parts"]}
     assert states["provider"] == "empty"
-    token = client.post("/api/local-ollama/tokens").json()["token"]
+    from .conftest import pair_ollama
+
+    token = pair_ollama(client)
     assert client.get("/api/local-ollama/worker/ping", headers={
         "Authorization": f"Bearer {token}",
     }).status_code == 200

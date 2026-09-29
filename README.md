@@ -250,6 +250,32 @@ For a self-hosted single-machine CLI setup, the existing direct Ollama provider 
 
 > **On environment variables:** `ANTHROPIC_API_KEY` and friends are **ignored** unless `ALLOW_ENV_API_KEYS` is set. They belong to the server process rather than to any account, so on a multi-user install the fallback would let a user with no key of their own quietly spend the operator's. Only enable it for a single-user deployment.
 
+## Job ranking
+
+Choose **Workflows → Job ranking → Ranking method**:
+
+- **LLM scoring** (default) sends up to 25 jobs per call. Ranking 200 fetched
+  jobs normally takes 8 calls, plus any provider fallback attempts. Each
+  posting contributes its title, location, and the first 200 description characters.
+- **Local word matching (BM25)** runs on the server without an LLM, model
+  download, training data, API key, or ranking API calls. It compares full
+  descriptions and boosted titles with your resume skills, experience,
+  projects, and search keywords. Rare matching terms contribute more, repeated
+  terms saturate, and document length is normalized. The explanation lists
+  matching terms. Common technology spellings such as Postgres/PostgreSQL
+  and k8s/Kubernetes are normalized.
+
+The YAML setting is `llm.tasks.ranking.method: bm25`; set it to `llm` or omit
+it to use LLM scoring. Both methods keep the same seniority guard, duplicate
+exclusions, 0–100 scores, match threshold, and selection limits. Local scores
+measure word overlap, are not hiring probabilities, and are not calibrated
+to the LLM's scores: review your ranked results and adjust `min_match_score`
+when switching. BM25 does not infer semantic equivalence, assess missing
+requirements, or understand negation.
+
+A local-ranking `--dry-run` needs no LLM credentials. Resume and cover-letter
+generation still use your configured providers during a full run.
+
 ## Your profile data
 
 Per-account, under `data/users/<id>/master_data/`:

@@ -223,6 +223,7 @@ def test_provider(
 # Per-workflow LLM routing (structured editor for config.llm)
 # --------------------------------------------------------------------------- #
 class TaskRouting(BaseModel):
+    method: str | None = None  # ranking only: llm (default) | bm25
     primary: str | None = None
     fallbacks: list[str] = []
     models: dict[str, str] = {}
@@ -269,6 +270,7 @@ def get_llm_config(user: User = Depends(require_user)) -> LlmConfigOut:
     for name, block in tasks_cfg.items():
         block = block or {}
         tasks[name] = TaskRouting(
+            method=block.get("method"),
             primary=block.get("primary"),
             fallbacks=list(block.get("fallbacks", []) or []),
             models=dict(block.get("models", {}) or {}),
@@ -300,6 +302,9 @@ def put_llm_config(
     for tname, routing in body.tasks.items():
         if tname not in valid_tasks:
             raise HTTPException(400, f"unknown task: {tname}")
+        if routing.method is not None:
+            if tname != "ranking" or routing.method not in ("llm", "bm25"):
+                raise HTTPException(400, "method is only supported for ranking: llm or bm25")
         if routing.primary:
             _validate_provider(routing.primary)
         for p in routing.fallbacks:
@@ -317,6 +322,8 @@ def put_llm_config(
         new_tasks: dict[str, dict] = {}
         for tname, routing in body.tasks.items():
             entry: dict = {}
+            if routing.method is not None:
+                entry["method"] = routing.method
             if routing.primary:
                 entry["primary"] = routing.primary
             if routing.fallbacks:

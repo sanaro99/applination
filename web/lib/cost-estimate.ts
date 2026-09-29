@@ -19,18 +19,18 @@ const PER_JOB_SEC = 30; // tailor + cover per selected job
 
 export function estimateRun(
   count: number,
-  opts?: { dryRun?: boolean; peak?: boolean },
+  opts?: { dryRun?: boolean; peak?: boolean; rankingMethod?: "llm" | "bm25" },
 ): RunEstimate {
   const dry = opts?.dryRun ?? false;
   const peakMult = opts?.peak ? 2 : 1;
-  const usd = dry
-    ? RANKING_USD * peakMult
-    : (RANKING_USD + PER_JOB_USD * count) * peakMult;
+  const rankingUsd = opts?.rankingMethod === "bm25" ? 0 : RANKING_USD;
+  const usd = (rankingUsd + (dry ? 0 : PER_JOB_USD * count)) * peakMult;
   const minutes = (BASE_SEC + (dry ? 0 : PER_JOB_SEC * count)) / 60;
   return { usd, minutes };
 }
 
 export function formatUsd(n: number): string {
+  if (n === 0) return "$0.00";
   return n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`;
 }
 

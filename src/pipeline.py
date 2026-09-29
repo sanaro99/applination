@@ -32,6 +32,7 @@ from .main import (
     user_profile_blurb,
 )
 from .profile import derive_profile
+from .ranking import ranking_method
 from .master_resume import load_master
 
 EventCallback = Callable[[dict[str, Any]], None]
@@ -197,7 +198,11 @@ def run_pipeline(
             return _stopped_early(mode, len(jobs))
 
         # --- LLM PROVIDERS ---
-        task_chains = get_task_chains(cfg["llm"], user_id=getattr(paths, "user_id", None))
+        # A local fetch-and-rank dry run has no LLM work and needs no API keys.
+        local_dry_run = dry_run and ranking_method(cfg.get("llm") or {}) == "bm25"
+        task_chains = {} if local_dry_run else get_task_chains(
+            cfg["llm"], user_id=getattr(paths, "user_id", None),
+        )
         critique_cl = cfg["llm"].get("critique_cover_letters", False)
         critique_top_n = int(cfg["llm"].get("critique_top_n", 0) or 0)
         # Top-N ranked jobs route through tailoring_premium (deepseek-v4-pro);
@@ -212,6 +217,7 @@ def run_pipeline(
         top_jobs = rank_and_filter(
             jobs, cfg, tailor, profile, log,
             candidate_profile=derive_profile(master),
+            master_resume=master,
             excluded_keys=excluded_keys,
         )
         emit({

@@ -9,7 +9,7 @@ export default function WorkflowsPage() {
     <div className="mx-auto max-w-5xl space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Workflow LLM routing</CardTitle>
+          <CardTitle>Workflow settings</CardTitle>
         </CardHeader>
         <CardContent>
           <WorkflowLlmEditor />

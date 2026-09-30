@@ -7,6 +7,7 @@
 // the file the user can also open on the Advanced tab.
 
 import type { ConfigSections } from "./api";
+import { jobTypeLabel } from "./job-types";
 
 const onOff = (v: boolean) => (v ? "on" : "off");
 
@@ -20,6 +21,7 @@ export function flattenConfig(cfg: ConfigSections): string[] {
 
   const s = cfg.search;
   lines.push("§ What to search for");
+  lines.push("Job type: " + jobTypeLabel(s.job_type));
   lines.push(`Minimum match score: ${s.min_match_score}`);
   lines.push(`Jobs per run: ${s.max_jobs_per_day}`);
   lines.push(`Remote: ${onOff(s.remote_ok)}`);

@@ -26,6 +26,7 @@ import { Switch } from "@/components/ui/switch";
 import { ChangeReview } from "@/components/change-review";
 import { SectionCard } from "@/components/master-data/section-card";
 import { StringList } from "@/components/master-data/string-list";
+import { JobTypeSelect } from "@/components/job-type-select";
 import { flattenConfig } from "@/lib/config-flatten";
 import { api, type ConfigSections } from "@/lib/api";
 
@@ -128,13 +129,17 @@ export function ConfigForm() {
           why="The keywords each run queries boards with, and how strict the ranker is."
           summary={`${draft.search.keywords.length} keywords`}
         >
+          <JobTypeSelect
+            value={draft.search.job_type}
+            onChange={(job_type) => setSearch({ job_type })}
+          />
           <div className="space-y-2">
             <Label>Roles and keywords</Label>
             <StringList
               value={draft.search.keywords}
               onChange={(keywords) => setSearch({ keywords })}
               itemLabel="keyword"
-              placeholder="software engineer intern"
+              placeholder="software engineer new grad"
             />
           </div>
 

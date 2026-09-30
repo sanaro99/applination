@@ -14,6 +14,7 @@ import requests
 
 from .schema import Job, strip_html
 from .greenhouse_companies import BUILT_IN_SLUGS
+from ..target_rules import matches_keywords
 
 LOG = logging.getLogger(__name__)
 ENDPOINT_TMPL = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
@@ -38,7 +39,7 @@ def _fetch_slug(slug: str, kws: list[str], cutoff: datetime) -> list[Job]:
     jobs: list[Job] = []
     for item in data.get("jobs", []):
         title = (item.get("title") or "").strip()
-        if not any(kw in title.lower() for kw in kws) and "intern" not in title.lower():
+        if not matches_keywords(title, kws):
             continue
 
         try:
@@ -61,6 +62,11 @@ def _fetch_slug(slug: str, kws: list[str], cutoff: datetime) -> list[Job]:
             posted_at=posted,
             remote="remote" in location.lower(),
             external_id=str(item.get("id", "")),
+            employment_type=" ".join(
+                str(meta.get("value") or "") for meta in item.get("metadata") or []
+                if any(name in (meta.get("name") or "").lower()
+                       for name in ("employment", "job type", "commitment"))
+            ),
         ))
     return jobs
 

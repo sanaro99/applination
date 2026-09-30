@@ -36,10 +36,6 @@ def fetch(keywords: list[str], last_n_hours: int = 24, limit: int = 200) -> list
                 continue
 
             title = item.get("title", "")
-            if "intern" not in title.lower() and "intern" not in kw.lower():
-                # Remotive returns a lot of non-intern stuff; filter.
-                continue
-
             out.append(Job(
                 source="remotive",
                 company=item.get("company_name", "").strip(),
@@ -51,6 +47,7 @@ def fetch(keywords: list[str], last_n_hours: int = 24, limit: int = 200) -> list
                 remote=True,
                 salary=item.get("salary", "") or "",
                 external_id=str(item.get("id", "")),
+                employment_type=str(item.get("job_type") or ""),
             ))
     LOG.info("remotive: %d jobs", len(out))
     return out

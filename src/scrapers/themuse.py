@@ -7,15 +7,17 @@ import logging
 import requests
 
 from .schema import Job, strip_html
+from ..target_rules import matches_keywords
 
 LOG = logging.getLogger(__name__)
 ENDPOINT = "https://www.themuse.com/api/public/jobs"
 
 
-def fetch(keywords: list[str], last_n_hours: int = 24, max_pages: int = 3) -> list[Job]:
+def fetch(keywords: list[str], last_n_hours: int = 24, max_pages: int = 3,
+          job_type: str = "any") -> list[Job]:
     """
-    The Muse API does not expose free-text search, so we pull recent 'Internship'
-    level jobs and then do keyword filtering client-side.
+    The Muse API does not expose free-text search, so we pull recent jobs
+    and then do keyword filtering client-side.
     """
     out: list[Job] = []
     cutoff = datetime.now(timezone.utc) - timedelta(hours=last_n_hours)
@@ -24,7 +26,8 @@ def fetch(keywords: list[str], last_n_hours: int = 24, max_pages: int = 3) -> li
         try:
             r = requests.get(
                 ENDPOINT,
-                params={"level": "Internship", "page": page, "descending": "true"},
+                params={"page": page, "descending": "true",
+                        **({"level": "Internship"} if job_type == "internship" else {})},
                 timeout=20,
             )
             r.raise_for_status()
@@ -61,17 +64,19 @@ def fetch(keywords: list[str], last_n_hours: int = 24, max_pages: int = 3) -> li
                 posted_at=posted,
                 remote="remote" in location.lower(),
                 external_id=str(item.get("id", "")),
+                employment_type="internship" if any(
+                    level.get("name") == "Internship" for level in item.get("levels") or []
+                ) else "",
             ))
 
     return _filter_by_keywords(out, keywords)
 
 
 def _filter_by_keywords(jobs: list[Job], keywords: list[str]) -> list[Job]:
-    kws = [k.lower() for k in keywords]
     kept = []
     for j in jobs:
-        hay = f"{j.title} {j.description[:1000]}".lower()
-        if any(kw in hay for kw in kws):
+        hay = f"{j.title} {j.description[:1000]}"
+        if matches_keywords(hay, keywords):
             kept.append(j)
     LOG.info("themuse: %d jobs (after keyword filter)", len(kept))
     return kept

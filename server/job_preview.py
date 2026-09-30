@@ -17,6 +17,8 @@ import json
 import threading
 import time
 
+from src.target_rules import matches_keywords, role_keywords
+
 log = logging.getLogger("server.job_preview")
 
 CACHE_TTL_SECONDS = 30 * 60
@@ -36,9 +38,13 @@ def _cache_key(user_id: int, cfg: dict, keywords: list[str]) -> str:
         for name, block in (cfg.get("sources") or {}).items()
         if isinstance(block, dict)
     }
-    payload = json.dumps({"sources": sources, "keywords": keywords}, sort_keys=True)
+    search = cfg.get("search") or {}
+    targets = {key: search.get(key) for key in (
+        "job_type", "last_n_hours", "remote_ok", "onsite_cities", "countries",
+    )}
+    payload = json.dumps({"sources": sources, "keywords": keywords, "search": targets}, sort_keys=True)
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    return f"applination:job-preview:v1:{user_id}:{digest}"
+    return f"applination:job-preview:v2:{user_id}:{digest}"
 
 
 def reset() -> None:
@@ -65,8 +71,8 @@ def _fetch(cfg: dict) -> tuple[list, int, int]:
 
 
 def _matches(job, keywords: list[str]) -> bool:
-    haystack = f"{getattr(job, 'title', '')} {getattr(job, 'description', '')}".lower()
-    return any(k.lower() in haystack for k in keywords)
+    haystack = f"{getattr(job, 'title', '')} {getattr(job, 'description', '')}"
+    return matches_keywords(haystack, keywords)
 
 
 def _worker(user_id: int, cfg: dict, keywords: list[str], cache_key: str) -> None:
@@ -75,14 +81,18 @@ def _worker(user_id: int, cfg: dict, keywords: list[str], cache_key: str) -> Non
     except Exception as exc:  # noqa: BLE001
         log.warning("job preview failed for user %s: %s", user_id, exc)
         with _lock:
+            if (_state.get(user_id) or {}).get("cache_key") != cache_key:
+                return
             _state[user_id] = {
                 "state": "error",
                 "error": str(exc),
                 "fetched_at": time.time(),
+                "cache_key": cache_key,
             }
         return
 
-    matched = [j for j in jobs if _matches(j, keywords)] if keywords else []
+    effective_keywords = role_keywords(cfg.get("search") or {})
+    matched = [j for j in jobs if _matches(j, effective_keywords)] if keywords else []
     result = {
         "state": "ready",
         "total": len(jobs),
@@ -100,15 +110,18 @@ def _worker(user_id: int, cfg: dict, keywords: list[str], cache_key: str) -> Non
         ],
         "error": None,
         "fetched_at": time.time(),
+        "cache_key": cache_key,
     }
     with _lock:
-        _state[user_id] = result
+        if (_state.get(user_id) or {}).get("cache_key") == cache_key:
+            _state[user_id] = result
     from .cache import cache
     cache().set_json(cache_key, result, CACHE_TTL_SECONDS)
 
 
 def start(user_id: int, cfg: dict, keywords: list[str]) -> None:
     """Kick off a preview unless one is running or a fresh one is cached."""
+    cfg = {**cfg, "search": {**(cfg.get("search") or {}), "keywords": list(keywords)}}
     cache_key = _cache_key(user_id, cfg, keywords)
     from .cache import cache
     cached = cache().get_json(cache_key)
@@ -118,12 +131,12 @@ def start(user_id: int, cfg: dict, keywords: list[str]) -> None:
         return
     with _lock:
         current = _state.get(user_id)
-        if current:
+        if current and current.get("cache_key") == cache_key:
             if current["state"] == "running":
                 return
             if time.time() - current.get("fetched_at", 0) < CACHE_TTL_SECONDS:
                 return
-        _state[user_id] = {"state": "running", "fetched_at": time.time()}
+        _state[user_id] = {"state": "running", "fetched_at": time.time(), "cache_key": cache_key}
 
     threading.Thread(
         target=_worker, args=(user_id, cfg, keywords, cache_key), daemon=True

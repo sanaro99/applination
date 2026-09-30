@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { SAMPLE } from "@/lib/sample-data";
+import { JobTypeSelect } from "@/components/job-type-select";
+import type { JobType } from "@/lib/job-types";
 
 import { JourneyShell } from "../journey-shell";
 import { useJourneyStore } from "../use-journey-store";
@@ -35,6 +37,12 @@ export function ChapterSearch({
   const setKeywords = useJourneyStore((s) => s.setKeywords);
   const markSample = useJourneyStore((s) => s.markSample);
   const [draft, setDraft] = useState("");
+  const [jobType, setJobType] = useState<JobType | null>(null);
+  const { data: targets } = useQuery({
+    queryKey: ["search-keywords"],
+    queryFn: () => api.getSearchKeywords(),
+  });
+  const selectedType = jobType ?? targets?.job_type ?? "auto";
   // Distinguishes "hasn't touched the chips yet" from "deliberately cleared
   // them" — without it, deleting the last chip falls back to the extraction and
   // the chip the user just removed reappears.
@@ -55,7 +63,9 @@ export function ChapterSearch({
 
   const save = useMutation({
     mutationFn: async (terms: string[]) => {
-      await api.setOnboardingSearch({ keywords: terms });
+      await api.setOnboardingSearch({ keywords: terms, job_type: selectedType });
+      await qc.invalidateQueries({ queryKey: ["search-keywords"] });
+      await qc.invalidateQueries({ queryKey: ["config-structured"] });
       // Fire the scrape before advancing so it overlaps the transition.
       await api.startJobPreview();
     },
@@ -148,6 +158,7 @@ export function ChapterSearch({
           Add
         </Button>
       </div>
+      <JobTypeSelect value={selectedType} onChange={setJobType} />
     </JourneyShell>
   );
 }

@@ -6,6 +6,7 @@ import logging
 import requests
 
 from .schema import Job, strip_html
+from ..target_rules import typed_query
 
 LOG = logging.getLogger(__name__)
 ENDPOINT_TMPL = "https://api.adzuna.com/v1/api/jobs/{country}/search/1"
@@ -18,6 +19,7 @@ def fetch(
     countries: list[str] = ["us"],
     last_n_hours: int = 24,
     results_per_keyword: int = 50,
+    job_type: str = "any",
 ) -> list[Job]:
     if not app_id or not app_key:
         LOG.info("adzuna: keys not set, skipping")
@@ -35,10 +37,13 @@ def fetch(
                     params={
                         "app_id": app_id,
                         "app_key": app_key,
-                        "what": kw,
+                        "what": typed_query(kw, job_type) if job_type in {
+                            "internship", "co_op", "temporary"} else kw,
                         "max_days_old": max_days_old,
                         "results_per_page": results_per_keyword,
                         "sort_by": "date",
+                        **({job_type: "1"} if job_type in {
+                            "full_time", "part_time", "contract"} else {}),
                     },
                     timeout=20,
                 )
@@ -72,6 +77,9 @@ def fetch(
                         if item.get("salary_min") and item.get("salary_max") else ""
                     ),
                     external_id=str(item.get("id", "")),
+                    employment_type=" ".join(filter(None, [
+                        item.get("contract_type"), item.get("contract_time"),
+                    ])),
                 ))
     LOG.info("adzuna: %d jobs", len(out))
     return out

@@ -11,6 +11,7 @@ import logging
 import requests
 
 from .schema import Job, strip_html
+from ..target_rules import typed_query
 
 LOG = logging.getLogger(__name__)
 ENDPOINT = "https://himalayas.app/jobs/api/search"
@@ -21,6 +22,7 @@ def fetch(
     last_n_hours: int = 24,
     country: str = "US",
     max_pages: int = 3,
+    job_type: str = "any",
 ) -> list[Job]:
     out: list[Job] = []
     cutoff = datetime.now(timezone.utc) - timedelta(hours=last_n_hours)
@@ -30,7 +32,13 @@ def fetch(
             try:
                 r = requests.get(
                     ENDPOINT,
-                    params={"q": kw, "country": country, "sort": "recent", "page": page},
+                    params={"q": typed_query(kw, job_type) if job_type == "co_op" else kw,
+                            "country": country, "sort": "recent", "page": page,
+                            **({"employment_type": {
+                                "full_time": "Full Time", "part_time": "Part Time",
+                                "internship": "Intern", "contract": "Contractor",
+                                "temporary": "Temporary",
+                            }[job_type]} if job_type not in {"any", "co_op"} else {})},
                     timeout=20,
                 )
                 r.raise_for_status()
@@ -53,17 +61,22 @@ def fetch(
                     break
 
                 locs = item.get("locationRestrictions") or []
+                locations = [
+                    str(loc.get("name") or loc.get("alpha2") or "") if isinstance(loc, dict)
+                    else str(loc) for loc in locs
+                ]
                 out.append(Job(
                     source="himalayas",
                     company=(item.get("companyName") or "").strip(),
                     title=(item.get("title") or "").strip(),
-                    location=", ".join(locs) if locs else "Remote (worldwide)",
+                    location=", ".join(filter(None, locations)) if locs else "Remote (worldwide)",
                     url=item.get("applicationLink", ""),
                     description=strip_html(item.get("description", "")),
                     posted_at=posted,
                     remote=True,
                     salary=_salary_str(item),
                     external_id=item.get("guid", ""),
+                    employment_type=str(item.get("employmentType") or ""),
                 ))
 
             if stop:
@@ -77,7 +90,11 @@ def _parse_epoch(ts) -> Optional[datetime]:
     if not ts:
         return None
     try:
-        return datetime.fromtimestamp(int(ts), tz=timezone.utc)
+        if isinstance(ts, str) and not ts.isdigit():
+            return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        epoch = float(ts)
+        return datetime.fromtimestamp(epoch / 1000 if epoch > 100_000_000_000 else epoch,
+                                      tz=timezone.utc)
     except Exception:
         return None
 

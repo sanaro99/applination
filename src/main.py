@@ -120,7 +120,12 @@ def user_profile_blurb(master: dict, user_info: dict) -> str:
 
 # ---------------------------------------------------------------------
 def fetch_all(cfg: dict, log) -> list[Job]:
-    kws = cfg["search"]["keywords"]
+    from .target_rules import allows_job, wants_internship_source, resolve_job_type, role_keywords
+
+    search = cfg["search"]
+    kws = role_keywords(search)
+    job_type = resolve_job_type(search)
+    log.info("search targets: job_type=%s, keywords=%s", job_type, kws)
     hrs = cfg["search"]["last_n_hours"]
     countries = cfg["search"].get("countries", ["us"])
     srcs = cfg["sources"]
@@ -129,7 +134,7 @@ def fetch_all(cfg: dict, log) -> list[Job]:
     if srcs["remotive"]["enabled"]:
         jobs += remotive.fetch(kws, last_n_hours=hrs)
     if srcs["themuse"]["enabled"]:
-        jobs += themuse.fetch(kws, last_n_hours=hrs)
+        jobs += themuse.fetch(kws, last_n_hours=hrs, job_type=job_type)
     if srcs["greenhouse"]["enabled"]:
         gh = srcs["greenhouse"]
         jobs += greenhouse.fetch(
@@ -145,6 +150,7 @@ def fetch_all(cfg: dict, log) -> list[Job]:
             app_key=srcs["adzuna"]["app_key"],
             countries=countries,
             last_n_hours=hrs,
+            job_type=job_type,
         )
     if srcs["jsearch"]["enabled"]:
         jobs += jsearch.fetch(
@@ -152,8 +158,10 @@ def fetch_all(cfg: dict, log) -> list[Job]:
             rapidapi_key=srcs["jsearch"]["rapidapi_key"],
             countries=countries,
             last_n_hours=hrs,
+            job_type=job_type,
         )
-    if srcs["simplify_github"]["enabled"]:
+    source_type = job_type if search.get("job_type", "auto") != "auto" else None
+    if srcs["simplify_github"]["enabled"] and wants_internship_source(kws, source_type):
         sg = srcs["simplify_github"]
         jobs += simplify_github.fetch(
             kws,
@@ -173,19 +181,22 @@ def fetch_all(cfg: dict, log) -> list[Job]:
             kws,
             last_n_hours=hrs,
             country=(countries[0].upper() if countries else "US"),
+            job_type=job_type,
         )
 
     # Dedupe
     seen = set()
     unique: list[Job] = []
     for j in jobs:
+        if not allows_job(j, cfg["search"]):
+            continue
         k = j.dedupe_key()
         if k in seen:
             continue
         seen.add(k)
         unique.append(j)
 
-    log.info("fetched %d jobs, %d after dedupe", len(jobs), len(unique))
+    log.info("fetched %d jobs, %d after target rules and dedupe", len(jobs), len(unique))
     return unique
 
 
@@ -231,18 +242,29 @@ def rank_and_filter(jobs: list[Job], cfg: dict, tailor: Tailor,
 
     mini = [
         {"company": j.company, "title": j.title,
-         "location": j.location, "desc": j.description}
+         "location": j.location, "desc": j.description,
+         "employment_type": j.employment_type}
         for j in jobs
     ]
+    search = cfg["search"]
+    from .target_rules import resolve_job_type, role_keywords
+    target_profile = (
+        f"{user_profile}\nTARGET SEARCH RULES:\n"
+        f"Job type: {resolve_job_type(search)}\n"
+        f"Role keywords: {', '.join(role_keywords(search))}\n"
+        f"Remote roles allowed: {search.get('remote_ok', True)}\n"
+        f"Onsite cities: {', '.join(search.get('onsite_cities') or [])}\n"
+        f"Countries: {', '.join(search.get('countries') or [])}"
+    )
     method = ranking_method(cfg.get("llm") or {})
     log.info("ranking %d jobs with %s", len(jobs), method)
     if method == "bm25":
         scored = rank_jobs_local(
             mini, user_profile, master_resume=master_resume,
-            keywords=cfg["search"].get("keywords") or [],
+            keywords=search.get("keywords") or [],
         )
     else:
-        scored = tailor.rank_jobs(mini, user_profile)
+        scored = tailor.rank_jobs(mini, target_profile)
     scored_map = {s["idx"]: s for s in scored}
 
     for i, j in enumerate(jobs):

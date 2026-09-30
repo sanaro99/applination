@@ -7,6 +7,7 @@ import type { ConfigSections } from "./api";
 const BASE: ConfigSections = {
   search: {
     keywords: ["software engineer intern"],
+    job_type: "auto",
     min_match_score: 55,
     max_jobs_per_day: 20,
     remote_ok: true,
@@ -41,6 +42,14 @@ const changes = (a: ConfigSections, b: ConfigSections) =>
   diffLines(flattenConfig(a), flattenConfig(b)).filter((l) => l.type !== "same");
 
 describe("flattenConfig", () => {
+  it("shows a changed job type in the save review", () => {
+    const after = clone(BASE);
+    after.search.job_type = "full_time";
+    expect(changes(BASE, after)).toEqual([
+      { type: "remove", text: "Job type: Use role keywords" },
+      { type: "add", text: "Job type: Full-time" },
+    ]);
+  });
   it("reports a changed number as one replaced line", () => {
     const after = clone(BASE);
     after.search.min_match_score = 70;

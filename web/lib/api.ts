@@ -153,9 +153,12 @@ export type SourceToggle = { key: string; enabled: boolean };
  * /workflows, `inbox` by the Gmail card, `user` during onboarding, `pricing`
  * only in the raw YAML — none of them appear here.
  */
+export type SearchTargets = { keywords: string[]; job_type: import("./job-types").JobType };
+
 export type ConfigSections = {
   search: {
     keywords: string[];
+    job_type: import("./job-types").JobType;
     min_match_score: number;
     max_jobs_per_day: number;
     remote_ok: boolean;
@@ -613,6 +616,7 @@ export const api = {
     }),
   setOnboardingSearch: (body: {
     keywords: string[];
+    job_type?: import("./job-types").JobType;
     remote_ok?: boolean;
     onsite_cities?: string[];
     countries?: string[];
@@ -720,11 +724,11 @@ export const api = {
     }),
 
   getSearchKeywords: () =>
-    http<{ keywords: string[] }>("/api/search/keywords"),
-  putSearchKeywords: (keywords: string[]) =>
+    http<SearchTargets>("/api/search/keywords"),
+  putSearchKeywords: (keywords: string[], job_type?: import("./job-types").JobType) =>
     http<{ ok: boolean }>("/api/search/keywords", {
       method: "PUT",
-      body: JSON.stringify({ keywords }),
+      body: JSON.stringify({ keywords, job_type }),
     }),
 
   getResume: () => http<{ text: string }>("/api/master-data/resume"),

@@ -5,7 +5,7 @@ Many tech companies (Coinbase, Scale AI, Vercel, Replit, etc.) host their
 jobs on Lever. Each company's postings are available at:
   https://api.lever.co/v0/postings/{slug}?mode=json
 
-No API key required. Returns all open postings; we filter for internships.
+No API key required. Returns all open postings; we filter by saved keywords.
 """
 from __future__ import annotations
 from datetime import datetime, timezone, timedelta
@@ -14,27 +14,10 @@ import logging
 import requests
 
 from .schema import Job, strip_html
+from ..target_rules import matches_keywords
 
 LOG = logging.getLogger(__name__)
 ENDPOINT = "https://api.lever.co/v0/postings/{slug}?mode=json"
-
-# Terms we look for in title/commitment to identify internship roles.
-_INTERN_SIGNALS = ["intern", "internship", "co-op", "coop"]
-
-
-def _is_intern(posting: dict) -> bool:
-    title = (posting.get("text") or "").lower()
-    commitment = (posting.get("commitment") or "").lower()
-    categories = posting.get("categories") or {}
-    team = (categories.get("team") or "").lower()
-    commitment_cat = (categories.get("commitment") or "").lower()
-
-    return any(
-        s in field
-        for s in _INTERN_SIGNALS
-        for field in [title, commitment, team, commitment_cat]
-    )
-
 
 def _keyword_match(posting: dict, keywords: list[str]) -> bool:
     if not keywords:
@@ -44,7 +27,7 @@ def _keyword_match(posting: dict, keywords: list[str]) -> bool:
         (posting.get("categories") or {}).get("team") or "",
         (posting.get("descriptionPlain") or "")[:500],
     ]).lower()
-    return any(kw.lower() in text for kw in keywords)
+    return matches_keywords(text, keywords)
 
 
 def fetch(
@@ -53,7 +36,7 @@ def fetch(
     last_n_hours: int = 24 * 30,   # Lever roles don't turn over daily; default 30 days
 ) -> list[Job]:
     """
-    Fetch internship postings from Lever boards for the given company slugs.
+    Fetch matching postings from Lever boards for the given company slugs.
 
     Args:
         companies: list of Lever slugs (e.g. ["coinbase", "scale-ai", "vercel"])
@@ -79,8 +62,6 @@ def fetch(
             continue
 
         for p in postings or []:
-            if not _is_intern(p):
-                continue
             if not _keyword_match(p, keywords):
                 continue
 
@@ -107,7 +88,7 @@ def fetch(
                 p.get("description") or p.get("descriptionPlain") or ""
             )
             if not description:
-                description = f"{p.get('text','')} internship at {slug.title()}."
+                description = f"{p.get('text','')} at {slug.title()}."
 
             out.append(Job(
                 source=f"lever:{slug}",
@@ -120,7 +101,8 @@ def fetch(
                 remote="remote" in str(location).lower(),
                 salary="",
                 external_id=p.get("id") or "",
+                employment_type=str(p.get("commitment") or categories.get("commitment") or ""),
             ))
 
-    LOG.info("lever: %d internship postings across %d companies", len(out), len(companies))
+    LOG.info("lever: %d postings across %d companies", len(out), len(companies))
     return out

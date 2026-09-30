@@ -33,7 +33,9 @@ import { ProviderSelect } from "@/components/provider-select";
 import { ResumeForm } from "@/components/master-data/resume-form";
 import { StoryForm } from "@/components/master-data/story-form";
 import { BioGuidance } from "@/components/master-data/bio-guidance";
-import { api } from "@/lib/api";
+import { api, type SearchTargets } from "@/lib/api";
+import { JobTypeSelect } from "@/components/job-type-select";
+import type { JobType } from "@/lib/job-types";
 
 type Kind = "story" | "bio" | "resume";
 
@@ -282,13 +284,14 @@ function RolesEditor() {
     queryFn: () => api.getSearchKeywords(),
   });
   if (isLoading || !data) return <Skeleton className="h-[40svh] w-full" />;
-  return <RolesEditorInner key={data.keywords.join("\n")} initial={data.keywords} />;
+  return <RolesEditorInner key={JSON.stringify(data)} initial={data} />;
 }
 
-function RolesEditorInner({ initial }: { initial: string[] }) {
+function RolesEditorInner({ initial }: { initial: SearchTargets }) {
   const qc = useQueryClient();
-  const [list, setKeywords] = useState<string[]>(initial);
-  const [baseline] = useState<string[]>(initial);
+  const [list, setKeywords] = useState<string[]>(initial.keywords);
+  const [jobType, setJobType] = useState<JobType>(initial.job_type);
+  const [baseline] = useState<SearchTargets>(initial);
 
   const [manual, setManual] = useState("");
   const [description, setDescription] = useState("");
@@ -313,10 +316,12 @@ function RolesEditorInner({ initial }: { initial: string[] }) {
   });
 
   const save = useMutation({
-    mutationFn: (kw: string[]) => api.putSearchKeywords(kw),
+    mutationFn: (kw: string[]) => api.putSearchKeywords(kw, jobType),
     onSuccess: () => {
       toast.success("Target roles saved");
       qc.invalidateQueries({ queryKey: ["search-keywords"] });
+      qc.invalidateQueries({ queryKey: ["config-structured"] });
+      qc.invalidateQueries({ queryKey: ["config"] });
     },
     onError: (e) => toast.error(String(e)),
   });
@@ -332,18 +337,20 @@ function RolesEditorInner({ initial }: { initial: string[] }) {
   }
 
   const dirty =
-    list.length !== baseline.length || list.some((k, i) => k !== baseline[i]);
+    jobType !== baseline.job_type ||
+    list.length !== baseline.keywords.length || list.some((k, i) => k !== baseline.keywords[i]);
 
   return (
     <div className="space-y-6">
+      <JobTypeSelect value={jobType} onChange={setJobType} />
       <div className="space-y-2">
         <Label className="text-sm">
           Roles / keywords you&apos;re searching for
         </Label>
         <p className="text-xs text-muted-foreground">
-          These are the search terms used to query job boards each run — e.g.
-          &quot;software engineer intern&quot;, &quot;machine learning
-          intern&quot;.
+          These are the role terms used to query job boards each run — e.g.
+          &quot;software engineer new grad&quot; or &quot;machine learning engineer&quot;.
+          Your selected job type applies to these roles.
         </p>
         <div className="flex flex-wrap gap-2">
           {list.length === 0 && (

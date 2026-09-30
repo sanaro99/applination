@@ -99,6 +99,48 @@ def test_results_are_cached_per_user(client, monkeypatch):
     assert len(calls) == 1
 
 
+def test_changed_job_type_refreshes_preview_instead_of_reusing_previous_targets(monkeypatch):
+    job_preview.reset()
+    calls = []
+
+    class ImmediateThread:
+        def __init__(self, target, args, **kwargs):
+            self.target, self.args = target, args
+
+        def start(self):
+            self.target(*self.args)
+
+    monkeypatch.setattr(job_preview.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(job_preview, "_fetch", lambda cfg:
+                        calls.append(cfg["search"]["job_type"]) or ([], 1, 1))
+    cfg = {"sources": {}, "search": {"job_type": "internship"}}
+    job_preview.start(999, cfg, ["engineer"])
+    job_preview.start(999, cfg, ["engineer"])
+    cfg = {"sources": {}, "search": {"job_type": "full_time"}}
+    job_preview.start(999, cfg, ["engineer"])
+    assert calls == ["internship", "full_time"]
+
+
+def test_preview_counts_roles_using_the_explicit_type_and_current_terms(monkeypatch):
+    job_preview.reset()
+    captured = []
+
+    class ImmediateThread:
+        def __init__(self, target, args, **kwargs):
+            self.target, self.args = target, args
+
+        def start(self):
+            self.target(*self.args)
+
+    monkeypatch.setattr(job_preview.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(job_preview, "_fetch", lambda cfg:
+                        captured.append(cfg["search"]["keywords"]) or ([_Job("Software Engineer")], 1, 1))
+    job_preview.start(999, {"search": {"job_type": "full_time", "keywords": ["old role"]}},
+                      ["software engineer intern"])
+    assert captured == [["software engineer intern"]]
+    assert job_preview.status(999)["matched"] == 1
+
+
 def test_preview_requires_a_session(tmp_path, monkeypatch):
     engine = make_engine(tmp_path)
     monkeypatch.setattr(db, "engine", engine)

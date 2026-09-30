@@ -17,6 +17,9 @@ user:
 
 # What kind of roles do you want?
 search:
+  # auto infers from keywords for older configs. Explicit choices override type
+  # hints in keywords: any | full_time | part_time | internship | co_op | contract | temporary.
+  job_type: auto
   # Keywords used to query job boards. Be specific. Quoted phrases are AND.
   # Examples: ["software engineer intern", "data scientist", "ML engineer"]
   keywords:

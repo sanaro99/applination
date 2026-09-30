@@ -107,6 +107,32 @@ def test_structured_put_writes_the_search_section(client):
     assert on_disk()["search"]["keywords"] == ["sre intern"]
 
 
+def test_job_type_round_trips_between_both_target_editors(client):
+    r = client.put("/api/search/keywords", json={
+        "keywords": ["software engineer new grad"], "job_type": "full_time",
+    })
+    assert r.status_code == 200, r.text
+    assert on_disk()["search"]["job_type"] == "full_time"
+    assert client.get("/api/config/structured").json()["data"]["search"]["job_type"] == "full_time"
+    assert put(client, "search", {"job_type": "co_op"}).status_code == 200
+    assert client.get("/api/search/keywords").json()["job_type"] == "co_op"
+    assert client.put("/api/onboarding/search", json={
+        "keywords": ["engineer"], "job_type": "temporary",
+    }).status_code == 200
+    assert client.get("/api/config/structured").json()["data"]["search"]["job_type"] == "temporary"
+    assert client.get("/api/search/keywords").json()["job_type"] == "temporary"
+
+
+def test_invalid_job_type_is_rejected_and_legacy_keyword_save_preserves_type(client):
+    assert put(client, "search", {"job_type": "bogus"}).status_code == 400
+    assert client.put("/api/search/keywords", json={
+        "keywords": ["engineer"], "job_type": "bogus",
+    }).status_code == 422
+    put(client, "search", {"job_type": "temporary"})
+    assert client.put("/api/search/keywords", json={"keywords": ["developer"]}).status_code == 200
+    assert on_disk()["search"]["job_type"] == "temporary"
+
+
 def test_structured_put_keeps_the_templates_comments(client):
     """config.yaml is seeded from a 190-line commented template. A save that
     reformatted it into bare YAML would delete most of the file's value."""

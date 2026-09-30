@@ -1177,7 +1177,7 @@ class Tailor:
             batch = jobs[start:start + BATCH]
             listing = "\n".join(
                 f"[{i}] {j['company']} | {j['title']} | {j.get('location','')} "
-                f"| {j['desc'][:200]}"
+                f"| type: {j.get('employment_type', '')} | {j['desc'][:200]}"
                 for i, j in enumerate(batch)
             )
             user_prompt = (

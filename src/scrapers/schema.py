@@ -34,6 +34,7 @@ class Job:
     match_reason: str = ""            # short explanation from ranker
     additional_questions: list[str] = field(default_factory=list)
     specific_instructions: str = ""
+    employment_type: str = ""         # source metadata, retained for target filtering
 
     def dedupe_key(self) -> str:
         return dedupe_key(self.company, self.title)

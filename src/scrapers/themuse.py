@@ -13,7 +13,8 @@ LOG = logging.getLogger(__name__)
 ENDPOINT = "https://www.themuse.com/api/public/jobs"
 
 
-def fetch(keywords: list[str], last_n_hours: int = 24, max_pages: int = 3) -> list[Job]:
+def fetch(keywords: list[str], last_n_hours: int = 24, max_pages: int = 3,
+          job_type: str = "any") -> list[Job]:
     """
     The Muse API does not expose free-text search, so we pull recent jobs
     and then do keyword filtering client-side.
@@ -25,7 +26,8 @@ def fetch(keywords: list[str], last_n_hours: int = 24, max_pages: int = 3) -> li
         try:
             r = requests.get(
                 ENDPOINT,
-                params={"page": page, "descending": "true"},
+                params={"page": page, "descending": "true",
+                        **({"level": "Internship"} if job_type == "internship" else {})},
                 timeout=20,
             )
             r.raise_for_status()
@@ -62,6 +64,9 @@ def fetch(keywords: list[str], last_n_hours: int = 24, max_pages: int = 3) -> li
                 posted_at=posted,
                 remote="remote" in location.lower(),
                 external_id=str(item.get("id", "")),
+                employment_type="internship" if any(
+                    level.get("name") == "Internship" for level in item.get("levels") or []
+                ) else "",
             ))
 
     return _filter_by_keywords(out, keywords)

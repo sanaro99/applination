@@ -220,6 +220,7 @@ def fetch(
             remote="remote" in location.lower(),
             salary="",
             external_id=f"simplify:{current_company}:{role}:{location}",
+            employment_type="internship",
         ))
 
     LOG.info("simplify_github: %d open roles (max_age=%dd)", len(out), max_age_days)

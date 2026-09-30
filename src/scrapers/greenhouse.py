@@ -62,6 +62,11 @@ def _fetch_slug(slug: str, kws: list[str], cutoff: datetime) -> list[Job]:
             posted_at=posted,
             remote="remote" in location.lower(),
             external_id=str(item.get("id", "")),
+            employment_type=" ".join(
+                str(meta.get("value") or "") for meta in item.get("metadata") or []
+                if any(name in (meta.get("name") or "").lower()
+                       for name in ("employment", "job type", "commitment"))
+            ),
         ))
     return jobs
 

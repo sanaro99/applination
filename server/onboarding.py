@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from src.intake_extract import extract_search_terms, extract_threads, load_vocabulary
 from src.scrapers.greenhouse_companies import BUILT_IN_SLUGS
+from src.target_rules import JobType
 
 from . import intake as intake_store
 from .db import Setting, User, session
@@ -243,6 +244,7 @@ def set_provider(
 
 class SearchBody(BaseModel):
     keywords: list[str]
+    job_type: JobType | None = None
     remote_ok: bool = True
     onsite_cities: list[str] = []
     countries: list[str] = ["us"]
@@ -260,6 +262,8 @@ def set_search(
             search = {}
             data["search"] = search
         search["keywords"] = [k for k in body.keywords if k.strip()]
+        if body.job_type is not None:
+            search["job_type"] = body.job_type
         search["remote_ok"] = body.remote_ok
         search["onsite_cities"] = body.onsite_cities
         search["countries"] = body.countries

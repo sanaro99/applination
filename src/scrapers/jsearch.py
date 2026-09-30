@@ -17,6 +17,7 @@ import logging
 import requests
 
 from .schema import Job, strip_html
+from ..target_rules import typed_query
 
 LOG = logging.getLogger(__name__)
 ENDPOINT = "https://jsearch.p.rapidapi.com/search"
@@ -30,6 +31,7 @@ def fetch(
     rapidapi_key: str,
     countries: list[str] = ["us"],
     last_n_hours: int = 24,
+    job_type: str = "any",
 ) -> list[Job]:
     if not rapidapi_key:
         LOG.info("jsearch: key not set, skipping")
@@ -54,16 +56,24 @@ def fetch(
     }
 
     for country in countries:
+        query = " OR ".join(keywords) or "jobs"
+        filters = {"full_time": "FULLTIME", "part_time": "PARTTIME",
+                   "internship": "INTERN", "contract": "CONTRACTOR"}
+        if job_type in {"co_op", "temporary"}:
+            query = " OR ".join(typed_query(kw, job_type) for kw in keywords) or typed_query("jobs", job_type)
+        type_params = {"employment_types": filters[job_type]} if job_type in filters else {}
         for page in range(1, _PAGES + 1):
             try:
                 r = requests.get(
                     ENDPOINT,
                     headers=headers,
                     params={
-                        "query": f"{' OR '.join(keywords) or 'jobs'} in {country}",
+                        "query": f"{query} in {country}",
+                        "country": country,
                         "page": str(page),
                         "num_pages": "1",
                         "date_posted": date_posted,
+                        **type_params,
                     },
                     timeout=25,
                 )
@@ -106,6 +116,10 @@ def fetch(
                         if item.get("job_min_salary") else ""
                     ),
                     external_id=str(item.get("job_id", "")),
+                    employment_type=" ".join([
+                        str(item.get("job_employment_type") or ""),
+                        " ".join(item.get("job_employment_types") or []),
+                    ]).strip(),
                 ))
 
             # Brief pause between pages to be kind to the API

@@ -101,6 +101,7 @@ def fetch(
                 remote="remote" in str(location).lower(),
                 salary="",
                 external_id=p.get("id") or "",
+                employment_type=str(p.get("commitment") or categories.get("commitment") or ""),
             ))
 
     LOG.info("lever: %d postings across %d companies", len(out), len(companies))

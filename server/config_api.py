@@ -21,6 +21,7 @@ from .auth import require_user
 from .db import User
 from .deps import load_config, load_config_redacted, paths_for, update_config
 from .user_secrets import extract_secrets, secrets_status
+from src.target_rules import JobType, JOB_TYPES
 
 router = APIRouter(prefix="/api", tags=["config"])
 
@@ -84,17 +85,19 @@ def put_config(body: TextBody, user: User = Depends(require_user)) -> dict:
 
 class KeywordsBody(BaseModel):
     keywords: list[str]
+    job_type: JobType | None = None
 
 
 @router.get("/search/keywords")
 def get_search_keywords(user: User = Depends(require_user)) -> dict:
-    """The target-roles list only (`search.keywords`), for the Master Data
+    """The target roles and job type, for the Master Data
     'Target roles' tab. Kept separate from /api/onboarding/search, which also
     writes remote_ok/onsite_cities/countries — this endpoint must not touch
     those when a user only edits their roles after onboarding."""
     cfg = load_config(user) or {}
     keywords = (cfg.get("search") or {}).get("keywords") or []
-    return {"keywords": [str(k) for k in keywords]}
+    return {"keywords": [str(k) for k in keywords],
+            "job_type": (cfg.get("search") or {}).get("job_type", "auto")}
 
 
 @router.put("/search/keywords")
@@ -105,6 +108,8 @@ def put_search_keywords(body: KeywordsBody, user: User = Depends(require_user)) 
             search = {}
             data["search"] = search
         search["keywords"] = [k.strip() for k in body.keywords if k.strip()]
+        if body.job_type is not None:
+            search["job_type"] = body.job_type
     update_config(user, mut)
     return {"ok": True}
 
@@ -131,6 +136,7 @@ class StructuredBody(BaseModel):
 # Defaults mirror config.example.yaml, for a file written before a key existed.
 _SEARCH_DEFAULTS: dict = {
     "keywords": [],
+    "job_type": "auto",
     "min_match_score": 55,
     "max_jobs_per_day": 20,
     "remote_ok": True,
@@ -223,6 +229,8 @@ def _config_errors(data: dict) -> list[str]:
     for key in ("keywords", "onsite_cities", "countries"):
         if key in search and not _is_str_list(search[key]):
             errors.append(f"{key} must be a list of text values")
+    if "job_type" in search and search["job_type"] not in JOB_TYPES:
+        errors.append("job_type must be a supported job type")
     if "remote_ok" in search and not isinstance(search["remote_ok"], bool):
         errors.append("remote_ok must be true or false")
     if "min_match_score" in search and not (
@@ -328,7 +336,7 @@ def put_config_structured(
             node = _section(doc, "search")
             if "keywords" in search:
                 _set_changed(node, "keywords", _clean(search["keywords"]))
-            for key in ("min_match_score", "max_jobs_per_day", "remote_ok"):
+            for key in ("job_type", "min_match_score", "max_jobs_per_day", "remote_ok"):
                 if key in search:
                     _set_changed(node, key, search[key])
             for key in ("onsite_cities", "countries"):

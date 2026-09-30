@@ -100,7 +100,12 @@ export default function RunPage() {
     refetchInterval: 60_000,
   });
   const peakNow = !!pricing?.avoid_peak && !!pricing?.peak;
-  const est = estimateRun(count, { dryRun: options.dry_run, peak: peakNow });
+  const { data: workflowSettings } = useQuery({
+    queryKey: ["llm-config"],
+    queryFn: () => api.getLlmConfig(),
+  });
+  const rankingMethod = workflowSettings?.tasks.ranking?.method ?? "llm";
+  const est = estimateRun(count, { dryRun: options.dry_run, peak: peakNow, rankingMethod });
   const [stages, setStages] = useState<Record<StageId, StageState>>(INITIAL_STAGES);
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [jobs, setJobs] = useState<LiveJob[]>([]);
@@ -570,7 +575,7 @@ export default function RunPage() {
                     <span className="flex items-center gap-1.5 text-muted-foreground">
                       <DollarSign className="size-4" />~
                       {formatUsd(
-                        estimateRun(doneSummary.applications).usd,
+                        estimateRun(doneSummary.applications, { rankingMethod }).usd,
                       )}{" "}
                       est.
                     </span>

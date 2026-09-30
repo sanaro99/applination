@@ -107,6 +107,9 @@ llm:
   # editorial work where planning improves the result.
   tasks:
     ranking:
+      # llm: score batches of 25 with an LLM; bm25: local word matching, no API calls.
+      # Local scores measure relevance; review them when choosing min_match_score.
+      method: llm
       thinking: off
     tailoring:
       thinking: on

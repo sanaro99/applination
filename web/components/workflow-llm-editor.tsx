@@ -22,6 +22,7 @@ import {
 import { api } from "@/lib/api";
 import type { LlmConfig } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { buildWorkflowState, workflowConfig, type TaskState } from "@/lib/workflow-routing";
 
 // Friendly labels + grouping for each task key the backend exposes.
 const TASK_META: Record<string, { label: string; group: string; hint: string }> = {
@@ -55,51 +56,6 @@ const CURATED_MODELS: Record<string, string[]> = {
   ollama: ["llama3.2", "qwen2.5"],
 };
 
-interface TaskState {
-  inherit: boolean;
-  primary: string;
-  fallbacks: string[];
-  model: string; // model override for the primary provider
-  thinking: "off" | "low" | "on";
-}
-
-function thinkingMode(value: unknown): "off" | "low" | "on" {
-  if (value === false || value === "off") return "off";
-  if (value === "low") return "low";
-  return "on";
-}
-
-function buildState(cfg: LlmConfig) {
-  const globalPrimary = cfg.global.primary ?? "";
-  const tasks: Record<string, TaskState> = {};
-  for (const name of cfg.task_names) {
-    const t = cfg.tasks[name];
-    if (t) {
-      const primary = t.primary ?? globalPrimary;
-      tasks[name] = {
-        inherit: false,
-        primary,
-        fallbacks: t.fallbacks ?? [],
-        model: t.models?.[primary] ?? "",
-        thinking: thinkingMode(t.thinking),
-      };
-    } else {
-      tasks[name] = {
-        inherit: true,
-        primary: globalPrimary,
-        fallbacks: cfg.global.fallbacks,
-        model: "",
-        thinking: "on",
-      };
-    }
-  }
-  return {
-    primary: globalPrimary,
-    fallbacks: cfg.global.fallbacks,
-    tasks,
-  };
-}
-
 export function WorkflowLlmEditor() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
@@ -119,35 +75,12 @@ function Editor({
   qc: ReturnType<typeof useQueryClient>;
 }) {
   const providers = cfg.providers.map((p) => p.name);
-  const [state, setState] = useState(() => buildState(cfg));
+  const [state, setState] = useState(() => buildWorkflowState(cfg));
 
   const save = useMutation({
-    mutationFn: () => {
-      const tasks: Record<
-        string,
-        {
-          primary: string;
-          fallbacks: string[];
-          models: Record<string, string>;
-          thinking: "off" | "low" | "on";
-        }
-      > = {};
-      for (const [name, t] of Object.entries(state.tasks)) {
-        if (t.inherit) continue;
-        tasks[name] = {
-          primary: t.primary,
-          fallbacks: t.fallbacks,
-          models: t.model ? { [t.primary]: t.model } : {},
-          thinking: t.thinking,
-        };
-      }
-      return api.putLlmConfig({
-        global: { primary: state.primary, fallbacks: state.fallbacks },
-        tasks,
-      });
-    },
+    mutationFn: () => api.putLlmConfig(workflowConfig(state)),
     onSuccess: () => {
-      toast.success("LLM routing saved");
+      toast.success("Workflow settings saved");
       qc.invalidateQueries({ queryKey: ["llm-config"] });
       qc.invalidateQueries({ queryKey: ["providers"] });
     },
@@ -165,7 +98,7 @@ function Editor({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Choose the model for each workflow. Tasks set to inherit use the
+          Choose the ranking method and models for each workflow. Tasks set to inherit use the
           global default below.
         </p>
         <Button onClick={() => save.mutate()} disabled={save.isPending} className="gap-2">
@@ -237,6 +170,7 @@ function TaskCard({
   onChange: (patch: Partial<TaskState>) => void;
 }) {
   const meta = TASK_META[name] ?? { label: name, hint: "" };
+  const localRanking = name === "ranking" && state.method === "bm25";
   return (
     <div className="rounded-xl border border-border p-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -249,16 +183,37 @@ function TaskCard({
           </div>
           <p className="text-xs text-muted-foreground">{meta.hint}</p>
         </div>
-        <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+        {!localRanking && <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
           Inherit global
           <Switch
             checked={state.inherit}
             onCheckedChange={(c) => onChange({ inherit: c })}
           />
-        </label>
+        </label>}
       </div>
 
-      {!state.inherit && (
+      {name === "ranking" && (
+        <div className="mt-3 space-y-2">
+          <Row label="Ranking method">
+            <Select value={state.method} onValueChange={(v) => onChange({ method: v as TaskState["method"] })}>
+              <SelectTrigger className="w-64" aria-label="Ranking method">
+                <SelectValue>{localRanking ? "Local word matching (BM25)" : "LLM scoring"}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="llm">LLM scoring</SelectItem>
+                <SelectItem value="bm25">Local word matching (BM25)</SelectItem>
+              </SelectContent>
+            </Select>
+          </Row>
+          <p className="text-xs text-muted-foreground">
+            {localRanking
+              ? "Ranks full job descriptions using your resume skills and search preferences. No ranking API calls or model download. Review scores before choosing a minimum match score; this measures word overlap."
+              : "Scores jobs in batches of 25 using the selected model and provider fallbacks."}
+          </p>
+        </div>
+      )}
+
+      {!localRanking && !state.inherit && (
         <div className="mt-3 space-y-3 border-t border-border/60 pt-3">
           <Row label="Provider">
             <ProviderDropdown

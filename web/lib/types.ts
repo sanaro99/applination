@@ -154,6 +154,7 @@ export interface ProviderInfo {
 }
 
 export interface TaskRouting {
+  method?: "llm" | "bm25" | null;
   primary: string | null;
   fallbacks: string[];
   models: Record<string, string>;

@@ -1164,7 +1164,7 @@ class Tailor:
 
         ranking_chain = self._get_chain("ranking")
         system = (
-            "You are a pragmatic internship triage assistant. "
+            "You are a pragmatic job triage assistant. Honor the candidate's target search rules. "
             "Score each job posting 0-100 for how well the candidate fits, "
             "plus a one-sentence reason. Return ONLY a JSON object — no prose.\n"
             "Favor jobs matching the candidate's skills, projects, and experience. "

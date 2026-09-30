@@ -6,7 +6,7 @@ NOTE: You need a RapidAPI key for JSearch specifically — not a Gemini or NIM k
 Get it at: https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch
 
 API conservation: we make 1 call per country (not 1 per keyword × country) using
-a broad "intern" query and filter results client-side by your keywords. This uses
+a combined query built from your saved keywords. This uses
 ~10× fewer requests, keeping you well within the 200 req/month free tier.
 """
 from __future__ import annotations
@@ -47,7 +47,6 @@ def fetch(
     out: list[Job] = []
     cutoff = datetime.now(timezone.utc) - timedelta(hours=last_n_hours)
     date_posted = "today" if last_n_hours <= 24 else "3days" if last_n_hours <= 72 else "week"
-    kws_lower = [k.lower() for k in keywords]
 
     headers = {
         "x-rapidapi-key": rapidapi_key,
@@ -61,11 +60,10 @@ def fetch(
                     ENDPOINT,
                     headers=headers,
                     params={
-                        "query": f"software engineer intern OR machine learning intern OR AI intern in {country}",
+                        "query": f"{' OR '.join(keywords) or 'jobs'} in {country}",
                         "page": str(page),
                         "num_pages": "1",
                         "date_posted": date_posted,
-                        "employment_types": "INTERN",
                     },
                     timeout=25,
                 )
@@ -81,11 +79,6 @@ def fetch(
 
             for item in items:
                 title = (item.get("job_title") or "").strip()
-
-                # Client-side keyword filter
-                if not any(kw in title.lower() for kw in kws_lower):
-                    if "intern" not in title.lower():
-                        continue
 
                 posted_epoch = item.get("job_posted_at_timestamp")
                 posted = (

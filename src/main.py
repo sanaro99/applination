@@ -119,6 +119,8 @@ def user_profile_blurb(master: dict, user_info: dict) -> str:
 
 # ---------------------------------------------------------------------
 def fetch_all(cfg: dict, log) -> list[Job]:
+    from .target_rules import allows_job, wants_internship_source
+
     kws = cfg["search"]["keywords"]
     hrs = cfg["search"]["last_n_hours"]
     countries = cfg["search"].get("countries", ["us"])
@@ -152,7 +154,7 @@ def fetch_all(cfg: dict, log) -> list[Job]:
             countries=countries,
             last_n_hours=hrs,
         )
-    if srcs["simplify_github"]["enabled"]:
+    if srcs["simplify_github"]["enabled"] and wants_internship_source(kws):
         sg = srcs["simplify_github"]
         jobs += simplify_github.fetch(
             kws,
@@ -178,13 +180,15 @@ def fetch_all(cfg: dict, log) -> list[Job]:
     seen = set()
     unique: list[Job] = []
     for j in jobs:
+        if not allows_job(j, cfg["search"]):
+            continue
         k = j.dedupe_key()
         if k in seen:
             continue
         seen.add(k)
         unique.append(j)
 
-    log.info("fetched %d jobs, %d after dedupe", len(jobs), len(unique))
+    log.info("fetched %d jobs, %d after target rules and dedupe", len(jobs), len(unique))
     return unique
 
 
@@ -232,7 +236,15 @@ def rank_and_filter(jobs: list[Job], cfg: dict, tailor: Tailor,
          "location": j.location, "desc": j.description}
         for j in jobs
     ]
-    scored = tailor.rank_jobs(mini, user_profile)
+    search = cfg["search"]
+    target_profile = (
+        f"{user_profile}\nTARGET SEARCH RULES:\n"
+        f"Role keywords: {', '.join(search.get('keywords') or [])}\n"
+        f"Remote roles allowed: {search.get('remote_ok', True)}\n"
+        f"Onsite cities: {', '.join(search.get('onsite_cities') or [])}\n"
+        f"Countries: {', '.join(search.get('countries') or [])}"
+    )
+    scored = tailor.rank_jobs(mini, target_profile)
     scored_map = {s["idx"]: s for s in scored}
 
     for i, j in enumerate(jobs):

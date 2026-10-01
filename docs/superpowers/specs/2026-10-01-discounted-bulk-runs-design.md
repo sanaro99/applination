@@ -1,6 +1,6 @@
 # Discounted bulk application runs
 
-Status: proposed architecture; awaiting written-spec review before implementation.
+Status: architecture approved by the user; implementation plan awaiting review.
 
 ## Intent and accepted constraints
 
@@ -23,7 +23,7 @@ Success means eligible requests use the actual provider batch endpoint and its d
 
 `src/pipeline.py` fetches and ranks jobs, checks the application cache, then calls `process_job` sequentially for each selected job. `src/tailor.py` already combines up to 25 job postings into ordinary ranking requests. That prompt grouping does not enable batch billing.
 
-Resume preparation in `src/tailor_graph.py` has dependent stages: generation, local keyword audit, optional correction, critique, revision, and line fitting. Cover letters also have validation and bounded correction. Batching dependent stages requires several rounds and may exceed one overnight window.
+Current main routes `src/tailor_graph.py` through `src/resume_pipeline.py`, with dependent content planning, editorial writing, local grounding validation, and optional grounding repair. The local checkout still has the earlier graph; implementation targets current main and preserves its existing stages and call limits. Cover letters also have validation and bounded correction. Batching dependent stages requires several rounds and may exceed one overnight window.
 
 `server/runs.py` manages queued/running jobs and per-user concurrency. `server/db.py` stores runs, ranked jobs, and applications. The core pipeline must continue to avoid importing server modules.
 

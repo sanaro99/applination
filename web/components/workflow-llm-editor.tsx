@@ -163,7 +163,7 @@ function Editor({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           Choose the model for each workflow. Tasks set to inherit use the
           global default below.
@@ -284,7 +284,7 @@ function TaskCard({
           </Row>
           <Row label="Reasoning">
             <Select value={state.thinking} onValueChange={(v) => onChange({ thinking: v as TaskState["thinking"] })}>
-              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-40 max-w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="off">Off</SelectItem>
                 <SelectItem value="low">Low</SelectItem>
@@ -320,7 +320,7 @@ function ProviderDropdown({
 }) {
   return (
     <Select value={value} onValueChange={(v) => v && onChange(v)}>
-      <SelectTrigger className="w-56">
+      <SelectTrigger className="w-56 max-w-full">
         <SelectValue placeholder="Provider…" />
       </SelectTrigger>
       <SelectContent>
@@ -348,7 +348,7 @@ function ModelCombo({
     <div className="flex flex-wrap items-center gap-2">
       {curated.length > 0 && (
         <Select value="" onValueChange={(v) => v && onChange(v)}>
-          <SelectTrigger className="w-44 text-xs">
+          <SelectTrigger className="w-44 max-w-full text-xs">
             <SelectValue placeholder="Quick pick…" />
           </SelectTrigger>
           <SelectContent>
@@ -364,7 +364,7 @@ function ModelCombo({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="provider default"
-        className="w-64 font-mono text-xs"
+        className="w-64 max-w-full font-mono text-xs"
       />
     </div>
   );

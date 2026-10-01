@@ -86,7 +86,7 @@ export function GmailConnectCard() {
             {status.configured ? (
               <div className="flex flex-wrap items-center gap-3 rounded-md border border-border/60 p-3">
                 <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
-                <span className="text-sm">
+                <span className="min-w-0 break-all text-sm">
                   Connected as <span className="font-medium">{status.account_email}</span>
                 </span>
                 <Button
@@ -135,7 +135,7 @@ export function GmailConnectCard() {
                     </Button>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
                     onClick={() => saveCreds.mutate()}

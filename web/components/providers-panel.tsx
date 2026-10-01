@@ -60,7 +60,7 @@ export function ProvidersPanel() {
                 key={p.name}
                 className="flex flex-wrap items-center gap-3 rounded-md border border-border/60 p-3"
               >
-                <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div className="flex min-w-0 basis-full flex-wrap items-center gap-2 sm:flex-1 sm:basis-0 sm:flex-nowrap">
                   <span className="font-medium capitalize">{p.name}</span>
                   {p.role !== "available" && (
                     <Badge variant="outline" className="text-xs capitalize">
@@ -68,7 +68,7 @@ export function ProvidersPanel() {
                     </Badge>
                   )}
                   {p.model && (
-                    <span className="truncate font-mono text-xs text-muted-foreground">
+                    <span className="order-last w-full truncate font-mono text-xs text-muted-foreground sm:order-none sm:w-auto">
                       {p.model}
                     </span>
                   )}
@@ -81,7 +81,7 @@ export function ProvidersPanel() {
                 {r && (
                   <span
                     className={cn(
-                      "flex items-center gap-1 text-xs",
+                      "flex min-w-0 max-w-full items-center gap-1 text-xs",
                       r.ok
                         ? "text-emerald-600 dark:text-emerald-400"
                         : "text-red-600 dark:text-red-400",

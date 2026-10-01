@@ -37,6 +37,8 @@ import { MagicCard } from "@/components/ui/magic-card";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { api, subscribeRun } from "@/lib/api";
+import { BatchRunOptions } from '@/components/batch-run-options';
+import { batchRoutes, type BatchRoute, type ExecutionMode } from '@/lib/batch-run';
 import { currentRunLlmConfig, runLlmConfigQuery } from "@/lib/run-llm-config";
 import { useLatestRuns, anyRunActive } from "@/lib/use-latest-runs";
 import {
@@ -84,6 +86,8 @@ export default function RunPage() {
     no_cache: false,
   });
   const [count, setCount] = useState(10);
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('immediate');
+  const [batchRoute, setBatchRoute] = useState<BatchRoute>({provider: 'openai', model: 'gpt-6-luna'});
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [runId, setRunId] = useState<number | null>(null);
   const [elapsedSec, setElapsedSec] = useState<number | null>(null);
@@ -103,7 +107,7 @@ export default function RunPage() {
   });
   const currentLlmConfig = currentRunLlmConfig(llmConfigResult);
   const est = estimateRun(count, { dryRun: options.dry_run, llmConfig: currentLlmConfig, pricing });
-  const peakNow = est.peak;
+  const peakNow = executionMode === 'immediate' && est.peak;
   const [stages, setStages] = useState<Record<StageId, StageState>>(INITIAL_STAGES);
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [jobs, setJobs] = useState<LiveJob[]>([]);
@@ -260,9 +264,15 @@ export default function RunPage() {
     try {
       const r = await api.startRun({
         ...options,
+        ...(executionMode === 'batch' ? {execution_mode: 'batch' as const,
+          batch_routes: batchRoutes(batchRoute.provider, batchRoute.model)} : {}),
         max_jobs: count,
         ...(scheduledFor ? { scheduled_for: scheduledFor } : {}),
       });
+      if (executionMode === 'batch') {
+        window.location.assign(`/runs/${r.id}`);
+        return;
+      }
       if (scheduledFor) {
         toast.success(
           `Run scheduled for ${formatLocalTime(scheduledFor)} — keep Applination open so it can fire.`,
@@ -355,6 +365,7 @@ export default function RunPage() {
                 </div>
               </div>
 
+              <BatchRunOptions mode={executionMode} route={batchRoute} onMode={setExecutionMode} onRoute={setBatchRoute} />
               <div className="grid gap-4 sm:grid-cols-3">
                 <OptionRow
                   label="Dry run"
@@ -430,7 +441,7 @@ export default function RunPage() {
 
                 <div className="space-y-3 text-sm">
                   <div className="flex items-center gap-4 rounded-lg border border-border bg-muted/40 p-3">
-                    {est.usd != null && (
+                    {executionMode === 'immediate' && est.usd != null && (
                       <span className="flex items-center gap-1.5">
                         <DollarSign className="size-4 text-muted-foreground" />~
                         {formatUsd(est.usd)}
@@ -438,7 +449,7 @@ export default function RunPage() {
                     )}
                     <span className="flex items-center gap-1.5">
                       <Clock className="size-4 text-muted-foreground" />
-                      {formatMinutes(est.minutes)}
+                      {executionMode === 'batch' ? 'Up to 24 hours per round' : formatMinutes(est.minutes)}
                     </span>
                     <span className="ml-auto text-xs text-muted-foreground">
                       rough estimate

@@ -15,6 +15,8 @@ def request_body(provider, r):
         body = dict(model=r['model'], instructions=system, input=r['user'],
                     max_output_tokens=max(16, r['max_tokens']),
                     reasoning={'effort': {'off': 'none', 'low': 'low', 'on': 'medium'}.get(r['thinking'], 'medium')})
+        if r['model'] in ('gpt-4.1', 'gpt-4.1-mini'):
+            body.pop('reasoning')
         if r.get('schema'):
             body['text'] = {'format': {'type': 'json_schema', 'name': 'structured_output',
                                        'schema': r['schema'], 'strict': True}}
@@ -43,7 +45,7 @@ def split_requests(provider, requests, *, max_count=None, max_bytes=None):
     chunks, chunk, size = [], [], 2
     for r in requests:
         n = len(json.dumps({'custom_id': r['request_id'], 'request': request_body(provider, r)},
-                           ensure_ascii=False).encode('utf-8')) + 128
+                           ensure_ascii=True).encode('utf-8')) + 128
         if n + 2 > max_bytes:
             raise ValueError('Single batch request exceeds provider input-size limit.')
         if chunk and (len(chunk) >= max_count or size + n > max_bytes):

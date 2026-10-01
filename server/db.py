@@ -180,6 +180,7 @@ class BatchJob(SQLModel, table=True):
 
 class Application(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    batch_item_key: str | None = Field(default=None, index=True, unique=True)
     # Denormalized rather than reached through run_id: a direct predicate is
     # much harder to get wrong than a join, and run_id is nullable anyway
     # (single-job generations have no run).
@@ -350,6 +351,8 @@ class ExtensionDocument(SQLModel, table=True):
 # from this tuple is silently unprotected — which is why the lint test also
 # cross-checks it against every SQLModel table that has a `user_id` column.
 TENANT_MODELS: tuple[type[SQLModel], ...] = (
+    BatchRunState,
+    BatchJob,
     Run,
     Application,
     RankedJob,

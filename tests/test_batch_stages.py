@@ -37,3 +37,28 @@ def test_identity_includes_application_and_call_index():
         with pytest.raises(PendingRequest):
             p.text_call('s', 'u')
     assert len(entries) == 2
+
+
+def test_invalid_json_becomes_explicit_failed_item_without_paid_retry():
+    entries = {}
+    p = ReplayProvider('openai', 'gpt-6-luna', 'tailoring', 'a', entries)
+    with pytest.raises(PendingRequest):
+        p.json_call('s', 'u')
+    next(iter(entries.values())).update(state='succeeded', content='not json')
+    with pytest.raises(BatchFailure):
+        ReplayProvider('openai', 'gpt-6-luna', 'tailoring', 'a', entries).json_call('s', 'u')
+    assert next(iter(entries.values()))['state'] == 'failed'
+
+
+def test_semantic_rejection_makes_only_latest_output_retryable_and_preserves_usage():
+    from src.batch.workflow import mark_validation_failure
+    def entry(scope, task):
+        return dict(application_key=scope, request=dict(task=task, json_mode=True),
+                    state='succeeded', content={'unsupported': 'claim'}, usage={'input_tokens':42})
+    transcript = {'planner':entry('job:resume', 'tailoring'), 'other':entry('other:resume', 'tailoring'),
+                  'writer':entry('job:resume', 'tailoring')}
+    mark_validation_failure(transcript, 'job:resume', 'tailoring', True)
+    assert transcript['planner']['state'] == 'succeeded'
+    assert transcript['other']['state'] == 'succeeded'
+    assert transcript['writer']['state'] == 'failed'
+    assert transcript['writer']['usage'] == {'input_tokens':42}

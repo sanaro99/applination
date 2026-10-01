@@ -1,4 +1,7 @@
 export type RunStatus =
+  | "waiting"
+  | "batch_paused"
+  | "partial_failed"
   | "scheduled"
   | "queued"
   | "running"
@@ -15,6 +18,7 @@ export type ApplicationStatus =
   | "archived";
 
 export interface Run {
+  execution_mode?: 'immediate' | 'batch';
   id: number;
   started_at: string;
   finished_at: string | null;

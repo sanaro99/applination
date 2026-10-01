@@ -1,8 +1,8 @@
 from datetime import timedelta
 import pytest
 from server import db
-from server.db import Run, User, BatchRunState
-from server.batch_store import claim_run, release_run, save_state, load_state
+from server.db import Run, User, BatchRunState, BatchJob, Application
+from server.batch_store import claim_run, release_run, save_state, load_state, begin_submission
 from server.time_utils import utc_now
 from .conftest import make_engine
 
@@ -44,3 +44,41 @@ def test_stale_lease_recovery(batch_run):
     assert claim_run(run, user, 'b')
     with pytest.raises(LookupError):
         save_state(run, user, 'a', {})
+
+
+def test_stale_worker_cannot_cross_paid_submission_boundary(batch_run):
+    run, user = batch_run
+    assert claim_run(run, user, 'a')
+    with db.session() as s:
+        job = BatchJob(run_id=run, user_id=user, provider='openai', model='gpt-6-luna', state='prepared')
+        s.add(job); s.commit(); s.refresh(job)
+        job_id = job.id
+        row = s.get(BatchRunState, run)
+        row.lease_until = utc_now() - timedelta(seconds=1)
+        s.add(row); s.commit()
+    assert claim_run(run, user, 'b')
+    with pytest.raises(LookupError):
+        begin_submission(job_id, run, user, 'a')
+    begin_submission(job_id, run, user, 'b')
+    with pytest.raises(LookupError):
+        begin_submission(job_id, run, user, 'b')
+    with db.session() as s:
+        assert s.get(BatchJob, job_id).state == 'submitting'
+
+
+def test_batch_publication_is_fenced_and_unique(batch_run):
+    from server.runs import _persist_application
+    from sqlalchemy.exc import IntegrityError
+    from sqlmodel import select
+    run, user = batch_run
+    assert claim_run(run, user, 'owner')
+    event = dict(company='A', title='B', folder='/output/a', batch_item_key=f'{run}:item',
+                 batch_lease_owner='stale')
+    with pytest.raises(LookupError):
+        _persist_application(run, user, event)
+    event['batch_lease_owner'] = 'owner'
+    _persist_application(run, user, event)
+    with pytest.raises(IntegrityError):
+        _persist_application(run, user, event)
+    with db.session() as s:
+        assert len(s.exec(select(Application)).all()) == 1

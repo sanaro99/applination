@@ -61,3 +61,51 @@ def test_wrong_owner_cannot_advance(waiting, monkeypatch):
     import server.batch_runs as br
     monkeypatch.setattr(br, 'adapter_for', lambda *args: pytest.fail('must not access credentials'))
     advance_batch_run(waiting[0], waiting[1] + 1)
+
+
+def test_cancel_abandons_unknown_without_resubmitting_and_releases_run(waiting, monkeypatch):
+    import server.batch_runs as br
+    run, owner = waiting
+    monkeypatch.setattr(br, 'adapter_for', lambda *args: pytest.fail('unknown submission must not be recreated'))
+    br.cancel(run, User(id=owner, email='waiting@example.com', password_hash='x'))
+    br.advance_batch_run(run, owner)
+    with db.session() as s:
+        assert s.get(Run, run).status == RunStatus.cancelled
+        job = s.exec(select(BatchJob)).first()
+        assert job.state == 'abandoned'
+        assert 'may still be billed' in job.error
+
+
+def test_cancel_scheduled_batch_never_fetches_or_submits(waiting, monkeypatch):
+    import server.batch_runs as br
+    run, owner = waiting
+    with db.session() as s:
+        row = s.get(Run, run)
+        row.status = RunStatus.scheduled
+        s.add(row); s.commit()
+    monkeypatch.setattr(br, '_snapshot', lambda *args: pytest.fail('scheduled cancellation must not fetch jobs'))
+    monkeypatch.setattr(br, 'adapter_for', lambda *args: pytest.fail('scheduled cancellation must not call provider'))
+    br.cancel(run, User(id=owner, email='waiting@example.com', password_hash='x'))
+    br.advance_batch_run(run, owner)
+    with db.session() as s:
+        assert s.get(Run, run).status == RunStatus.cancelled
+
+
+def test_cancel_before_snapshot_never_initializes_run(waiting, monkeypatch):
+    import server.batch_runs as br
+    run, owner = waiting
+    with db.session() as s:
+        row = s.get(Run, run)
+        row.status = RunStatus.queued
+        s.add(row)
+        state = s.get(BatchRunState, run)
+        state.payload = '{}'
+        s.add(state)
+        for job in s.exec(select(BatchJob)).all():
+            s.delete(job)
+        s.commit()
+    monkeypatch.setattr(br, '_snapshot', lambda *args: pytest.fail('cancelled run must not fetch jobs'))
+    br.cancel(run, User(id=owner, email='waiting@example.com', password_hash='x'))
+    br.advance_batch_run(run, owner)
+    with db.session() as s:
+        assert s.get(Run, run).status == RunStatus.cancelled

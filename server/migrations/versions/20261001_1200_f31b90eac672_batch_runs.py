@@ -9,6 +9,8 @@ depends_on = None
 
 
 def upgrade():
+    op.add_column('application', sa.Column('batch_item_key', sa.String(), nullable=True))
+    op.create_index('ix_application_batch_item_key', 'application', ['batch_item_key'], unique=True)
     op.add_column('run', sa.Column('execution_mode', sa.String(), nullable=False, server_default='immediate'))
     op.add_column('run', sa.Column('batch_routes', sa.Text(), nullable=False, server_default='{}'))
     op.create_table('batchrunstate',
@@ -33,6 +35,8 @@ def upgrade():
 
 
 def downgrade():
+    op.drop_index('ix_application_batch_item_key', table_name='application')
+    op.drop_column('application', 'batch_item_key')
     op.drop_table('batchjob')
     op.drop_table('batchrunstate')
     op.drop_column('run', 'batch_routes')

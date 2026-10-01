@@ -11,6 +11,15 @@ from .stages import replay_chains, PendingRequest, BatchFailure
 LOG = logging.getLogger(__name__)
 
 
+def mark_validation_failure(transcript, scope, task, json_mode):
+    """Transport success alone is not validated completion; retain its usage."""
+    candidates = [entry for entry in transcript.values() if entry.get('application_key') == scope
+        and entry['request']['task'] == task and entry['request']['json_mode'] == json_mode
+        and entry['state'] == 'succeeded']
+    if candidates:
+        candidates[-1].update(state='failed', error='Generated output failed application validation; review before retrying.')
+
+
 class ReplayTailor(Tailor):
     def __init__(self, routes, application_key, transcript):
         self.routes, self.application_key, self.transcript = routes, application_key, transcript
@@ -27,6 +36,7 @@ class ReplayTailor(Tailor):
             try:
                 part = self._operation(f'ranking-{start}', super().rank_jobs, jobs[start:start + 25], profile)
                 if len(part) != len(jobs[start:start + 25]) or any(s.get('reason') in ('(rank failed)', '(parse failed)') for s in part):
+                    mark_validation_failure(self.transcript, self.application_key + f':ranking-{start}', 'ranking', True)
                     raise BatchFailure('Invalid ranking response; review before retrying.')
                 scored.extend({**s, 'idx': s['idx'] + start} for s in part)
             except PendingRequest:
@@ -79,6 +89,8 @@ def prepare_generation(state):
                 continue
             try:
                 value = operation()
+                if name == 'resume' and not tailor.last_tailor_audit.get('final_grounding', {}).get('passed'):
+                    raise ValueError('Resume grounding validation needs review')
                 from src.tailor import COVER_LETTER_FAILURE_SENTINEL
                 if name == 'letter' and (not value or str(value).startswith(COVER_LETTER_FAILURE_SENTINEL)):
                     raise ValueError('Cover letter did not pass validation')
@@ -87,6 +99,9 @@ def prepare_generation(state):
             except PendingRequest:
                 app[name] = 'waiting'
             except (BatchFailure, Exception) as exc:
+                if isinstance(exc, Exception):
+                    task = ('tailoring_premium' if app['quality_tier'] == 'premium' else 'tailoring') if name == 'resume' else 'cover_letter' if name == 'letter' else 'answer_questions'
+                    mark_validation_failure(state['transcript'], key + ':' + name, task, name != 'letter')
                 app[name] = 'failed'
                 app[name + '_error'] = str(exc)
         app['ready'] = all(app.get(name) == 'ready' for name in operations)

@@ -436,7 +436,19 @@ def _persist_application(run_id: int, user_id: int, evt: dict) -> None:
     company = evt.get("company", "")
     title = evt.get("title", "")
     with session() as s:
+        if evt.get('batch_lease_owner'):
+            from sqlalchemy import update
+            from datetime import timedelta
+            from .db import BatchRunState
+            now = utc_now()
+            lease = s.execute(update(BatchRunState).where(
+                BatchRunState.run_id == run_id, BatchRunState.user_id == user_id,
+                BatchRunState.lease_owner == evt['batch_lease_owner'], BatchRunState.lease_until >= now,
+            ).values(lease_until=now + timedelta(seconds=120)))
+            if lease.rowcount != 1:
+                raise LookupError('Batch lease lost before application publication')
         app = Application(
+            batch_item_key=evt.get('batch_item_key'),
             run_id=run_id,
             user_id=user_id,
             company=company,
@@ -538,13 +550,12 @@ def start_run(
             status=RunStatus.scheduled if is_scheduled else RunStatus.queued,
         )
         s.add(run)
-        s.commit()
-        s.refresh(run)
         if body.execution_mode == 'batch':
             from .db import BatchRunState
+            s.flush()  # Allocate the run ID without exposing an orphan queued run.
             s.add(BatchRunState(run_id=run.id, user_id=user.id))
-            s.commit()
-            s.refresh(run)
+        s.commit()
+        s.refresh(run)
         out = _run_to_out(run)
         # The worker reads this persisted row after the session closes.
         s.expunge(run)
@@ -579,6 +590,8 @@ def stop_run(
     graceful = body.graceful if body is not None else True
     with session() as s:
         r = get_owned(s, Run, run_id, user, detail="run not found")
+        if r.execution_mode == 'batch' and r.status != RunStatus.scheduled:
+            raise HTTPException(409, 'Use the batch cancellation action to stop provider-side work.')
         # A scheduled run has no worker thread yet — cancel it directly.
         if r.status == RunStatus.scheduled:
             r.status = RunStatus.cancelled

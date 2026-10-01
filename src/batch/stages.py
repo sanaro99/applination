@@ -32,6 +32,7 @@ class ReplayProvider(LLMProvider):
         identity = [self.application_key, self.task, self.index, request]
         self.index += 1
         key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        self.last_key = key
         entry = self.transcript.setdefault(key, {
             'request': {**request, 'request_id': key}, 'provider': self.name,
             'application_key': self.application_key, 'state': 'prepared',
@@ -47,7 +48,17 @@ class ReplayProvider(LLMProvider):
 
     def json_call(self, system, user, max_tokens=2000, *, schema=None):
         content = self._call(system, user, max_tokens, schema, True)
-        return content if isinstance(content, dict) else _parse_json(content)
+        try:
+            parsed = content if isinstance(content, dict) else _parse_json(content)
+            if not isinstance(parsed, dict):
+                raise ValueError('Expected a JSON object')
+            if schema is not None:
+                import jsonschema
+                jsonschema.validate(parsed, schema)
+            return parsed
+        except Exception:
+            self.transcript[self.last_key].update(state='failed', error='Malformed or schema-invalid batch JSON result')
+            raise BatchFailure('Malformed or schema-invalid batch JSON result')
 
 
 def replay_chains(routes: dict, application_key: str, transcript: dict) -> dict:

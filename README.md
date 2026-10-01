@@ -22,6 +22,16 @@ Two things to know: the demo's AI answers are pre-recorded rather than live, and
 
 ## How it works
 
+### Discounted bulk runs
+
+On the daily run page, choose **Lower cost — asynchronous batches** and a supported native OpenAI, Claude, or Gemini model. Add your own provider API key first. This selection applies only to that run; immediate bulk runs, single-job generation, and interactive tools retain their existing models, prompts, token limits, and retry behavior.
+
+Eligible AI token usage receives the provider's 50% batch pricing. Each dependent round can take up to 24 hours, so complete application materials may take longer. Dollar estimates are shown only when pricing is verified; no paid queue or hosted worker is required. The existing server must remain available to poll results, and it resumes saved batches after restart.
+
+The run detail page shows progress and partial completion. Failed items never automatically fall back to standard-price calls. Select failed items to review and confirm either discounted retry or standard-price completion. If submission was accepted but the response was lost, link the original completed provider batch by its ID; request identities must match before results are consumed. Cancellation stops new submissions and abandons unresolved submissions locally, which may still process or be billed at the provider.
+
+Apply database migrations (`alembic upgrade head`) before starting the updated server. Batch data is owner-scoped and uses the existing database and private user directories. Existing generation and grounding validators run before application documents are published.
+
 1. **You introduce yourself, once.** Upload your existing resume and Applination reads it into a structured profile. A short conversation with the AI fills in the gaps and captures a few stories about your work — the kind of thing you would tell an interviewer.
 2. **It goes looking for jobs.** Every day it checks seven public job sources and collects everything that matches the kinds of roles you asked for.
 3. **It decides what is actually worth your time.** Each posting is read against your background and given a score out of 100. Anything below your chosen cutoff is dropped, so you are not handed 200 links to sift through.

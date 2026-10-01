@@ -17,9 +17,9 @@ from sqlmodel import select
 from .auth import require_user
 from .db import BatchJob, BatchRunState, Run, RunStatus, User, Application, session
 from .deps import load_config, paths_for
-from .scoping import get_owned
+from .scoping import get_owned, owned
 from .time_utils import utc_now
-from .batch_store import claim_run, renew_run, release_run, load_state, save_state, owned_jobs
+from .batch_store import claim_run, renew_run, release_run, load_state, save_state, owned_jobs, start_heartbeat, begin_submission
 from .events import bus
 from src.batch.adapters import get_batch_adapter, split_requests
 from src.batch.capabilities import ROUTES, validate_batch_route
@@ -68,14 +68,14 @@ def _snapshot(run):
         bio=paths.bio_path.read_text(encoding='utf-8') if paths.bio_path.exists() else '',
         stories=load_stories(paths.stories_dir), examples=load_example_letters(paths.cover_letter_examples_dir),
         guidelines=load_guidelines(paths.guidelines_dir),
-        jobs=[asdict(j) for j in fetch_all(options, log)], excluded=list(_build_excluded_keys(run.user_id)),
+        jobs=[asdict(j) for j in fetch_all({**cfg, 'search': options['search']}, log)], excluded=list(_build_excluded_keys(run.user_id)),
         transcript={}, applications={}, day=utc_now().date().isoformat(),
         dry_run=run.dry_run, no_cache=run.no_cache)
 
 
 def _set_run(run_id, user_id, status, **fields):
     with session() as s:
-        run = s.exec(select(Run).where(Run.id == run_id, Run.user_id == user_id)).first()
+        run = s.exec(owned(select(Run).where(Run.id == run_id), Run, user_id)).first()
         if run:
             run.status = status
             for key, value in fields.items():
@@ -91,6 +91,13 @@ def _save_job(job):
 def _poll_jobs(run_id, user_id, state, worker):
     now = utc_now()
     for job in owned_jobs(run_id, user_id):
+        if job.state == 'prepared':
+            # Creation never started. Recover a crash before the uncertainty boundary.
+            for key in json.loads(job.request_ids):
+                if state['transcript'][key]['state'] != 'succeeded':
+                    state['transcript'][key]['state'] = 'prepared'
+            job.state = 'superseded'
+            _save_job(job)
         if job.state == 'submitting':
             job.state, job.error = 'submission_unknown', 'Submission outcome unknown; reconcile with provider before retrying.'
             _save_job(job)
@@ -151,8 +158,8 @@ def _submit_ready(run_id, user_id, state, worker):
             for key in ids:
                 state['transcript'][key]['state'] = 'waiting'
             save_state(run_id, user_id, worker, state)
+            begin_submission(job.id, run_id, user_id, worker)
             job.state = 'submitting'
-            _save_job(job)  # Commit uncertainty boundary before any create request.
             try:
                 job.provider_id = adapter.submit(chunk, f'run-{run_id}-job-{job.id}')
                 if not job.provider_id:
@@ -203,12 +210,23 @@ def _publish_ready(run_id, user_id, state, worker):
             folder.replace(final)
         manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
         with session() as s:
-            existing = s.exec(select(Application).where(Application.run_id == run_id,
-                Application.user_id == user_id, Application.folder_path == str(final))).first()
+            existing = s.exec(owned(select(Application).where(Application.run_id == run_id,
+                Application.folder_path == str(final)), Application, user_id)).first()
         if existing is None:
-            _persist_application(run_id, user_id, {**manifest, **asdict(job),
-                'score': job.match_score, 'reason': job.match_reason, 'folder': str(final),
-                'folder_rel': final.name})
+            if not renew_run(run_id, user_id, worker):
+                raise LookupError('Batch lease lost before database publication')
+            from sqlalchemy.exc import IntegrityError
+            try:
+                _persist_application(run_id, user_id, {**manifest, **asdict(job),
+                    'score': job.match_score, 'reason': job.match_reason, 'folder': str(final),
+                    'folder_rel': final.name, 'batch_item_key': f'{user_id}:{run_id}:{key}',
+                    'batch_lease_owner': worker})
+            except IntegrityError:
+                with session() as s:
+                    matching = s.exec(owned(select(Application).where(
+                        Application.batch_item_key == f'{user_id}:{run_id}:{key}'), Application, user_id)).first()
+                    if matching is None:
+                        raise
         app.update(published=True, manifest=manifest)
         cache = JobCache(output, ttl_days=state['cfg']['search'].get('cache_ttl_days', 7), enabled=not state['no_cache'])
         cache.put(job.dedupe_key(), manifest)
@@ -231,7 +249,7 @@ def advance_batch_run(run_id, user_id):
     state = None
     try:
         with session() as s:
-            run = s.exec(select(Run).where(Run.id == run_id, Run.user_id == user_id)).first()
+            run = s.exec(owned(select(Run).where(Run.id == run_id), Run, user_id)).first()
             if run is None or run.status in (RunStatus.done, RunStatus.cancelled):
                 return
             s.expunge(run)
@@ -246,9 +264,19 @@ def advance_batch_run(run_id, user_id):
                      error='Batch paused: reconcile submission or explicitly resume status polling.')
             return
         if state.get('cancel_requested'):
+            if state.get('ranking_done') and not state.get('dry_run'):
+                prepare_generation(state)  # Local validation/replay only; never submit newly ready work.
+                _publish_ready(run_id, user_id, state, worker)
+            for entry in state.get('transcript', {}).values():
+                if entry['state'] == 'prepared':
+                    entry['state'] = 'cancelled'
+            save_state(run_id, user_id, worker, state)
             active = [j for j in owned_jobs(run_id, user_id) if j.state in ('waiting', 'cancel_requested')]
             if not active:
                 _set_run(run_id, user_id, RunStatus.cancelled, finished_at=utc_now())
+            return
+        if any(e['state'] == 'submission_unknown' for e in state.get('transcript', {}).values()):
+            _set_run(run_id, user_id, RunStatus.batch_paused, error='Immediate completion outcome unknown; reconcile before retrying.')
             return
         if not state.get('ranking_done'):
             prepare_ranking(state)
@@ -283,17 +311,24 @@ def advance_batch_run(run_id, user_id):
             if state['dry_run']:
                 (day_root / f'ranked_jobs_batch_{run_id}.json').write_text(json.dumps(rows, default=str), encoding='utf-8')
             elif rows:
-                build_tracker(rows, day_root / f'applications_batch_{run_id}.xlsx')
+                build_tracker(rows, day_root / f'applications_batch_{run_id}.xlsx', state['day'])
         _set_run(run_id, user_id, status, applications_created=count, jobs_found=len(state.get('jobs', [])),
                  day_root=str(paths_for(user_id).resolve_output(state.get('cfg')) / state.get('day', '')),
                  finished_at=utc_now() if status == RunStatus.done else None,
                  error='Some batch items need review or explicit retry.' if failed else None)
-        bus.publish_threadsafe(run_id, {'type': 'batch_status', 'status': status.value,
-                                       'applications': count})
+        try:
+            bus.publish_threadsafe(run_id, {'type': 'batch_status', 'status': status.value,
+                                           'applications': count})
+        except RuntimeError:
+            # Persisted status is authoritative even if the SSE loop has shut down.
+            log.debug('Batch run %s notification loop unavailable', run_id)
     except (PendingRequest, BatchFailure):
         if state is not None:
             save_state(run_id, user_id, worker, state)
         _set_run(run_id, user_id, RunStatus.batch_paused, error='Batch needs review before continuing.')
+    except LookupError:
+        # A new lease holder owns recovery; the stale worker must not overwrite it.
+        return
     except Exception as exc:
         # Avoid logging credential-bearing provider messages or snapshots.
         log.warning('Batch run %s paused (%s)', run_id, type(exc).__name__)
@@ -309,6 +344,7 @@ def advance_batch_run(run_id, user_id):
 def dispatch_due_batches():
     # Global scheduler selection; each dispatched operation retains owner scoping.
     with session() as s:
+        # noscope: global scheduler; selected owner IDs accompany every dispatched operation.
         rows = s.exec(select(Run).where(Run.execution_mode == 'batch',
             Run.status.in_([RunStatus.queued, RunStatus.waiting])).order_by(Run.id)).all()
         ids = [(r.id, r.user_id) for r in rows]
@@ -344,7 +380,9 @@ def batch_status(run_id: int, user: User = Depends(require_user)):
         counts={name: sum(e['state'] == name for e in entries.values())
                 for name in ('prepared', 'waiting', 'succeeded', 'failed')},
         items=[dict(id=key, state=e['state'], task=e['request']['task'],
-                    application_key=e.get('application_key'), usage=e.get('usage')) for key, e in entries.items()],
+                    application_key=e.get('application_key'), usage=e.get('usage'),
+                    label=state.get('applications', {}).get(e.get('application_key', '').split(':')[0], {}).get('job', {}).get('company'))
+               for key, e in entries.items()],
         jobs=[dict(id=j.id, provider=j.provider, model=j.model, state=j.state,
                    provider_id=j.provider_id, next_poll_at=j.next_poll_at, error=j.error) for j in jobs])
 
@@ -356,6 +394,41 @@ class PreviewBody(BaseModel):
 
 class ConfirmBody(BaseModel):
     preview_token: str
+
+
+class ReconcileBody(BaseModel):
+    job_id: int
+    provider_id: str
+
+
+@router.post('/runs/{run_id}/batch/reconcile')
+def reconcile(run_id: int, body: ReconcileBody, user: User = Depends(require_user)):
+    _owned_run(run_id, user.id)
+    # Never accept URLs: SDK identifiers must refer only to the user's native endpoint.
+    import re
+    if not re.fullmatch(r'(?:batch_[A-Za-z0-9_-]+|msgbatch_[A-Za-z0-9_-]+|batches/[A-Za-z0-9_-]+)', body.provider_id):
+        raise HTTPException(400, 'Enter a native provider batch identifier.')
+    worker = uuid.uuid4().hex
+    if not claim_run(run_id, user.id, worker):
+        raise HTTPException(409, 'Batch is currently processing.')
+    heartbeat = start_heartbeat(run_id, user.id, worker)
+    try:
+        job = next((j for j in owned_jobs(run_id, user.id) if j.id == body.job_id), None)
+        if not job or job.state != 'submission_unknown':
+            raise HTTPException(409, 'Choose an unresolved submission from this run.')
+        adapter = adapter_for(job.provider, user.id)
+        if adapter.status(body.provider_id) not in ('completed', 'failed', 'expired', 'cancelled'):
+            raise HTTPException(409, 'Wait for the original provider batch to finish before linking its results.')
+        results = adapter.results(body.provider_id)
+        if {r['request_id'] for r in results} != set(json.loads(job.request_ids)):
+            raise HTTPException(409, 'Provider batch request IDs do not match this submission.')
+        job.provider_id, job.state, job.next_poll_at, job.error = body.provider_id, 'waiting', None, None
+        _save_job(job)
+        _set_run(run_id, user.id, RunStatus.waiting, error=None)
+    finally:
+        heartbeat.set()
+        release_run(run_id, user.id, worker)
+    return {'status': 'waiting'}
 
 
 @router.post('/runs/{run_id}/batch/preview')
@@ -388,6 +461,7 @@ def _recover(run_id, user_id, body, action):
     worker = uuid.uuid4().hex
     if not claim_run(run_id, user_id, worker):
         raise HTTPException(409, 'Batch is currently processing.')
+    heartbeat = start_heartbeat(run_id, user_id, worker)
     try:
         state = load_state(run_id, user_id)
         p = state.get('preview', {})
@@ -407,13 +481,16 @@ def _recover(run_id, user_id, body, action):
             if action == 'retry':
                 entry.update(state='prepared', error=None)
             else:
-                # Mark uncertain before synchronous generation: a crash cannot repeat it.
-                entry['state'] = 'submission_unknown'
-                save_state(run_id, user_id, worker, state)
                 from src.providers.factory import get_provider
                 request = entry['request']
-                provider = get_provider(entry['provider'], load_config(user_id)['llm'],
-                    model_override=request['model'], thinking=request['thinking'], user_id=user_id)
+                try:
+                    provider = get_provider(entry['provider'], load_config(user_id)['llm'],
+                        model_override=request['model'], thinking=request['thinking'], user_id=user_id)
+                except Exception:
+                    raise HTTPException(400, 'Provider could not be initialized; check your API key and preview again.')
+                # Crossing this boundary can spend money; creation failure above cannot.
+                entry['state'] = 'submission_unknown'
+                save_state(run_id, user_id, worker, state)
                 try:
                     content = (provider.json_call(request['system'], request['user'], request['max_tokens'], schema=request['schema'])
                                if request['json_mode'] else provider.text_call(request['system'], request['user'], request['max_tokens']))
@@ -425,6 +502,7 @@ def _recover(run_id, user_id, body, action):
             save_state(run_id, user_id, worker, state)
         _set_run(run_id, user_id, RunStatus.waiting, error=None)
     finally:
+        heartbeat.set()
         release_run(run_id, user_id, worker)
     return {'status': 'waiting'}
 
@@ -462,19 +540,38 @@ def resume(run_id: int, user: User = Depends(require_user)):
 
 @router.post('/runs/{run_id}/batch/cancel')
 def cancel(run_id: int, user: User = Depends(require_user)):
-    _owned_run(run_id, user.id)
+    run = _owned_run(run_id, user.id)
     worker = uuid.uuid4().hex
     if not claim_run(run_id, user.id, worker):
         raise HTTPException(409, 'Batch is currently processing; retry shortly.')
+    heartbeat = start_heartbeat(run_id, user.id, worker)
     try:
+        if run.status == RunStatus.scheduled:
+            _set_run(run_id, user.id, RunStatus.cancelled, finished_at=utc_now())
+            return {'status': 'cancelled'}
         state = load_state(run_id, user.id)
+        if not state and not owned_jobs(run_id, user.id):
+            _set_run(run_id, user.id, RunStatus.cancelled, finished_at=utc_now())
+            return {'status': 'cancelled'}
         state['cancel_requested'] = True
         save_state(run_id, user.id, worker, state)
         for job in owned_jobs(run_id, user.id):
+            if job.state in ('submission_unknown', 'submitting'):
+                # Cancellation authorizes abandonment, never a new paid submission.
+                job.state = 'abandoned'
+                job.error = 'Original submission outcome remains unknown and may still be billed. No resubmission will occur.'
+                for key in json.loads(job.request_ids):
+                    if state['transcript'][key]['state'] != 'succeeded':
+                        state['transcript'][key]['state'] = 'cancelled'
+                _save_job(job)
             if job.state == 'waiting' and job.provider_id:
                 adapter_for(job.provider, user.id).cancel(job.provider_id)
                 job.state, job.next_poll_at = 'cancel_requested', None
                 _save_job(job)
+        for entry in state.get('transcript', {}).values():
+            if entry['state'] == 'submission_unknown':
+                entry['state'] = 'cancelled'
+        save_state(run_id, user.id, worker, state)
         _set_run(run_id, user.id, RunStatus.waiting, error=None)
     except Exception as exc:
         _set_run(run_id, user.id, RunStatus.batch_paused, error='Provider cancellation unavailable; resume to confirm status.')
@@ -482,5 +579,6 @@ def cancel(run_id: int, user: User = Depends(require_user)):
             raise
         raise HTTPException(502, 'Provider cancellation unavailable; already processed requests may be billed.')
     finally:
+        heartbeat.set()
         release_run(run_id, user.id, worker)
     return {'status': 'cancellation_requested', 'notice': 'Already processed requests may still be billed.'}

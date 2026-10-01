@@ -7,7 +7,7 @@ ROUTES = {
     'openai': {
         'endpoint': 'https://api.openai.com/v1',
         'source': 'https://developers.openai.com/api/docs/guides/batch',
-        'models': ['gpt-6-luna', 'gpt-6-sol', 'gpt-5.6-luna', 'gpt-4.1-mini', 'gpt-4.1'],
+        'models': ['gpt-6-luna', 'gpt-6-sol', 'gpt-5.6-luna'],
         'max_count': 50000, 'max_bytes': 190_000_000,
     },
     'claude': {

@@ -5,7 +5,7 @@ import type { Run } from "@/lib/types";
 
 /** A run is "active" while queued or running — poll fast in that window. */
 export function isRunActive(status: Run["status"]): boolean {
-  return status === "running" || status === "queued";
+  return status === "running" || status === "queued" || status === "waiting" || status === "batch_paused" || status === "partial_failed";
 }
 
 export function anyRunActive(runs: Run[] | undefined): boolean {
@@ -26,6 +26,6 @@ export function useLatestRuns(): UseQueryResult<Run[]> {
     queryKey: ["runs", "latest"],
     queryFn: () => api.listRuns(),
     refetchInterval: (query) =>
-      anyRunActive(query.state.data) ? FAST_MS : IDLE_MS,
+      query.state.data?.some(r => r.status === 'running' || r.status === 'queued') ? FAST_MS : IDLE_MS,
   });
 }

@@ -17,6 +17,7 @@ from .limits import limiter
 from .events import bus
 from .user_paths import USERS_DIR
 from .runs import router as runs_router
+from .batch_runs import router as batch_runs_router
 from .single_job import router as single_job_router
 from .config_api import router as config_router
 from .master_data import router as master_data_router
@@ -226,6 +227,7 @@ def create_app() -> FastAPI:
     # endpoint inside any of them is authenticated the moment it is written.
     protected = (
         runs_router,
+        batch_runs_router,
         applications_router,
         application_profile_router,
         single_job_router,
@@ -264,6 +266,8 @@ async def _scheduled_run_poller() -> None:
     while True:
         try:
             await asyncio.to_thread(dispatch_due_scheduled_runs)
+            from .batch_runs import dispatch_due_batches
+            await asyncio.to_thread(dispatch_due_batches)
             await asyncio.to_thread(cleanup_stale_tasks)
         except asyncio.CancelledError:
             raise

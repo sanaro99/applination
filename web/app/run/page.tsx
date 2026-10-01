@@ -37,6 +37,7 @@ import { MagicCard } from "@/components/ui/magic-card";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { api, subscribeRun } from "@/lib/api";
+import { currentRunLlmConfig, runLlmConfigQuery } from "@/lib/run-llm-config";
 import { useLatestRuns, anyRunActive } from "@/lib/use-latest-runs";
 import {
   estimateRun,
@@ -94,13 +95,15 @@ export default function RunPage() {
     (r) => r.status === "running" || r.status === "queued",
   );
 
+  const llmConfigResult = useQuery(runLlmConfigQuery);
   const { data: pricing } = useQuery({
     queryKey: ["pricing-window"],
     queryFn: () => api.getPricingWindow(),
     refetchInterval: 60_000,
   });
-  const peakNow = !!pricing?.avoid_peak && !!pricing?.peak;
-  const est = estimateRun(count, { dryRun: options.dry_run, peak: peakNow });
+  const currentLlmConfig = currentRunLlmConfig(llmConfigResult);
+  const est = estimateRun(count, { dryRun: options.dry_run, llmConfig: currentLlmConfig, pricing });
+  const peakNow = est.peak;
   const [stages, setStages] = useState<Record<StageId, StageState>>(INITIAL_STAGES);
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [jobs, setJobs] = useState<LiveJob[]>([]);
@@ -300,6 +303,9 @@ export default function RunPage() {
   const completedJobs = jobs.filter((j) => j.done).length;
   const hasStarted = runId != null;
   const isRunning = hasStarted && !doneSummary;
+  const doneEstimate = doneSummary
+    ? estimateRun(doneSummary.applications, { dryRun: doneSummary.dry_run, llmConfig: currentLlmConfig })
+    : null;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -424,10 +430,12 @@ export default function RunPage() {
 
                 <div className="space-y-3 text-sm">
                   <div className="flex items-center gap-4 rounded-lg border border-border bg-muted/40 p-3">
-                    <span className="flex items-center gap-1.5">
-                      <DollarSign className="size-4 text-muted-foreground" />~
-                      {formatUsd(est.usd)}
-                    </span>
+                    {est.usd != null && (
+                      <span className="flex items-center gap-1.5">
+                        <DollarSign className="size-4 text-muted-foreground" />~
+                        {formatUsd(est.usd)}
+                      </span>
+                    )}
                     <span className="flex items-center gap-1.5">
                       <Clock className="size-4 text-muted-foreground" />
                       {formatMinutes(est.minutes)}
@@ -566,12 +574,10 @@ export default function RunPage() {
                       {formatElapsed(elapsedSec)}
                     </span>
                   )}
-                  {!doneSummary.dry_run && (
+                  {!doneSummary.dry_run && doneEstimate?.usd != null && (
                     <span className="flex items-center gap-1.5 text-muted-foreground">
                       <DollarSign className="size-4" />~
-                      {formatUsd(
-                        estimateRun(doneSummary.applications).usd,
-                      )}{" "}
+                      {formatUsd(doneEstimate.usd)}{" "}
                       est.
                     </span>
                   )}

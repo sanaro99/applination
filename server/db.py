@@ -74,6 +74,9 @@ class RunStatus(str, Enum):
     done = "done"
     error = "error"
     cancelled = "cancelled"
+    waiting = "waiting"
+    batch_paused = "batch_paused"
+    partial_failed = "partial_failed"
 
 
 class ApplicationStatus(str, Enum):
@@ -147,6 +150,32 @@ class Run(SQLModel, table=True):
     applications_created: int = 0
     day_root: str | None = None
     error: str | None = None
+    execution_mode: str = "immediate"
+    batch_routes: str = Field(default="{}", sa_type=Text)
+
+
+class BatchRunState(SQLModel, table=True):
+    """Owner-scoped immutable inputs plus a versioned request/result transcript."""
+    run_id: int = Field(primary_key=True, foreign_key="run.id")
+    user_id: int = Field(index=True, foreign_key="appuser.id")
+    payload: str = Field(default="{}", sa_type=Text)
+    lease_owner: str = ""
+    lease_until: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    next_poll_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+
+
+class BatchJob(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: int = Field(index=True, foreign_key="run.id")
+    user_id: int = Field(index=True, foreign_key="appuser.id")
+    provider: str
+    model: str
+    state: str = "prepared"
+    provider_id: str | None = None
+    request_ids: str = Field(default="[]", sa_type=Text)
+    poll_count: int = 0
+    next_poll_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    error: str | None = Field(default=None, sa_type=Text)
 
 
 class Application(SQLModel, table=True):

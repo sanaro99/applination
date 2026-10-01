@@ -6,7 +6,7 @@ import os
 import threading
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -92,7 +92,7 @@ def _active_run_exists(user_id: int) -> bool:
         row = s.exec(
             owned(
                 select(Run).where(
-                    Run.status.in_([RunStatus.queued, RunStatus.running])
+                    Run.status.in_([RunStatus.queued, RunStatus.running, RunStatus.waiting, RunStatus.batch_paused, RunStatus.partial_failed])
                 ),
                 Run,
                 user_id,
@@ -138,6 +138,10 @@ def _round_robin(runs: list[Run]) -> list[Run]:
 
 def _start_worker_thread(run: Run) -> None:
     """Spawn the pipeline thread for an already-persisted Run row."""
+    if run.execution_mode == 'batch':
+        from .batch_runs import advance_batch_run
+        threading.Thread(target=advance_batch_run, args=(run.id, run.user_id), daemon=True).start()
+        return
     threading.Thread(
         target=_worker,
         args=(
@@ -214,6 +218,8 @@ def dispatch_due_scheduled_runs() -> None:
 
 
 class StartRunBody(BaseModel):
+    execution_mode: Literal['immediate', 'batch'] = 'immediate'
+    batch_routes: dict[str, dict[str, str]] | None = None
     dry_run: bool = False
     no_pdf: bool = False
     no_cache: bool = False
@@ -222,6 +228,7 @@ class StartRunBody(BaseModel):
 
 
 class RunOut(BaseModel):
+    execution_mode: str = 'immediate'
     id: int
     started_at: datetime
     finished_at: datetime | None
@@ -239,6 +246,7 @@ class RunOut(BaseModel):
 
 def _run_to_out(r: Run) -> RunOut:
     return RunOut(
+        execution_mode=r.execution_mode,
         id=r.id,  # type: ignore[arg-type]
         started_at=r.started_at,
         finished_at=r.finished_at,
@@ -490,6 +498,12 @@ def start_run(
 ) -> RunOut:
     # Body is optional: an empty POST starts a normal (non-dry) run with defaults.
     body = body or StartRunBody()
+    if body.execution_mode == 'batch':
+        from .batch_runs import validate_routes
+        try:
+            validate_routes(body.batch_routes, user.id)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(400, str(exc)) from exc
     max_jobs = _clamp_max_jobs(body.max_jobs) if body.max_jobs is not None else None
 
     # Schedule for later if a future time was given (else run immediately).
@@ -513,6 +527,8 @@ def start_run(
 
     with session() as s:
         run = Run(
+            execution_mode=body.execution_mode,
+            batch_routes=__import__('json').dumps(body.batch_routes or {}),
             user_id=user.id,
             dry_run=body.dry_run,
             no_pdf=body.no_pdf,
@@ -524,6 +540,11 @@ def start_run(
         s.add(run)
         s.commit()
         s.refresh(run)
+        if body.execution_mode == 'batch':
+            from .db import BatchRunState
+            s.add(BatchRunState(run_id=run.id, user_id=user.id))
+            s.commit()
+            s.refresh(run)
         out = _run_to_out(run)
         # The worker reads this persisted row after the session closes.
         s.expunge(run)

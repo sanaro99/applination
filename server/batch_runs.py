@@ -452,7 +452,7 @@ def preview(run_id: int, body: PreviewBody, user: User = Depends(require_user)):
             action=body.action, item_ids=selected, digest=digest, expires=(utc_now() + timedelta(minutes=10)).isoformat())
         save_state(run_id, user.id, worker, state)
         return dict(preview_token=token, item_ids=selected, action=body.action, estimated_cost_usd=None,
-                    notice='Cost is unknown. Retry uses discounted batches; OpenAI reasoning batches reserve up to twice the output budget (at most 4,000 extra tokens). Complete-now uses standard API pricing and ordinary token limits.')
+                    notice='Cost is unknown. Retry uses discounted batches; OpenAI and Gemini reasoning batches reserve at most 4,000 extra output tokens. Gemini Pro retains its minimum thinking allowance even when thinking is off. Complete-now uses standard API pricing and ordinary token limits.')
     finally:
         release_run(run_id, user.id, worker)
 

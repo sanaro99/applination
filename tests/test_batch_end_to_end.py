@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 from datetime import timedelta
 import yaml
+import pytest
 from sqlmodel import select
 from server import db
 from server.db import Run, RunStatus, BatchRunState, BatchJob, User, Application
@@ -11,7 +12,9 @@ from server.time_utils import utc_now
 from .conftest import make_engine
 
 
-def test_full_batch_run_uses_original_generation_validators_and_survives_ticks(tmp_path, monkeypatch):
+@pytest.mark.parametrize('provider,model', [('openai','gpt-6-luna'),
+    ('claude','claude-haiku-4-5'), ('gemini','gemini-2.5-flash')])
+def test_full_batch_run_uses_original_generation_validators_and_survives_ticks(tmp_path, monkeypatch, provider, model):
     from server import batch_runs as br
     from src.batch.workflow import ReplayTailor
     from src.batch.stages import PendingRequest
@@ -36,7 +39,7 @@ def test_full_batch_run_uses_original_generation_validators_and_survives_ticks(t
     cfg['search']['min_match_score'] = 0
     job = Job('test', 'Target Infrastructure', 'Backend Reliability Engineer', 'Remote',
               'https://example.test/job', 'Own Python data services, retries, observability, and on-call reliability.')
-    routes = {task: dict(provider='openai', model='gpt-6-luna', thinking='off') for task in br.TASKS}
+    routes = {task: dict(provider=provider, model=model, thinking='off') for task in br.TASKS}
     snap = dict(version=1, cfg=cfg, master=load_master(root / 'demo_data/master_data/resume.yaml'),
         stories=load_stories(root / 'demo_data/master_data/stories'), examples=[], guidelines=[],
         bio='I care about reliable systems and understanding failure modes.', jobs=[asdict(job)],

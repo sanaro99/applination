@@ -40,6 +40,13 @@ describe('review estimate follows selected routes', () => {
     expect(estimateReview(10, {llmConfig:cfg, dryRun:true}).usd).not.toBeNull();
     expect(estimateReview(10).usd).toBeNull();
   });
+  it('includes Gemini reasoning and Pro minimum thinking during ranking', () => {
+    const route = {provider:'gemini',model:'gemini-2.5-flash'};
+    expect(estimateReview(5,{batchRoute:route}).usd!).toBeGreaterThan(
+      estimateReview(5,{batchRoute:{...route,thinking:'off'}}).usd!);
+    const pro = {provider:'gemini',model:'gemini-2.5-pro',thinking:'off'};
+    expect(estimateReview(5,{batchRoute:pro,dryRun:true}).usd).toBeCloseTo(.1625);
+  });
   it('dry runs only estimate ranking and never tailoring', () => {
     const route = { provider:'claude', model:'claude-haiku-4-5' };
     expect(estimateReview(5, {batchRoute:route, dryRun:true}).usd).toEqual(estimateReview(30, {batchRoute:route, dryRun:true}).usd);

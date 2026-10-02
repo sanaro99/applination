@@ -62,3 +62,12 @@ def test_openai_json_call_uses_strict_schema():
     assert calls[0]["text"]["format"] == {
         "type": "json_schema", "name": "structured_output", "schema": schema, "strict": True,
     }
+
+
+def test_optional_resume_fields_use_non_strict_schema_without_increasing_ordinary_budget():
+    from src.schemas import RESUME_SCHEMA
+    provider, calls = _provider('{}')
+    provider.json_call('system', 'user', max_tokens=3000, schema=RESUME_SCHEMA)
+    assert calls[0]['text']['format']['strict'] is False
+    assert calls[0]['max_output_tokens'] == 3000
+    assert len(calls) == 1

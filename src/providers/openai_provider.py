@@ -12,6 +12,29 @@ _REQUEST_TIMEOUT = 90.0
 _MIN_OUTPUT_TOKENS = 16
 
 
+def structured_format(schema: dict) -> dict:
+    """Keep optional/open application contracts out of OpenAI strict mode.
+
+    Strict mode requires every object property to be required and disallows
+    additional properties, including nested objects. Do not mutate our public
+    contracts or invent required resume facts just to satisfy the transport.
+    """
+    def closed_objects(node):
+        if isinstance(node, list):
+            return all(closed_objects(value) for value in node)
+        if not isinstance(node, dict):
+            return True
+        if node.get('type') == 'object' or 'properties' in node:
+            if node.get('additionalProperties') is not False:
+                return False
+            if set(node.get('required', [])) != set(node.get('properties', {})):
+                return False
+        return all(closed_objects(value) for value in node.values())
+
+    return dict(type='json_schema', name='structured_output', schema=schema,
+                strict=closed_objects(schema))
+
+
 def _with_retry(fn):
     """Retry only transient failures; credential and schema errors fail fast."""
     for attempt, delay in enumerate((2, 6), start=1):
@@ -94,13 +117,6 @@ class OpenAIProvider(LLMProvider):
             system,
             user,
             max_tokens,
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "structured_output",
-                    "schema": schema,
-                    "strict": True,
-                },
-            },
+            text={"format": structured_format(schema)},
         ))
         return _parse_json(response.output_text or "")

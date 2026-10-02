@@ -42,9 +42,12 @@ export function BatchRunProgress({ runId }: { runId: number }) {
         <p className="w-full text-xs">Find the original batch in your provider console. Linking checks its completed request IDs and never creates a new batch.</p>
       </div>}
     </div>)}
-    {data.items.filter(item => failed.has(item.id)).map(item => <label key={item.id} className="flex items-center gap-2 text-sm">
+    {data.items.filter(item => failed.has(item.id)).map(item => <label key={item.id} className="flex items-start gap-2 text-sm">
       <input type="checkbox" checked={chosen.includes(item.id)} onChange={e => { setPreview(null); setSelected(ids => e.target.checked ? [...ids, item.id] : ids.filter(id => id !== item.id)); }} />
-      {item.label ?? item.application_key ?? 'Ranking'} / {item.task}
+      <span className="min-w-0">
+        <span>{item.label ?? item.application_key ?? 'Ranking'} / {item.task}</span>
+        {item.error && <span className="mt-1 block break-words text-xs text-destructive">{item.error}</span>}
+      </span>
     </label>)}
     {!!chosen.length && <div className="flex flex-wrap gap-2">
       {['retry', 'complete-now'].map(action => <Button key={action} variant="outline" disabled={busy}

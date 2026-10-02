@@ -380,6 +380,7 @@ def batch_status(run_id: int, user: User = Depends(require_user)):
         counts={name: sum(e['state'] == name for e in entries.values())
                 for name in ('prepared', 'waiting', 'succeeded', 'failed')},
         items=[dict(id=key, state=e['state'], task=e['request']['task'],
+                    error=e.get('error'),
                     application_key=e.get('application_key'), usage=e.get('usage'),
                     label=state.get('applications', {}).get(e.get('application_key', '').split(':')[0], {}).get('job', {}).get('company'))
                for key, e in entries.items()],
@@ -451,7 +452,7 @@ def preview(run_id: int, body: PreviewBody, user: User = Depends(require_user)):
             action=body.action, item_ids=selected, digest=digest, expires=(utc_now() + timedelta(minutes=10)).isoformat())
         save_state(run_id, user.id, worker, state)
         return dict(preview_token=token, item_ids=selected, action=body.action, estimated_cost_usd=None,
-                    notice='Cost is unknown. Retry uses discounted batches; complete-now uses standard API pricing.')
+                    notice='Cost is unknown. Retry uses discounted batches; OpenAI reasoning batches reserve up to twice the output budget (at most 4,000 extra tokens). Complete-now uses standard API pricing and ordinary token limits.')
     finally:
         release_run(run_id, user.id, worker)
 

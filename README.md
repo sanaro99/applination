@@ -1,344 +1,121 @@
 # Applination
 
-Applying for jobs is mostly repetitive work. You find a posting, read it, decide whether it is worth your time, rewrite your resume so it echoes the language in the job description, write a cover letter that sounds like you actually want *this* job rather than any job, and then write the whole thing down somewhere so you remember who you are waiting to hear back from.
+**Find jobs that fit your background, prepare an application for each one, and keep track of what happens next.**
 
-**Applination does that loop for you, every day, while you do something else.**
+Applination helps with the repetitive parts of a job search: reading postings, tailoring your resume, drafting cover letters, and organizing applications. Give it your experience and the roles you want, then review a shortlist with application materials ready to edit and download.
 
-You tell it about yourself once. After that it goes looking for jobs each morning, decides which ones genuinely suit you, and writes a resume and cover letter aimed at each one. What you get back is a short list of good matches with the paperwork already done — so the only thing left is to read it over and hit send.
+[Open Applination](https://applination.sanchitarora.me) · [Try the demo](https://applination.sanchitarora.me/login) · [Technical guide](docs/TECHNICAL.md)
 
-**Live app:** https://applination.sanchitarora.me · **Source:** https://github.com/sanaro99/applination
+<p align="center">
+  <a href="docs/media/applications.png">
+    <img src="docs/media/applications.png" alt="Applination application tracker with match scores, companies, roles, application stages, and deadlines" width="960">
+  </a>
+</p>
 
----
+<p align="center"><em>Your applications, match scores, and next steps in one place. Click any screenshot to view it full size.</em></p>
 
-## Try it without signing up
+## Try it before setting anything up
 
-There is a shared demo account — a made-up candidate named **John Doe** — already filled with jobs, applications, finished resumes and cover letters. Click **Try the demo** next to the login form and you are straight in, with everything working and nothing to set up.
+Open the app and choose **Try the demo** on the sign-in page. You will enter a shared workspace for **John Doe**, a fictional candidate with a profile, ranked jobs, resumes, cover letters, and interview-prep conversations already filled in. No signup or AI key is needed.
 
-A guided walkthrough starts automatically the first time and points out what each screen is for. You can skip it, and you can replay it later from the account menu.
+A guided tour introduces the screens. Skip it whenever you like, or replay it from the account menu. The demo uses simulated AI responses and resets nightly, so use your own account for work you want to keep.
 
-Two things to know: the demo's AI answers are pre-recorded rather than live, and the account resets every night. Everything else behaves exactly like the real thing.
+### Watch a walkthrough
 
----
+<p align="center">
+  <a href="docs/media/applination-walkthrough.webm">
+    <img src="docs/media/applination-walkthrough.gif" alt="Animated walkthrough of the application table, Kanban board, generated documents, coach, and single-job wizard" width="960">
+  </a>
+</p>
 
-## How it works
+[Watch or download the full recording](docs/media/applination-walkthrough.webm). The preview is sped up; the recording shows navigation through the live demo. All screenshots and recordings use fictional demo data, and its AI responses are simulated.
 
-### Discounted bulk runs
+## From your experience to your next application
 
-On the daily run page, choose **Lower cost — asynchronous batches** and a supported native OpenAI, Claude, or Gemini model. Add your own provider API key first. This selection applies only to that run; immediate bulk runs, single-job generation, and interactive tools retain their existing models, prompts, token limits, and retry behavior.
+1. **Build your profile.** Upload an existing resume and add your experience, skills, and a few stories about your work. Applination uses this background when writing documents and helping you prepare for interviews.
+2. **Choose your search.** Set the roles, locations, and job types you want, a minimum match score, and how many applications to prepare.
+3. **Find and review matches.** Start a run to collect postings from the sources you enable and score them against your profile. Review the ranked list, select promising jobs, or bring back a posting that missed the cutoff.
+4. **Review your materials.** Open each application to read its tailored resume and cover letter. Ask for changes, compare resume versions, and download Word or PDF files.
+5. **Apply and follow up.** Submit on the employer's website, then track the application through applied, interviewing, offer, or rejected. Keep notes, tags, and deadlines alongside the documents.
 
-Eligible AI token usage receives the provider's 50% batch pricing. Each dependent round can take up to 24 hours, so complete application materials may take longer. Dollar estimates are shown only when pricing is verified; no paid queue or hosted worker is required. The existing server must remain available to poll results, and it resumes saved batches after restart.
+You can run a search when you need it or schedule runs. If you have already found a role, use **Single job** to paste its URL or enter the description and prepare materials for that posting.
 
-The run detail page shows progress and partial completion. Failed items never automatically fall back to standard-price calls. Select failed items to review and confirm either discounted retry or standard-price completion. If submission was accepted but the response was lost, link the original completed provider batch by its ID; request identities must match before results are consumed. Cancellation stops new submissions and abandons unresolved submissions locally, which may still process or be billed at the provider.
+## What you can do
 
-Apply database migrations (`alembic upgrade head`) before starting the updated server. Batch data is owner-scoped and uses the existing database and private user directories. Existing generation and grounding validators run before application documents are published.
+### Spend less time sorting through postings
 
-1. **You introduce yourself, once.** Upload your existing resume and Applination reads it into a structured profile. A short conversation with the AI fills in the gaps and captures a few stories about your work — the kind of thing you would tell an interviewer.
-2. **It goes looking for jobs.** Every day it checks seven public job sources and collects everything that matches the kinds of roles you asked for.
-3. **It decides what is actually worth your time.** Each posting is read against your background and given a score out of 100. Anything below your chosen cutoff is dropped, so you are not handed 200 links to sift through.
-4. **It writes the paperwork.** For each of the best matches it rewrites your resume around that specific job and drafts a cover letter in your own voice, drawing on the stories you gave it. Both come out as Word and PDF files, kept to one page.
-5. **It keeps track.** Everything lands in a tracker you can sort, tag, and move through stages — applied, interviewing, offer, rejected — plus a dated spreadsheet if you prefer one.
+Each match has a score out of 100 and an explanation of how it relates to your background. Your cutoff and document limit help you decide where to spend time. The full ranked list stays available for your own review; a score is a recommendation, not a prediction of an interview or offer.
 
----
+Use a **dry run** to fetch and score jobs before generating documents. It still uses your scoring model, but skips the document-writing calls.
 
-## What you get
+### Tailor and revise your application materials
 
-**A shortlist instead of a firehose.** The point of the score is subtraction. You see the handful of jobs worth applying to, and you can look at the full ranked list to check its reasoning or rescue something it passed over.
+Applination adapts resume bullets to the role and draws on your saved stories when drafting a cover letter. Documents use a plain layout designed for applicant tracking systems and aim to fit on one page.
 
-**Documents written for one job, not one template.** The resume is genuinely rebuilt for each posting — bullets reworded and reordered around what that employer asked for — rather than a stock document with the company name swapped in. Everything stays on one page and in a plain format that applicant tracking systems (the software that filters resumes before a person reads them) can actually parse. You can then tweak any resume by just telling it what to change, and compare versions side by side.
+Review every draft for accuracy before sending it. You can request a resume change in plain language, compare versions side by side, or edit the cover-letter text. Download Word files for further editing and PDFs for submission when PDF conversion is available.
 
-**A tracker that updates itself.** If you connect your Gmail, Applination reads replies from companies you applied to and moves each application along on its own — interview scheduled, rejected, offer. Deadlines and interviews can feed straight into your calendar app, and it can email you a daily summary of what needs attention. The email sorting happens inside your own browser, so the contents of your inbox never get sent anywhere.
+<p align="center">
+  <a href="docs/media/application-detail.png">
+    <img src="docs/media/application-detail.png" alt="A demo Stripe application with its match explanation, status, download buttons, and resume and cover-letter previews" width="960" loading="lazy">
+  </a>
+</p>
 
-**Interview prep that already knows your background.** A coach you can chat with, a mock interview that asks one question at a time and critiques your answers, and a drafter for those long "why do you want to work here" essays. All three read your actual resume and stories, so the answers are about you. Good answers can be saved and reused.
+<p align="center"><em>Review the match and both documents before applying.</em></p>
 
-**One job at a time, when you want that instead.** Found a posting yourself? Paste the link, and it will pull out the details and write the documents for that single job.
+### Keep applications and follow-ups organized
 
-**Your own AI, your own bill.** Applination does not resell anyone's AI. You bring a key from whichever provider you prefer — Anthropic, Google, DeepSeek, Mistral, OpenRouter, Nvidia — or run a model on your own machine with Ollama without AI provider charges. Your key is encrypted before it is stored, and you can point different jobs at different models: something cheap and fast for scoring hundreds of postings, something stronger for writing the documents you will actually send.
+Switch between a table and a Kanban board, filter your applications, update stages, and add notes or tags. Export a CSV when you want to work in a spreadsheet. Run history and charts help you review what your searches produced.
 
-**Your data stays yours.** Every account is separate, with its own profile, settings and generated documents. Nothing personal is ever committed to this repository.
+Optional Gmail sync can classify company replies in your browser and update application stages. A calendar feed brings deadlines and interviews into your calendar app; a daily email digest is available when Gmail is connected. These features need to be configured before use.
 
----
+<details>
+  <summary>See the Kanban board</summary>
+  <p align="center">
+    <a href="docs/media/application-board.png">
+      <img src="docs/media/application-board.png" alt="Applination Kanban board organizing demo applications by generated, applied, interviewing, and offer stages" width="960" loading="lazy">
+    </a>
+  </p>
+</details>
 
-## Feature overview
+### Prepare answers using your own experience
 
-| Area | What you get |
-|---|---|
-| **Daily run** | Full fetch → score → write loop, streamed live; dry-run mode previews the scoring without spending money on documents |
-| **Application tracker** | Table and Kanban views; status, notes, deadlines, tags, bulk edits, CSV export |
-| **Application detail** | PDF preview, resume tweaking by instruction (versioned), cover-letter editing, side-by-side resume diff |
-| **Single-job wizard** | Paste a URL or description → fields extracted → review → documents, in three steps |
-| **Ranked triage** | The full scored list for every run; rescue anything that was not auto-selected, dismiss anything you never want to see again |
-| **Prepwork** | AI coach, mock interview, essay drafter, and a reusable answer bank — all grounded in your profile |
-| **Insights** | Run history, log viewer, run-to-run comparison, and charts for scores, sources and outcomes |
-| **Close the loop** | Gmail sync that advances application status from real replies, a calendar feed, and a daily email digest |
-| **Setup** | Config editor with live provider testing, a visual editor for routing each task to a different model, and an AI-assisted editor for your resume and stories |
-| **Guided tour** | A walkthrough of the whole app that starts on first login and can be replayed any time |
-| **Browser autofill** | Chrome extension for reviewed application autofill, AI answers, document attachment, and submission tracking; see [extension setup](extension/README.md) |
+The **Coach** helps you choose and structure examples from your background. **Mock interview** asks questions one at a time and gives feedback on your answers. **Essay drafter** helps with longer application questions. Save useful answers in your answer bank so you can return to them later.
 
----
+<p align="center">
+  <a href="docs/media/coach.png">
+    <img src="docs/media/coach.png" alt="Applination Coach discussing which work stories a fictional candidate can use for a technical interview, with an option to save answers" width="960" loading="lazy">
+  </a>
+</p>
 
-# Technical details
+<p align="center"><em>Prepare with the experience and stories already in your profile.</em></p>
 
-Everything above is the product. The rest of this document is how to run it.
+### Fill application forms with the browser extension
 
-## Architecture at a glance
+The Chrome extension can fill contact details, reuse saved answers, draft responses, and attach generated documents on supported application forms. Review the fields and uploaded files before submitting. Some websites have custom controls that need manual input.
 
-- **`src/`** — the engine: job sources, scoring, resume and cover-letter generation, document rendering. Knows nothing about the web app and can be driven from the command line.
-- **`server/`** — a FastAPI layer in front of `src/`: accounts, per-user data isolation, encrypted key storage, and the REST + server-sent-events API.
-- **`web/`** — a Next.js 16 front end (App Router, Tailwind v4, shadcn/ui).
-- **Postgres** — accounts, sessions, runs, applications, the ranked pool and Prepwork history. Schema is owned by Alembic. Generated documents live on disk, not in the database.
+Install and connect it from **Extension** in the app. See the [extension guide](extension/README.md) for the steps and supported behavior.
 
-Applination is **multi-user**. Anyone can sign up; each account brings its own API keys and keeps its own config, profile and documents under `data/users/<id>/`. That whole directory is gitignored — this repository is public.
+## Start with your own profile
 
-## Prerequisites
+1. [Create an account](https://applination.sanchitarora.me/signup).
+2. Connect an AI provider you have access to, or pair a local Ollama model from **Config**.
+3. Complete the guided setup with your contact details, resume, work stories, and search preferences.
+4. Try a dry run, review the matches, then generate materials for the jobs you want.
 
-- **Python 3.11+**
-- **Node.js 20+** and npm
-- **PostgreSQL 18** — `scripts/dev.ps1` starts one in Docker automatically if nothing is listening on port 5432; otherwise point `DATABASE_URL` at your own
-- At least one LLM provider key, or Ollama plus the local Applination worker
-- **PDF conversion** (optional): Microsoft Word (Windows/macOS) or LibreOffice (`soffice` on PATH, Linux). Use `--no-pdf` if you have neither.
+Update your background in **Master data**, recurring form details in **Application profile**, and search preferences in **Config**. Use **Workflows** to choose the model for each task.
 
-## Getting started
+### AI choice and costs
 
-### 1. Clone and install
+You bring your own provider credentials. Supported options include OpenAI, Anthropic, Google, DeepSeek, Groq, Mistral, OpenRouter, Nvidia, and Cloudflare. Provider charges depend on your model and usage. Ollama can run on your computer without AI provider charges; keep its paired local worker running while Applination needs it.
 
-```bash
-git clone https://github.com/sanaro99/applination.git
-cd applination
+For bulk generation, **Lower cost** mode offers discounted processing with supported OpenAI, Claude, or Gemini batch models. It trades speed for cost: each round can take up to 24 hours, and a full run may need multiple rounds. The app shows supported models and available estimates. Failed items pause for review so you can choose how to continue. Use immediate mode for work you need sooner.
 
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
+### Your data and your review
 
-pip install -r requirements.txt
+Each account has its own profile, settings, and generated documents. Provider credentials are encrypted at rest. Cloud AI tasks send the context needed for that task to the provider you select; Ollama tasks are handled by your paired local worker. Gmail message classification runs in your browser.
 
-cd web
-npm install
-cd ..
-```
+You decide which jobs to pursue and what to submit. Check generated claims against your experience and confirm that a posting is still open. Applination helps prepare applications; it cannot guarantee a response from an employer.
 
-### 2. Set the encryption key
+## Run it yourself or contribute
 
-API keys and Gmail tokens are encrypted at rest with a Fernet key the server holds:
-
-```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-
-Put the result in `APPLINATION_SECRET_KEY` in your environment. Without it the app runs, but it cannot store API keys.
-
-### 3. Start the development servers
-
-```powershell
-.\scripts\dev.ps1
-```
-
-This brings up Postgres if needed, applies migrations, then starts the FastAPI backend on **http://127.0.0.1:8000** and the Next.js front end on **http://127.0.0.1:3000**.
-
-To run them separately:
-
-```bash
-python -m uvicorn server.app:app --reload --reload-dir server --reload-dir src --port 8000
-cd web && npm run dev
-```
-
-### 4. Optional: the in-browser email classifier
-
-Inbox sync sorts emails using a small model that runs inside your browser. Download it once per clone:
-
-```bash
-python scripts/fetch_webllm_model.py
-```
-
-This fetches roughly 700MB into `web/public/models/` (gitignored) so the browser does not have to reach huggingface.co, which some networks block. Skip it if you are not using inbox sync.
-
-### 5. Sign up and onboard
-
-Open **http://localhost:3000**, create an account, and the setup wizard walks you through:
-
-| Step | What happens |
-|---|---|
-| Provider | Your API key is validated with a real test call, then encrypted and stored |
-| Contact | Name, email, phone and LinkedIn, used in the documents it renders |
-| Resume | PDF/DOCX/text is extracted into `master_data/resume.yaml` |
-| Interview | A short AI conversation fills experience gaps and drafts your bio and first stories |
-| Search prefs | Job titles, locations, minimum score, and a cap on documents per run |
-
-### 6. Dry run, then a full run
-
-A dry run fetches and scores jobs without generating any documents — much cheaper, and a good way to sanity-check your search settings.
-
-```bash
-python -m src.main --dry-run    # or: Start run → Dry run in the dashboard
-python -m src.main              # the full loop
-```
-
-## CLI reference
-
-The CLI is owner-operated and reads the same per-user data and decrypted keys the server does.
-
-```bash
-python -m src.main --dry-run                  # fetch + score only
-python -m src.main                            # full run
-python -m src.main --no-pdf                   # .docx only, no PDF conversion
-python -m src.main --user someone@example.com # run as a specific account
-
-# Tweak a generated resume
-python -m src.tweak data/users/1/output/2026-04-24/Company_Role/resume.docx "Emphasize LangGraph work"
-python -m src.tweak resume.docx "more ML focus" --provider gemini
-python -m src.tweak resume.docx --interactive
-```
-
-## Output artifacts
-
-Each run creates `data/users/<id>/output/YYYY-MM-DD/<Company_Role>/`:
-
-| File | Description |
-|---|---|
-| `resume.docx` / `resume.pdf` | Tailored one-page resume |
-| `resume.json` | Structured JSON — the input for `src/tweak.py` |
-| `cover_letter.docx` / `cover_letter.pdf` | Personalised cover letter |
-| `job.json` | Snapshot of the posting (company, title, description, URL) |
-| `answers.md` | Drafted answers to screening questions, when the posting has any |
-
-Plus `apps_YYYY-MM-DD.xlsx` in the dated folder — the daily tracker.
-
-Documents are served through `GET /api/files/{rel_path}`, resolved against the calling account's own output directory. There is no static file mount.
-
-## Job sources
-
-Seven sources, each toggled in `sources:`:
-
-| Source | Key required | Notes |
-|---|---|---|
-| **Remotive** | none | Remote roles only |
-| **The Muse** | none | Good variety |
-| **Greenhouse** | none | 140 known company boards built in; add your own slugs |
-| **Lever** | none | Company boards you list |
-| **Simplify (GitHub)** | none | The Pitt CSC internship list, ~1100 roles |
-| **Adzuna** | free registration | https://developer.adzuna.com |
-| **JSearch** | RapidAPI | LinkedIn + Indeed coverage; free tier is 200 requests/month |
-
-LinkedIn is not scraped directly — it is rate-limited and requires a login.
-
-## LLM providers
-
-Ten providers, any of which can be primary or fallback. Keys are entered in the app and stored encrypted per account. New configurations use DeepSeek V4.1 Flash for every workflow, with Groq, Gemini, and Cloudflare as ordered fallbacks.
-
-| Provider | Notes |
-|---|---|
-| **Claude** (Anthropic) | Haiku ~$0.10–0.30/run; Sonnet ~$1–3/run |
-| **Gemini** (Google) | Flash is effectively free |
-| **DeepSeek** | Cheapest cloud path; `deepseek-flash` (DeepSeek-V4.1-Flash) standard, `deepseek-v4-pro` premium |
-| **Mistral** | Solid mid-tier |
-| **OpenRouter** | Many models behind one key |
-| **Ollama** (local) | No AI provider key; requires Ollama and the local Applination worker |
-| **Nvidia NIM** | Cloud or self-hosted inference |
-
-Each workflow — scoring, tailoring, cover letters, critique, coach, interview, essay — can be routed to a different provider and model from the **Workflows** page.
-
-### Use your own Ollama with the hosted website and extension
-
-1. Install [Ollama](https://ollama.com/download) on the computer where you will use Applination, and run `ollama pull llama3.2` (or install the model you select in Workflows).
-2. On Applination's **Config** page, find **Ollama on your computer**, download `applination-ollama-worker.py`, and create a pairing code. It expires in five minutes and works once.
-3. Install Python 3.10 or newer, run `python applination-ollama-worker.py`, and paste the code into its hidden terminal prompt. Enter the verification code shown in that terminal into Config and approve the matching worker. Unexpected workers should be disconnected. No prompts are released before approval.
-4. Keep the worker running for website generation, extension autofill, and scheduled runs. Sessions expire after 12 hours or one hour offline; pair again afterward. The worker saves sessions with Windows DPAPI protection on Windows or private file permissions on other systems.
-5. Choose Ollama during onboarding or in Workflows. Onboarding makes Ollama the provider for every workflow and removes cloud fallbacks. If you use Workflows instead, set each task you want to run locally to Ollama and remove its cloud fallbacks.
-
-The official worker connects outward to Applination and calls Ollama only on this computer's loopback address, without using HTTP proxies for local prompts. You do not need to expose Ollama to the internet or configure browser CORS. Disconnect a worker in Config to revoke its session and cancel its leased requests; changing your password also revokes every worker on your account. Run with `--reset` to pair again. The worker excludes cloud models from the inventory and checks `/api/show` for remote aliases before sending any inference prompt.
-
-The server treats workers as untrusted clients: credentials cannot access regular account APIs, tasks are scoped to the account and claiming worker, expired leases and replayed results are rejected, and requests and responses have size limits. Existing credentials from the old protocol are deliberately invalidated by the security migration. Download the updated worker and pair again after deploying this update.
-
-Run only a trusted worker downloaded from your Applination installation. A modified script runs with your OS permissions and could forward prompts elsewhere or fabricate answers. The server cannot attest that a response actually came from local Ollama; credential scoping contains the account access it grants, and DPAPI does not protect against malware already running as your Windows user.
-
-If an older worker fails with HTTP 403 and "blocked access based on your browser's signature," download the current worker from Config and restart it. The current worker identifies itself to Cloudflare's Browser Integrity Check with an Applination user agent.
-
-For a self-hosted single-machine CLI setup, the existing direct Ollama provider still calls `http://localhost:11434`. A self-hosted API can explicitly set `llm.ollama.transport: direct` to use its own loopback Ollama. Hosted accounts use the local worker by default.
-
-**Load available models** in Config works before you enter an AI provider key. Cloud providers use the public [Models.dev catalog](https://models.dev); **Load models for my key** optionally queries the provider with your entered or stored credentials. Public listings do not confirm account access, so test your selection after saving. Ollama lists the models reported by your online local worker. If an older worker asks you to update, download the current worker from Config and restart it; its existing connection key is kept.
-
-> **On environment variables:** `ANTHROPIC_API_KEY` and friends are **ignored** unless `ALLOW_ENV_API_KEYS` is set. They belong to the server process rather than to any account, so on a multi-user install the fallback would let a user with no key of their own quietly spend the operator's. Only enable it for a single-user deployment.
-
-## Your profile data
-
-Per-account, under `data/users/<id>/master_data/`:
-
-| File | Purpose |
-|---|---|
-| `resume.yaml` | Your full master resume — the source of truth for all content |
-| `bio.md` | Voice and tone reference, injected into cover-letter prompts |
-| `stories/*.md` | Narrative stories with YAML frontmatter, matched to jobs automatically |
-| `cover_letters/examples/` | Past letters as `.md`, used as style anchors |
-
-Stories carry `tags`, `role_fit`, `company_fit` and `one_liner` in their frontmatter; the cover-letter builder picks the one or two most relevant per job by tag overlap and keyword matching. You can write them by hand or generate them from a description on the **Master Data** page.
-
-Writing guidelines (`master_data/guidelines/*.md`) and document templates are shared by every account and live in the repository.
-
-## Configuration reference
-
-Per-account, at `data/users/<id>/config.yaml`. Editable from the **Config** page; a new account is seeded from `config.example.yaml`.
-
-```yaml
-user:
-  name: "..."
-  email: "..."
-  phone: "..."
-  linkedin: "..."
-
-search:
-  keywords: [software engineer intern, ...]
-  locations: [Remote, New York, ...]
-  min_match_score: 55       # 0-100; anything below this is dropped
-  max_jobs_per_day: 50      # cap on documents generated per run
-
-llm:
-  primary: "deepseek"
-  fallbacks: ["groq", "gemini", "cloudflare"]
-  deepseek:
-    model: "deepseek-flash"
-  tasks:                    # provider chain inherited; tune reasoning by task
-    ranking:
-      thinking: off
-    tailoring:
-      thinking: on
-
-output:
-  root: "output"
-  produce_pdf: true
-  base_font_size: 10
-
-inbox:                      # Gmail sync (optional, off by default)
-  enabled: false
-  client_id: ""             # OAuth client from Google Cloud Console
-  client_secret: ""
-  redirect_uri: "http://127.0.0.1:8000/api/inbox/oauth/callback"
-  scan_days: 30
-  min_confidence: 0.6       # only change status when this confident
-  auto_update_status: true
-
-reminders:
-  digest_enabled: false
-  deadline_window_days: 3
-  follow_up_days: 7
-```
-
-API keys are deliberately absent from this file. They are diverted into an encrypted database table on write and merged back in on read, so nothing downstream knows the difference.
-
-## Daily scheduling
-
-```bash
-bash scripts/setup_cron.sh              # macOS / Linux
-```
-```powershell
-.\scripts\setup_task_scheduler.ps1      # Windows; -Time "HH:mm" to override
-```
-
-## Known constraints
-
-- **PDF conversion** needs MS Word (Windows/macOS) or LibreOffice (Linux); use `--no-pdf` otherwise.
-- **LinkedIn** is not scraped — rate-limited and login-walled.
-- **Coach replies do not stream.** They are send-and-wait, because no provider in the abstraction layer streams yet.
-- **No token/cost tracking.** The provider layer does not expose usage, so "insights" cover timing, throughput and scores rather than spend.
-- **No password reset by email.** Use `scripts/set_password.py` from the console.
-- **Greenhouse slugs** in `config.example.yaml` are illustrative — replace them with companies you care about.
+See the [technical guide](docs/TECHNICAL.md) for architecture, local setup, configuration, AI providers, scheduling, batch processing, and implementation constraints. The [deployment guide](docs/DEPLOYMENT.md) covers a self-hosted container installation.

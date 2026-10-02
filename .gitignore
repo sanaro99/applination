@@ -30,7 +30,7 @@
 /data/users/
 .job_cache.json
 
-# Deploy staging tarballs (docs/DEPLOY-SEATTLE.md Step 1 suggests creating
+# Deploy staging tarballs (the deployment migration guide suggests creating
 # these). They contain the full master_data and output trees — never commit
 # them; this repository is public.
 /*.tgz

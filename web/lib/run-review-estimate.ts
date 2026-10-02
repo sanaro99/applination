@@ -47,10 +47,13 @@ export function estimateReview(count: number, opts?: {
     const rates = provider && model ? RATES[provider]?.[model] : undefined;
     if (!rates) { known = false; continue; }
     const [input, plannedOutput] = WORKLOAD[task];
-    // Upper planning allowance for batch-only OpenAI reasoning headroom.
-    // Ranking uses thinking=off; ordinary calls retain their existing estimate.
-    const output = opts?.batchRoute?.provider === 'openai' && task !== 'ranking'
-      && opts.batchRoute.thinking !== 'off' ? plannedOutput * 2 : plannedOutput;
+    // Upper planning allowance for batch reasoning. Pro cannot disable it;
+    // Flash/OpenAI ranking uses thinking=off. Ordinary estimates are unchanged.
+    const route = opts?.batchRoute;
+    const hasReasoning = (route?.provider === 'openai' || route?.provider === 'gemini')
+      && task !== 'ranking' && route.thinking !== 'off';
+    const proMinimum = route?.provider === 'gemini' && route.model === 'gemini-2.5-pro';
+    const output = hasReasoning || proMinimum ? plannedOutput * 2 : plannedOutput;
     usd += (input * rates[0] + output * rates[1]) * (task === 'ranking' ? 1 : count) / 1_000_000;
   }
   return { ...ordinary, models: [...models], peak: allDeepSeekFlash && ordinary.peak,

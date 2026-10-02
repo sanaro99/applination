@@ -37,11 +37,22 @@ def request_body(provider, r):
                         tool_choice={'type': 'tool', 'name': 'emit_structured_response'})
         return body
     from src.providers.gemini_provider import _generation_config_kwargs
-    return dict(contents=r['user'], config=_generation_config_kwargs(
+    config = _generation_config_kwargs(
         r['model'], system_instruction=system, max_output_tokens=r['max_tokens'],
         response_mime_type='application/json' if r.get('json_mode') else None,
-        response_json_schema=r.get('schema')),
-        metadata={'key': r['request_id']})
+        response_json_schema=r.get('schema'))
+    if r['model'].startswith('gemini-2.5-'):
+        # Gemini 2.5 shares the thought/final-answer output cap. Bound its
+        # thinking explicitly instead of leaving a dynamic default that can
+        # consume the whole allowance. Pro cannot disable thinking.
+        minimum = 128 if r['model'] == 'gemini-2.5-pro' else 512 if r['model'] == 'gemini-2.5-flash-lite' else 0
+        if r['thinking'] == 'off':
+            thinking_budget = 128 if r['model'] == 'gemini-2.5-pro' else 0
+        else:
+            thinking_budget = max(minimum, min(r['max_tokens'], 1024 if r['thinking'] == 'low' else 4000))
+        config['thinking_config'] = {'thinking_budget': thinking_budget}
+        config['max_output_tokens'] += thinking_budget
+    return dict(contents=r['user'], config=config, metadata={'key': r['request_id']})
 
 
 def split_requests(provider, requests, *, max_count=None, max_bytes=None):
@@ -91,7 +102,7 @@ def normalize_result(provider, item):
         content = next((b['input'] for b in blocks if b.get('type') == 'tool_use'), None)
         if content is None:
             content = ''.join(b.get('text', '') for b in blocks if b.get('type') == 'text')
-        if msg.get('stop_reason') in ('max_tokens', 'refusal'):
+        if msg.get('stop_reason') in ('max_tokens', 'refusal', 'model_context_window_exceeded', 'pause_turn'):
             error = {'message': msg['stop_reason']}
         usage = msg.get('usage', {})
     else:

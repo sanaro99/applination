@@ -39,6 +39,7 @@ import { BlurFade } from "@/components/ui/blur-fade";
 import { api, subscribeRun } from "@/lib/api";
 import { BatchRunOptions } from '@/components/batch-run-options';
 import { batchRoutes, type BatchRoute, type ExecutionMode } from '@/lib/batch-run';
+import { estimateReview, PRICE_SOURCES } from '@/lib/run-review-estimate';
 import { currentRunLlmConfig, runLlmConfigQuery } from "@/lib/run-llm-config";
 import { useLatestRuns, anyRunActive } from "@/lib/use-latest-runs";
 import {
@@ -106,7 +107,12 @@ export default function RunPage() {
     refetchInterval: 60_000,
   });
   const currentLlmConfig = currentRunLlmConfig(llmConfigResult);
-  const est = estimateRun(count, { dryRun: options.dry_run, llmConfig: currentLlmConfig, pricing });
+  const batchCapabilities = useQuery({ queryKey: ['batch-capabilities'], queryFn: api.batchCapabilities,
+    enabled: confirmOpen, refetchOnMount: 'always' });
+  const selectedBatch = batchCapabilities.data?.find(r => r.provider === batchRoute.provider && r.model === batchRoute.model);
+  const batchBlocked = executionMode === 'batch' && (batchCapabilities.isFetching || batchCapabilities.isError || !selectedBatch?.configured);
+  const est = estimateReview(count, { dryRun: options.dry_run, llmConfig: currentLlmConfig, pricing,
+    batchRoute: executionMode === 'batch' ? batchRoute : undefined });
   const peakNow = executionMode === 'immediate' && est.peak;
   const [stages, setStages] = useState<Record<StageId, StageState>>(INITIAL_STAGES);
   const [logs, setLogs] = useState<LogLine[]>([]);
@@ -345,11 +351,12 @@ export default function RunPage() {
               <div className="space-y-3 rounded-lg border border-border bg-card p-4">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm">How many applications?</Label>
-                  <span className="font-mono text-lg font-semibold tabular-nums">
-                    {count}
+                  <span className="rounded-lg bg-primary/10 px-3 py-1 font-mono text-lg font-semibold tabular-nums text-primary" aria-live="polite">
+                    {count} <span className="font-sans text-xs font-normal">applications</span>
                   </span>
                 </div>
                 <Slider
+                  aria-label="Number of applications"
                   min={5}
                   max={30}
                   step={5}
@@ -358,14 +365,14 @@ export default function RunPage() {
                     setCount(Array.isArray(v) ? v[0] : v)
                   }
                 />
-                <div className="flex justify-between text-xs text-muted-foreground">
+                <div className="flex justify-between gap-1 text-xs text-muted-foreground">
                   {[5, 10, 15, 20, 25, 30].map((n) => (
-                    <span key={n}>{n}</span>
+                    <button key={n} type="button" onClick={() => setCount(n)} aria-label={`Choose ${n} applications`} aria-pressed={count === n}
+                      className="min-h-9 min-w-9 rounded-md transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-primary/10 aria-pressed:font-semibold aria-pressed:text-primary">{n}</button>
                   ))}
                 </div>
               </div>
 
-              <BatchRunOptions mode={executionMode} route={batchRoute} onMode={setExecutionMode} onRoute={setBatchRoute} />
               <div className="grid gap-4 sm:grid-cols-3">
                 <OptionRow
                   label="Dry run"
@@ -429,7 +436,7 @@ export default function RunPage() {
             </CardContent>
 
             <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-              <DialogContent>
+              <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
                 <DialogHeader>
                   <DialogTitle>Generate {count} applications</DialogTitle>
                   <DialogDescription>
@@ -439,21 +446,27 @@ export default function RunPage() {
                   </DialogDescription>
                 </DialogHeader>
 
+                <BatchRunOptions mode={executionMode} route={batchRoute} onMode={setExecutionMode} onRoute={setBatchRoute}
+                  capabilities={batchCapabilities.data} loading={batchCapabilities.isFetching} failed={batchCapabilities.isError} />
+
                 <div className="space-y-3 text-sm">
-                  <div className="flex items-center gap-4 rounded-lg border border-border bg-muted/40 p-3">
-                    {executionMode === 'immediate' && est.usd != null && (
-                      <span className="flex items-center gap-1.5">
-                        <DollarSign className="size-4 text-muted-foreground" />~
-                        {formatUsd(est.usd)}
-                      </span>
-                    )}
+                  <div className="space-y-3 rounded-xl border border-border bg-muted/40 p-4" aria-live="polite">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex items-center gap-1.5 text-muted-foreground"><DollarSign className="size-4" />Estimated API cost</span>
+                      <span className="font-mono text-lg font-semibold tabular-nums">{est.usd != null ? `~${formatUsd(est.usd)}` : 'Unavailable'}</span>
+                    </div>
+                    <p className="break-words text-xs text-muted-foreground">{est.models.length ? est.models.join(' · ') : 'Checking your current provider settings…'}</p>
                     <span className="flex items-center gap-1.5">
                       <Clock className="size-4 text-muted-foreground" />
                       {executionMode === 'batch' ? 'Up to 24 hours per round' : formatMinutes(est.minutes)}
                     </span>
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      rough estimate
-                    </span>
+                    <p className="text-xs leading-relaxed text-muted-foreground">{est.usd != null
+                      ? 'Rough planning estimate with an allowance for validation and optional stages. Actual token usage, retries and cache hits change the final cost; this is not a spending limit.'
+                      : 'A verified price is unavailable for one or more selected models. No dollar total is assumed.'}</p>
+                    <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Estimate assumptions &amp; pricing</summary>
+                      <p className="mt-2">Assumes a fetched ranking pool of 100k input / 10k output tokens, plus up to 42k input / 8.5k output tokens per application across writing, validation and optional stages. Dry runs estimate ranking only. DeepSeek Flash retains its existing run-based estimate. Native text rates checked October 1, 2026; taxes, tools and regional or long-context premiums are excluded.</p>
+                      <div className="mt-2 flex flex-wrap gap-3">{Object.entries(PRICE_SOURCES).map(([provider, url]) => <a key={provider} href={url} target="_blank" rel="noreferrer" className="underline underline-offset-2">{provider} pricing</a>)}</div>
+                    </details>
                   </div>
 
                   {peakNow && pricing && (
@@ -481,10 +494,11 @@ export default function RunPage() {
                   </Button>
                   {peakNow && pricing ? (
                     <>
-                      <Button variant="outline" onClick={() => doRun()}>
+                      <Button variant="outline" disabled={starting || batchBlocked} onClick={() => doRun()}>
                         Run now anyway
                       </Button>
                       <Button
+                        disabled={starting || batchBlocked}
                         onClick={() => doRun(pricing.next_non_peak_utc)}
                       >
                         <AlarmClock className="size-4" /> Schedule for{" "}
@@ -494,7 +508,7 @@ export default function RunPage() {
                   ) : (
                     <>
                       <SimulatedChip className="self-center" />
-                      <Button onClick={() => doRun()}>
+                    <Button disabled={starting || batchBlocked} onClick={() => doRun()}>
                         <Play className="size-4" /> Start run
                       </Button>
                     </>

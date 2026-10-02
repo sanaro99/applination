@@ -21,7 +21,7 @@ def test_batch_routes_are_owner_only_and_recovery_excludes_completed(tmp_path, m
                 request=dict(task='tailoring', model='gpt-6-luna', system='private', user='private',
                              max_tokens=3000, thinking='off', schema=None, json_mode=True))
             s.add(BatchRunState(run_id=run.id, user_id=ua['id'], payload=json.dumps(dict(version=1,
-                transcript={'done': {**entry, 'state':'succeeded', 'content':{}}, 'failed': {**entry, 'state':'failed'}},
+                transcript={'done': {**entry, 'state':'succeeded', 'content':{}}, 'failed': {**entry, 'state':'failed', 'error':'Invalid schema: missing location'}},
                 applications={}))))
             s.commit()
         assert b.get(f'/api/runs/{run_id}/batch').status_code == 404
@@ -31,6 +31,7 @@ def test_batch_routes_are_owner_only_and_recovery_excludes_completed(tmp_path, m
         summary = a.get(f'/api/runs/{run_id}/batch')
         assert summary.status_code == 200
         assert 'private' not in summary.text
+        assert next(i for i in summary.json()['items'] if i['id'] == 'failed')['error'] == 'Invalid schema: missing location'
         assert a.post(f'/api/runs/{run_id}/batch/preview', json={'item_ids':['done'], 'action':'retry'}).status_code == 409
         preview = a.post(f'/api/runs/{run_id}/batch/preview', json={'item_ids':['failed'], 'action':'retry'})
         assert preview.status_code == 200

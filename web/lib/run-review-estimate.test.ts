@@ -17,10 +17,19 @@ describe('review estimate follows selected routes', () => {
   });
   it('discounts the same model, rather than halving a different current provider estimate', () => {
     const immediate = estimateReview(10, { llmConfig: config() });
-    const batch = estimateReview(10, { batchRoute: { provider: 'openai', model: 'gpt-6-luna' } });
+    const batch = estimateReview(10, { batchRoute: { provider: 'openai', model: 'gpt-6-luna', thinking: 'off' } });
     expect(batch.usd).toBeCloseTo(immediate.usd! / 2);
     expect(batch.peak).toBe(false);
     expect(estimateReview(30, { batchRoute: { provider: 'openai', model: 'gpt-6-luna' } }).usd!).toBeGreaterThan(batch.usd!);
+  });
+  it('includes batch reasoning room without changing ordinary estimates', () => {
+    const route = {provider: 'openai', model: 'gpt-6-luna'};
+    const base = estimateReview(10, {batchRoute: {...route, thinking:'off'}});
+    const reasoning = estimateReview(10, {batchRoute: route});
+    expect(reasoning.usd!).toBeGreaterThan(base.usd!);
+    expect(estimateReview(10, {batchRoute: route, dryRun:true}).usd)
+      .toEqual(estimateReview(10, {batchRoute: {...route, thinking:'off'}, dryRun:true}).usd);
+    expect(estimateReview(10, {llmConfig:config()}).usd).toBeCloseTo(base.usd! * 2);
   });
   it('honors task-specific model overrides and unknown routes', () => {
     const cfg = config();

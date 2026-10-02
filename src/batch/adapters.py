@@ -12,14 +12,20 @@ def request_body(provider, r):
         system = system.rstrip() + ('\n\nReturn ONLY a valid JSON object. No prose, no code fences. '
                                     'Start with { and end with }.')
     if provider == 'openai':
+        from src.providers.openai_provider import structured_format
+        budget = max(16, r['max_tokens'])
+        # Responses counts reasoning against max_output_tokens. These budgets
+        # came from final-answer callers; reserve bounded room in batch only.
+        # No automatic retries and no change to ordinary call limits.
+        if r['thinking'] != 'off' and r['model'] not in ('gpt-4.1', 'gpt-4.1-mini'):
+            budget += min(budget, 4000)
         body = dict(model=r['model'], instructions=system, input=r['user'],
-                    max_output_tokens=max(16, r['max_tokens']),
+                    max_output_tokens=budget,
                     reasoning={'effort': {'off': 'none', 'low': 'low', 'on': 'medium'}.get(r['thinking'], 'medium')})
         if r['model'] in ('gpt-4.1', 'gpt-4.1-mini'):
             body.pop('reasoning')
         if r.get('schema'):
-            body['text'] = {'format': {'type': 'json_schema', 'name': 'structured_output',
-                                       'schema': r['schema'], 'strict': True}}
+            body['text'] = {'format': structured_format(r['schema'])}
         return body
     if provider == 'claude':
         body = dict(model=r['model'], system=system, max_tokens=r['max_tokens'],
@@ -71,7 +77,8 @@ def normalize_result(provider, item):
         body = response.get('body') or {}
         error = error or body.get('error')
         if response.get('status_code', 500) != 200 or body.get('status') != 'completed':
-            error = error or {'message': 'Response failed, refused or incomplete'}
+            reason = (body.get('incomplete_details') or {}).get('reason')
+            error = error or {'message': f'Response {body.get("status", "failed")}: {reason or "failed or refused"}'}
         content = ''.join(c.get('text', '') for o in body.get('output', [])
                           for c in o.get('content', []) if c.get('type') == 'output_text')
         usage = body.get('usage', {})

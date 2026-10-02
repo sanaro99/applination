@@ -50,3 +50,32 @@ def test_chunking_and_single_oversize_request():
     assert len(split_requests('openai', [request(), request()], max_count=1)) == 2
     with pytest.raises(ValueError):
         split_requests('openai', [request()], max_bytes=1)
+
+
+def test_real_resume_schema_does_not_use_unsupported_strict_mode():
+    from src.schemas import RESUME_SCHEMA
+    from copy import deepcopy
+    before = deepcopy(RESUME_SCHEMA)
+    r = request()
+    r['schema'] = RESUME_SCHEMA
+    fmt = request_body('openai', r)['text']['format']
+    assert fmt['strict'] is False
+    assert fmt['schema'] == before == RESUME_SCHEMA
+
+
+@pytest.mark.parametrize('thinking,expected', [('on', 4400), ('low', 4400), ('off', 2200)])
+def test_batch_planning_budget_reserves_bounded_reasoning_room(thinking, expected):
+    r = request()
+    r.update(max_tokens=2200, thinking=thinking)
+    assert request_body('openai', r)['max_output_tokens'] == expected
+    r['max_tokens'] = 12000
+    assert request_body('openai', r)['max_output_tokens'] <= 16000
+
+
+def test_incomplete_result_explains_token_limit_and_retains_usage():
+    item = normalize_result('openai', {'custom_id': 'a', 'response': {'status_code': 200,
+        'body': {'status': 'incomplete', 'incomplete_details': {'reason': 'max_output_tokens'},
+                 'usage': {'output_tokens': 2200}, 'output': []}}})
+    assert item['state'] == 'failed'
+    assert 'max_output_tokens' in item['error']
+    assert item['usage']['output_tokens'] == 2200

@@ -46,7 +46,11 @@ export function estimateReview(count: number, opts?: {
     allDeepSeekFlash &&= provider === 'deepseek' && model === 'deepseek-flash';
     const rates = provider && model ? RATES[provider]?.[model] : undefined;
     if (!rates) { known = false; continue; }
-    const [input, output] = WORKLOAD[task];
+    const [input, plannedOutput] = WORKLOAD[task];
+    // Upper planning allowance for batch-only OpenAI reasoning headroom.
+    // Ranking uses thinking=off; ordinary calls retain their existing estimate.
+    const output = opts?.batchRoute?.provider === 'openai' && task !== 'ranking'
+      && opts.batchRoute.thinking !== 'off' ? plannedOutput * 2 : plannedOutput;
     usd += (input * rates[0] + output * rates[1]) * (task === 'ranking' ? 1 : count) / 1_000_000;
   }
   return { ...ordinary, models: [...models], peak: allDeepSeekFlash && ordinary.peak,

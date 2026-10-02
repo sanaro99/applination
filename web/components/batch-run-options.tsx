@@ -39,6 +39,7 @@ export function BatchRunOptions({ mode, route, onMode, onRoute, capabilities, lo
       </Select>
       {selected && <p className="text-xs text-muted-foreground">{batchPriceLabel(rates?.[0] ?? selected.input_per_million, rates?.[1] ?? selected.output_per_million)}</p>}
       {selected && !selected.configured && <p className="text-sm text-amber-600 dark:text-amber-400">Add your API key in Providers before starting.</p>}
+      {route.provider === 'openai' && <p className="text-xs text-muted-foreground">Reasoning counts toward output tokens. The estimate includes extra room for batch reasoning; ordinary call limits stay unchanged.</p>}
       {loading && <p className="text-xs text-muted-foreground">Checking supported batch models…</p>}
       {failed && <p className="text-sm text-destructive">Could not load batch models. Reopen review to retry.</p>}
       <p className="flex gap-1.5 text-xs text-muted-foreground"><Clock className="mt-0.5 size-3 shrink-0" />Dependent rounds can make the full run take longer than 24 hours. Failed items pause for review.</p>

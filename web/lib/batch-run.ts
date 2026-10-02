@@ -9,7 +9,7 @@ export type BatchCapability = BatchRoute & {
 export type BatchSummary = {
   status: string; cancel_requested: boolean;
   counts: Record<string, number>;
-  items: { id: string; state: string; task: string; application_key?: string; label?: string }[];
+  items: { id: string; state: string; task: string; application_key?: string; label?: string; error?: string | null }[];
   jobs: { id: number; provider: string; model: string; state: string;
     provider_id: string | null; next_poll_at: string | null; error: string | null }[];
 };

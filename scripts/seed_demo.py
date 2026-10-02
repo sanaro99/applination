@@ -1,6 +1,6 @@
 """Restore the shared demo account to its committed fixture.
 
-Run nightly from cron (see docs/DEPLOY-SEATTLE.md). The demo is deliberately
+Run nightly from cron (see docs/DEPLOYMENT.md). The demo is deliberately
 fully writable so it behaves like real software rather than a screenshot; this
 is what undoes the consequences.
 

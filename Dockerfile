@@ -40,8 +40,8 @@ RUN python -m playwright install --with-deps chromium \
 
 COPY . .
 
-# These four are bind-mounted from /mnt/apps-pool/appconfig/applination on the
-# NAS. Create them so a first boot without mounts still starts cleanly.
+# Per-account state is bind-mounted at /app/data. Create the application
+# directories before starting the container.
 RUN mkdir -p /app/data /app/output /app/master_data
 
 # LF is enforced by .gitattributes; chmod because a Windows checkout carries no
@@ -49,7 +49,7 @@ RUN mkdir -p /app/data /app/output /app/master_data
 RUN chmod +x /app/scripts/docker-entrypoint.sh
 
 ENV PYTHON_ENV=production \
-    TZ=America/Los_Angeles \
+    TZ=UTC \
     PORT=8000
 
 EXPOSE 8000

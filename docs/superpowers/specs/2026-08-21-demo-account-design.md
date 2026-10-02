@@ -148,7 +148,7 @@ visitor lock every other visitor out of a shared account. The per-IP limits stay
 A shared, fully-writable account will be vandalised eventually — the re-seed is
 the entire mitigation, and it only works if something runs it. A nightly cron
 entry invoking `scripts/seed_demo.py --reset` is part of this change, documented
-in `docs/DEPLOY-SEATTLE.md` alongside the existing deployment steps.
+in `docs/DEPLOYMENT.md` alongside the existing deployment steps.
 
 ## Testing
 

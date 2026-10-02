@@ -118,4 +118,4 @@ You decide which jobs to pursue and what to submit. Check generated claims again
 
 ## Run it yourself or contribute
 
-See the [technical guide](docs/TECHNICAL.md) for architecture, local setup, configuration, AI providers, scheduling, batch processing, and implementation constraints. The [deployment guide](docs/DEPLOY-SEATTLE.md) describes the hosted installation.
+See the [technical guide](docs/TECHNICAL.md) for architecture, local setup, configuration, AI providers, scheduling, batch processing, and implementation constraints. The [deployment guide](docs/DEPLOYMENT.md) covers a self-hosted container installation.

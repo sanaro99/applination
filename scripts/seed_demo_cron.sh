@@ -6,11 +6,11 @@
 # container so it sees the same database and the same data/users volume the
 # server does.
 #
-# Install from cron on the NAS -- see docs/DEPLOY-SEATTLE.md.
+# Install from cron on the NAS -- see docs/DEPLOYMENT.md.
 set -euo pipefail
 
 # Resolved by name filter rather than a fixed container name, the same way
-# every other operational command in DEPLOY-SEATTLE.md does: TrueNAS's
+# every other operational command in DEPLOYMENT.md does: TrueNAS's
 # "Install via YAML" apps do not give the container a predictable name.
 CONTAINER="$(docker ps -qf name=applination-api | head -n1)"
 

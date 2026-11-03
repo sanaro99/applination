@@ -331,6 +331,15 @@ export type DeploymentVersion = {
 };
 
 export const api = {
+  listJobs: (params: import('./types').FeedQuery = {}) => {
+    const qs = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) if (value !== undefined) qs.set(key, String(value));
+    return http<{ items: import('./types').FeedJob[]; next_offset: number | null }>(`/api/jobs?${qs}`);
+  },
+  discoveryStatus: () => http<import('./types').DiscoveryStatus>('/api/jobs/discovery'),
+  setDiscovery: (enabled: boolean) => http<import('./types').DiscoveryStatus>('/api/jobs/discovery', { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+  updateJob: (id: number, body: { saved?: boolean; dismissed?: boolean; applied?: boolean }) => http<{ ok: boolean }>(`/api/jobs/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  generateJob: (id: number) => http<{ run_id: number }>(`/api/jobs/${id}/generate`, { method: 'POST' }),
   // `demo` tells the unauthenticated login page whether to offer the demo.
   health: () => http<{ ok: boolean; demo: boolean }>("/api/health"),
   version: () => http<DeploymentVersion>("/api/version"),

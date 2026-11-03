@@ -34,7 +34,7 @@ const STEPS: TourStepDef[] = [
     // No selector: the engine centers the card, which is what a welcome wants.
     title: "Welcome to Applination",
     content:
-      "This is an AI-assisted job application pipeline: it finds postings, scores them against your background, and writes a tailored resume and cover letter for the best matches. Here is the two-minute version.",
+      "This is an AI-assisted job application pipeline: it discovers postings continuously and writes documents for jobs you choose. Here is the two-minute version.",
   },
   {
     path: "/",
@@ -63,20 +63,20 @@ const STEPS: TourStepDef[] = [
     side: "right",
   },
   {
-    path: "/run",
-    selector: "#tour-run-config",
-    title: "One run does the whole loop",
+    path: "/jobs",
+    selector: "#tour-jobs-feed",
+    title: "Jobs keep arriving",
     content:
-      "A run fetches postings from eight public job boards, ranks every one of them against your resume, then tailors documents for the top matches and writes a dated Excel tracker.",
+      "Discovery checks job sources in the background and matches postings to your saved preferences without spending AI credits.",
     side: "bottom",
     scrollOffset: HEADER_CLEARANCE,
   },
   {
-    path: "/run",
-    selector: "#tour-run-start",
-    title: "Watch it happen live",
+    path: "/jobs",
+    selector: "#tour-jobs-actions",
+    title: "Choose what deserves your time",
     content:
-      "Starting a run streams every stage back to this page as it happens — fetching, ranking, then each document as it is generated. You can leave the page; it keeps going.",
+      "Save or dismiss jobs, mark applications you sent, and generate documents only for a job you choose. Document work continues while you browse.",
     side: "top",
     scrollOffset: HEADER_CLEARANCE,
   },
@@ -140,7 +140,7 @@ const STEPS: TourStepDef[] = [
 /** Sidebar nav group + label for each path, shown as a breadcrumb. */
 const PATH_LABELS: Record<string, string> = {
   "/": "Workspace · Dashboard",
-  "/run": "Workspace · Run",
+  "/jobs": "Workspace · Discover jobs",
   "/applications": "Workspace · Applications",
   "/coach": "Prepwork · Coach",
   "/config": "Setup · Config",

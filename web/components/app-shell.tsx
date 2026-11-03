@@ -19,7 +19,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PenLine,
-  Play,
+  Search,
   Puzzle,
   Route,
   Settings,
@@ -59,7 +59,7 @@ const navSections: NavSection[] = [
     label: "Workspace",
     items: [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/run", label: "Run pipeline", icon: Play },
+      { href: "/jobs", label: "Discover jobs", icon: Search },
       { href: "/applications", label: "Applications", icon: ListChecks },
       { href: "/single", label: "Single job", icon: FileText },
     ],
@@ -97,7 +97,7 @@ function titleCase(s: string) {
 
 const PAGE_TITLES: { match: (p: string) => boolean; title: string }[] = [
   { match: (p) => p === "/", title: "Dashboard" },
-  { match: (p) => p.startsWith("/run") && !p.startsWith("/runs"), title: "Run pipeline" },
+  { match: (p) => p.startsWith("/jobs"), title: "Discover jobs" },
   { match: (p) => p.startsWith("/applications"), title: "Applications" },
   { match: (p) => p.startsWith("/single"), title: "Single job" },
   { match: (p) => p.startsWith("/coach"), title: "Coach" },
@@ -217,7 +217,7 @@ function Sidebar() {
             Appli<span className="text-primary">nation</span>
           </span>
           <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-            job pipeline
+            job discovery
           </span>
         </div>
       </div>

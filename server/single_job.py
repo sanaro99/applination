@@ -302,23 +302,8 @@ def start_generation(body: GenerateBody, user_id: int) -> int:
     Shared by the manual single-job flow and the ranked-job 'rescue' flow.
     ``user_id`` stamps the Run and everything the worker writes under it.
     """
-    with session() as s:
-        run = Run(
-            user_id=user_id,
-            status=RunStatus.queued,
-            dry_run=False,
-            no_pdf=False,
-            no_cache=False,
-        )
-        s.add(run)
-        s.commit()
-        s.refresh(run)
-        run_id: int = run.id  # type: ignore[assignment]
-
-    threading.Thread(
-        target=_worker, args=(run_id, user_id, body), daemon=True
-    ).start()
-    return run_id
+    from .discovery_generation import enqueue_generation
+    return enqueue_generation(body, user_id)
 
 
 @router.post("/generate", response_model=GenerateOut)

@@ -104,7 +104,7 @@ export function ChapterIgnition({ onBack }: { onBack: () => void }) {
     resetJourney();
     void qc.invalidateQueries({ queryKey: ["onboarding-status"] });
     void qc.invalidateQueries({ queryKey: ["profile-strength"] });
-    router.replace("/");
+    router.replace("/jobs");
   };
 
   if (cascade) {
@@ -140,7 +140,7 @@ export function ChapterIgnition({ onBack }: { onBack: () => void }) {
           .catch(() => {});
       }}
       onSkip={finish}
-      footerNote="Skip this and everything you told me stays — you'll land on the dashboard with drafts intact."
+      footerNote="Skip this and everything you told me stays — you'll land on your jobs feed with drafts intact. Discovery uses no AI credits."
     >
       <p className="text-base text-muted-foreground">
         To put your name on a document I need your details. To actually write it,

@@ -9,6 +9,27 @@ export type RunStatus =
   | "error"
   | "cancelled";
 
+export interface FeedJob {
+  id: number; title: string; company: string; location: string; remote: boolean;
+  url: string; description: string; source: string; posted_at: string | null;
+  first_seen: string; last_checked: string | null; stale: boolean; active: boolean;
+  score: number; reason: string; saved: boolean; dismissed: boolean; applied: boolean;
+  application_id: number | null; can_generate: boolean;
+  generation: { state: string; run_id: number; error: string } | null;
+}
+
+export interface DiscoveryStatus {
+  enabled: boolean; administrator_enabled: boolean; interval_seconds: number;
+  last_matched: string | null; error: string;
+  sources: { kind: string; name: string; last_success: string | null; next_due: string;
+    error: string; enabled: boolean; fetching: boolean }[];
+}
+
+export interface FeedQuery {
+  q?: string; view?: 'recommended' | 'saved' | 'dismissed' | 'applied' | 'all';
+  sort?: 'match' | 'newest'; remote?: boolean; offset?: number;
+}
+
 export type ApplicationStatus =
   | "generated"
   | "applied"

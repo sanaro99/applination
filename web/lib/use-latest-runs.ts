@@ -1,11 +1,11 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
-import { api } from "@/lib/api";
-import type { Run } from "@/lib/types";
+import { api } from "./api";
+import type { Run } from "./types";
 
 /** A run is "active" while queued or running — poll fast in that window. */
 export function isRunActive(status: Run["status"]): boolean {
-  return status === "running" || status === "queued" || status === "waiting" || status === "batch_paused" || status === "partial_failed";
+  return status === "running" || status === "queued";
 }
 
 export function anyRunActive(runs: Run[] | undefined): boolean {

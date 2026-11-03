@@ -350,7 +350,13 @@ class ExtensionDocument(SQLModel, table=True):
 # adding a tenant table here is what wires it into both guards. A model absent
 # from this tuple is silently unprotected — which is why the lint test also
 # cross-checks it against every SQLModel table that has a `user_id` column.
+from .discovery_models import (DiscoverySubscription, DiscoveryState, JobMatch, GenerationRequest)
+
 TENANT_MODELS: tuple[type[SQLModel], ...] = (
+    DiscoverySubscription,
+    DiscoveryState,
+    JobMatch,
+    GenerationRequest,
     BatchRunState,
     BatchJob,
     Run,

@@ -97,16 +97,16 @@ export default function DashboardPage() {
               Find, tailor, and track every application.
             </h1>
             <p className="max-w-xl text-base text-muted-foreground">
-              Run the full pipeline, watch each stage stream live, and dive into
-              every generated resume + cover letter from one place.
+              Browse fresh matches, choose a job, and open
+              its tailored resume and cover letter from one place.
             </p>
             <div className="flex flex-wrap gap-3">
               <Link
-                href="/run"
+                href="/jobs"
                 className={buttonVariants({ size: "lg" })}
               >
                 <Play className="size-4" />
-                Start a run
+                Discover jobs
               </Link>
               <Link
                 href="/applications"
@@ -235,7 +235,7 @@ export default function DashboardPage() {
             ))}
             {(!runs || runs.length === 0) && (
               <p className="text-sm text-muted-foreground">
-                No runs yet. Start one from the Run page.
+                Your document-generation activity will appear here.
               </p>
             )}
           </CardContent>
@@ -262,7 +262,7 @@ export default function DashboardPage() {
             ))}
             {(!apps || apps.length === 0) && (
               <p className="text-sm text-muted-foreground">
-                No applications yet. Run the pipeline to generate some.
+                No applications yet. Discover jobs to generate some.
               </p>
             )}
           </CardContent>

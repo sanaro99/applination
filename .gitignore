@@ -41,6 +41,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+/tmp/
 
 # --- Node / web ------------------------------------------------------
 web/node_modules/

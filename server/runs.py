@@ -92,7 +92,7 @@ def _active_run_exists(user_id: int) -> bool:
         row = s.exec(
             owned(
                 select(Run).where(
-                    Run.status.in_([RunStatus.queued, RunStatus.running, RunStatus.waiting, RunStatus.batch_paused, RunStatus.partial_failed])
+                    Run.status.in_([RunStatus.queued, RunStatus.running])
                 ),
                 Run,
                 user_id,
@@ -501,7 +501,11 @@ def _link_ranked(
         s.commit()
 
 
-@router.post("", response_model=RunOut)
+@router.post("")
+def retired_start_run(user: User = Depends(require_user)):
+    raise HTTPException(410, 'Full pipeline runs have been retired. Open /jobs for continuous discovery and select a job to generate documents.')
+
+
 def start_run(
     body: StartRunBody | None = None,
     # Per-user as of PR 3: the run reads this account's own config, master data

@@ -56,8 +56,8 @@ export function CommandPalette() {
           <CommandItem onSelect={() => go("/")}>
             <LayoutDashboard className="size-4" /> Dashboard
           </CommandItem>
-          <CommandItem onSelect={() => go("/run")}>
-            <Play className="size-4" /> Run pipeline
+          <CommandItem onSelect={() => go("/jobs")}>
+            <Play className="size-4" /> Discover jobs
           </CommandItem>
           <CommandItem onSelect={() => go("/applications")}>
             <ListChecks className="size-4" /> Applications

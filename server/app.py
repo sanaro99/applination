@@ -13,6 +13,7 @@ from slowapi.errors import RateLimitExceeded
 from .applications import router as applications_router
 from .auth import require_user, resolve_user, router as auth_router
 from .db import init_db
+from .discovery_api import router as discovery_router
 from .limits import limiter
 from .events import bus
 from .user_paths import USERS_DIR
@@ -184,13 +185,16 @@ def create_app() -> FastAPI:
         init_db()
         bus.bind_loop(asyncio.get_running_loop())
         app.state._poller_task = asyncio.create_task(_scheduled_run_poller())
+        app.state._discovery_task = asyncio.create_task(_discovery_poller())
+        app.state._generation_task = asyncio.create_task(_generation_poller())
         log.info("server started; user data under %s", USERS_DIR)
 
     @app.on_event("shutdown")
     async def _on_shutdown() -> None:
-        task = getattr(app.state, "_poller_task", None)
-        if task is not None:
-            task.cancel()
+        for name in ('_poller_task', '_discovery_task', '_generation_task'):
+            task = getattr(app.state, name, None)
+            if task is not None:
+                task.cancel()
 
     @app.get("/api/health")
     def health() -> dict:
@@ -226,6 +230,7 @@ def create_app() -> FastAPI:
     # Layer 1 of 2: every other router is protected at the mount point, so a new
     # endpoint inside any of them is authenticated the moment it is written.
     protected = (
+        discovery_router,
         runs_router,
         batch_runs_router,
         applications_router,
@@ -265,15 +270,37 @@ async def _scheduled_run_poller() -> None:
 
     while True:
         try:
-            await asyncio.to_thread(dispatch_due_scheduled_runs)
-            from .batch_runs import dispatch_due_batches
-            await asyncio.to_thread(dispatch_due_batches)
+            # Full-pipeline scheduling/batch submission has been retired.
             await asyncio.to_thread(cleanup_stale_tasks)
         except asyncio.CancelledError:
             raise
         except Exception:
             log.exception("scheduled-run poller tick failed")
         await asyncio.sleep(60)
+
+
+async def _discovery_poller() -> None:
+    from .discovery_worker import discovery_tick
+    while True:
+        try:
+            await asyncio.to_thread(discovery_tick)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception('discovery tick failed')
+        await asyncio.sleep(60)
+
+
+async def _generation_poller() -> None:
+    from .discovery_generation import dispatch_generation_queue
+    while True:
+        try:
+            await asyncio.to_thread(dispatch_generation_queue)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception('document queue tick failed')
+        await asyncio.sleep(3)
 
 
 app = create_app()

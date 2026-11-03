@@ -80,7 +80,13 @@ def publish_source(source_id: int, token: str, result: FetchResult, *, now=None)
                     row.active = False
                     s.add(row)
         locked.last_success, locked.last_error, locked.failures = now, '', 0
-        locked.validators = json.dumps(result.validators)
+        validators = dict(result.validators)
+        if not valid_snapshot and not result.not_modified:
+            # A later 304 refreshes the entire known snapshot. A partially
+            # parsed response cannot establish that snapshot's validator.
+            validators.pop('etag', None)
+            validators.pop('modified', None)
+        locked.validators = json.dumps(validators)
         locked.next_due = now + timedelta(seconds=max(600, locked.interval_seconds))
         locked.lease_token, locked.lease_until = '', None
         s.add(locked)

@@ -89,8 +89,37 @@ sources:
   himalayas:
     enabled: true
 
+  ashby:
+    enabled: true
+    companies: [notion, ramp, openai, linear, cohere, replit, supabase, plaid]
+
+  github_lists:
+    enabled: true
+    repositories:
+      - repo: SimplifyJobs/New-Grad-Positions
+        branch: dev
+
+  smartrecruiters:
+    enabled: false
+    companies: []
+
+  workday:
+    enabled: false
+    # Enable a board only after verifying its endpoint and result completeness.
+    boards: [] # [{slug: company, host: company.wd1.myworkdayjobs.com, site: External}]
+
 # =====================================================================
-# LLM providers — primary + fallbacks.
+# Continuous discovery has no AI calls. Credentialed aggregators are opt-in;
+# their requests (including pages/retries) share one UTC daily budget per user.
+# Their cadence is six hours, rather than the public-board ten-minute target.
+# Change these settings in Config -> Advanced: YAML.
+# =====================================================================
+discovery:
+  aggregators_enabled: false
+  aggregator_daily_budget: 10
+
+# =====================================================================
+# LLM providers — primary + fallbacks (for explicitly requested documents).
 # Fill in the API key for at least ONE provider. The onboarding flow can
 # do this for you and test connectivity.
 # =====================================================================

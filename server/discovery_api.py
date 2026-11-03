@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import case, cast, String, func
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
 from .auth import require_user
@@ -22,10 +23,20 @@ router = APIRouter(prefix='/api/jobs', tags=['jobs'])
 
 def _state(user_id):
     with session() as s:
+        s.exec(select(User).where(User.id == user_id).with_for_update()).one()
         row = find_owned(s, DiscoveryState, user_id, user_id)
         if row is None:
             row = DiscoveryState(user_id=user_id)
-            s.add(row); s.commit(); s.refresh(row)
+            s.add(row)
+            try:
+                s.commit(); s.refresh(row)
+            except IntegrityError:
+                # SQLite has no row-level FOR UPDATE; another first-page read
+                # may have won initialization while this request was waiting.
+                s.rollback()
+                row = find_owned(s, DiscoveryState, user_id, user_id)
+                if row is None:
+                    raise
         return row
 
 
@@ -58,12 +69,14 @@ def set_discovery(body: DiscoverySettings, user: User = Depends(require_user)):
 
 def _out(match, posting, source, request=None):
     now = utc_now()
-    checked = source.last_success
-    stale = checked is None or checked.replace(tzinfo=now.tzinfo) < now - timedelta(seconds=max(3600, source.interval_seconds * 3)) or bool(source.last_error)
+    checked = posting.last_seen
+    cutoff = now - timedelta(seconds=max(3600, source.interval_seconds * 3))
+    stale = source.last_success is None or checked.replace(tzinfo=now.tzinfo) < cutoff or bool(source.last_error)
     return dict(id=match.id, title=posting.title, company=posting.company, location=posting.location,
                 remote=posting.remote, url=posting.url, description=posting.description, source=source.kind,
                 posted_at=posting.posted_at, first_seen=posting.first_seen, last_checked=checked,
                 stale=stale, active=posting.active, score=match.score, reason=match.reason,
+                scoring='rules' if match.fingerprint or source.kind != 'history' else 'historical',
                 saved=match.saved, dismissed=match.dismissed, applied=match.applied,
                 application_id=match.application_id, can_generate=len(posting.description.strip()) >= 100,
                 generation=dict(state=request.state, run_id=request.run_id, error=request.error) if request else None)

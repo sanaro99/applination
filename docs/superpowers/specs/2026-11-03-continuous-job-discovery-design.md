@@ -1,6 +1,6 @@
 # Continuous job discovery for Applination
 
-Status: proposed for user approval; product code has not changed.
+Status: approved by user on November 3, 2026; implementation on PR #94.
 
 ## Intent and confirmed direction
 

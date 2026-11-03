@@ -55,3 +55,16 @@ def test_workday_page_cap_is_incomplete_not_an_empty_authoritative_snapshot():
                           request=lambda *a, **k: Response({'total': 10000, 'jobPostings': [
                               {'title': 'Engineer', 'externalPath': f'/job/{i}', 'bulletFields': [str(i)]} for i in range(20)]}))
     assert result.jobs and not result.complete
+
+
+def test_malformed_board_and_unrecognized_community_format_are_not_authoritative():
+    from src.discovery.sources import fetch_source
+    with pytest.raises(ValueError):
+        fetch_source('ashby', {'slug': 'acme'}, {}, request=lambda *a, **k: Response({}))
+    with pytest.raises(ValueError):
+        fetch_source('github', {'repo': 'acme/jobs'}, {}, request=lambda *a, **k: Response(text='Temporarily unavailable'))
+    result = fetch_source('ashby', {'slug': 'acme'}, {}, request=lambda *a, **k: Response({'jobs': [
+        {'id': '1', 'title': 'Engineer', 'jobUrl': 'https://a/1'}, {'id': '2', 'title': 'Missing URL'}]}))
+    assert not result.complete
+    empty = fetch_source('github', {'repo': 'acme/jobs'}, {}, request=lambda *a, **k: Response(text='<table><tr><td>Format changed</td></tr></table>'))
+    assert not empty.complete and not empty.validators

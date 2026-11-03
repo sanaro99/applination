@@ -75,3 +75,39 @@ def test_304_keeps_snapshot_and_does_not_erase_description(engine):
         row = s.exec(select(DiscoveredJob)).one()
         assert row.description == 'Full description' and row.active
         assert row.last_seen.replace(tzinfo=later.tzinfo) == later
+
+
+def test_complete_snapshot_closes_missing_jobs_but_empty_details_keep_full_text(engine):
+    from server.discovery_models import DiscoverySource, DiscoveredJob
+    from server.discovery_store import claim_source, publish_source
+    from src.discovery.sources import FetchResult
+    with db.session() as s:
+        source = DiscoverySource(key='board', kind='ashby')
+        s.add(source); s.commit(); s.refresh(source); sid = source.id
+    now = utc_now()
+    a = Job('ashby', 'Acme', 'Engineer', 'US', 'https://a/1', 'Full description', external_id='1')
+    b = Job('ashby', 'Acme', 'Engineer', 'US', 'https://a/2', 'Another description', external_id='2')
+    publish_source(sid, claim_source(sid, now=now), FetchResult([a, b], complete=True), now=now)
+    a.description = ''
+    later = now + timedelta(minutes=11)
+    publish_source(sid, claim_source(sid, now=later), FetchResult([a], complete=True), now=later)
+    with db.session() as s:
+        rows = {r.external_id: r for r in s.exec(select(DiscoveredJob)).all()}
+        assert rows['1'].description == 'Full description'
+        assert not rows['2'].active
+
+
+def test_partial_snapshot_cannot_seed_a_304_that_refreshes_unseen_jobs(engine):
+    import json
+    from server.discovery_models import DiscoverySource
+    from server.discovery_store import claim_source, publish_source
+    from src.discovery.sources import FetchResult
+    with db.session() as s:
+        source = DiscoverySource(key='partial', kind='ashby')
+        s.add(source); s.commit(); s.refresh(source); sid = source.id
+    publish_source(sid, claim_source(sid), FetchResult([], complete=False,
+        validators={'etag': 'incomplete', 'modified': 'today', 'details': {'kept': {}}}))
+    with db.session() as s:
+        validators = json.loads(s.get(DiscoverySource, sid).validators)
+        assert 'etag' not in validators and 'modified' not in validators
+        assert 'details' in validators

@@ -115,7 +115,7 @@ class GenerateBody(BaseModel):
     ranked_id: int | None = None
 
 
-def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
+def _worker(run_id: int, user_id: int, payload: GenerateBody, *, generation_claim: tuple[int, str] | None = None) -> None:
     """Background thread: process a single job and stream events."""
     from src.main import setup_logging, process_job
     from src.pipeline import _EventLogHandler
@@ -127,10 +127,17 @@ def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
         load_example_letters,
         load_guidelines,
     )
+    from .discovery_generation import claim_is_current, check_claim, fence_provider, GenerationLeaseLost
+
+    def guard(s):
+        if generation_claim and not claim_is_current(s, *generation_claim):
+            raise GenerationLeaseLost('Generation ownership expired')
 
     pipeline_log = setup_logging()
 
     def emit(evt: dict) -> None:
+        if generation_claim:
+            check_claim(*generation_claim)
         bus.publish_threadsafe(run_id, evt)
 
     # Forward all INFO+ log records as SSE log events (same pattern as
@@ -139,12 +146,15 @@ def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
     evt_handler = _EventLogHandler(emit)
     evt_handler.setLevel(logging.INFO)
     evt_handler.setFormatter(logging.Formatter("%(message)s"))
+    worker_thread = threading.get_ident()
+    evt_handler.addFilter(lambda record: record.thread == worker_thread)
     root_log = logging.getLogger()
     root_log.setLevel(logging.INFO)
     root_log.addHandler(evt_handler)
 
     try:
         with session() as s:
+            guard(s)
             # noscope: background thread acting on the run it was spawned for.
             run = s.get(Run, run_id)
             if run is None:
@@ -169,6 +179,9 @@ def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
             all_guidelines = load_guidelines(paths.guidelines_dir)
 
             task_chains = get_task_chains(cfg["llm"], user_id=user_id)
+            if generation_claim:
+                task_chains = {name: [fence_provider(provider, *generation_claim) for provider in chain]
+                               for name, chain in task_chains.items()}
             tailor = Tailor(task_chains=task_chains,
                             critique_cover_letters=cfg["llm"].get(
                                 "critique_cover_letters", False))
@@ -229,6 +242,7 @@ def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
             # Persist Application row
             if not result.get("error"):
                 with session() as s:
+                    guard(s)
                     app = Application(
                         run_id=run_id,
                         user_id=user_id,
@@ -252,6 +266,7 @@ def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
                     s.refresh(app)
                     # Link the originating ranked-pool row, if this was a rescue.
                     if payload.ranked_id is not None:
+                        guard(s)
                         rj = find_owned(s, RankedJob, payload.ranked_id, user_id)
                         if rj is not None:
                             rj.application_id = app.id
@@ -259,6 +274,7 @@ def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
                             s.commit()
 
             with session() as s:
+                guard(s)
                 # noscope: background thread finalising its own run.
                 run = s.get(Run, run_id)
                 if run:
@@ -276,9 +292,12 @@ def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
                 "day_root": str(day_root.as_posix()),
                 "dry_run": False,
             })
+        except GenerationLeaseLost:
+            return
         except Exception as e:
             log.exception("single-job failed: %s", e)
             with session() as s:
+                guard(s)
                 # noscope: background thread recording failure of its own run.
                 run = s.get(Run, run_id)
                 if run:
@@ -288,6 +307,9 @@ def _worker(run_id: int, user_id: int, payload: GenerateBody) -> None:
                     s.add(run)
                     s.commit()
             bus.publish_threadsafe(run_id, {"type": "error", "msg": str(e)})
+    except GenerationLeaseLost:
+        # Recovery/retry owns the request now. Never overwrite its run or output.
+        return
     finally:
         root_log.removeHandler(evt_handler)
 

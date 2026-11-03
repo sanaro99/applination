@@ -43,6 +43,8 @@ def fetch_source(kind: str, params: dict, validators: dict | None = None, *, req
     validators = validators or {}
     name = params.get('name') or params.get('slug', '').replace('-', ' ').title()
     jobs = []
+    detail_state = dict(validators.get('details') or {})
+    detail_calls = 0
 
     def get(url, *, conditional=False, method='GET', **kwargs):
         headers = {'User-Agent': 'Applination/0.1 (job discovery)', 'Accept': 'application/json'}
@@ -55,6 +57,26 @@ def fetch_source(kind: str, params: dict, validators: dict | None = None, *, req
         response = request(method, url, headers=headers, timeout=20, **kwargs)
         response.raise_for_status()
         return response
+
+    def detail(job, url, parse):
+        nonlocal detail_calls
+        sig = digest([job.title, job.location, job.url])
+        cached = detail_state.get(job.external_id) or {}
+        checked = _date(cached.get('checked'))
+        fresh = checked and (datetime.now(timezone.utc) - checked.replace(tzinfo=timezone.utc)).total_seconds() < 86400
+        if detail_calls >= 10 or (fresh and cached.get('hash') == sig):
+            return
+        detail_calls += 1
+        try:
+            data = get(url).json()
+            text = parse(data)
+            if text:
+                job.description = text
+                detail_state[job.external_id] = {'checked': datetime.now(timezone.utc).isoformat(), 'hash': sig}
+        except (requests.RequestException, ValueError, KeyError):
+            # List metadata is still useful. Existing full descriptions survive
+            # publication; failed detail calls are retried on a later tick.
+            return
 
     if kind in {'ashby', 'greenhouse', 'lever', 'remotive', 'github'}:
         if kind == 'github':
@@ -75,9 +97,16 @@ def fetch_source(kind: str, params: dict, validators: dict | None = None, *, req
             return FetchResult(not_modified=True, validators=validators)
         meta = {k: v for k, v in {'etag': r.headers.get('ETag'), 'modified': r.headers.get('Last-Modified')}.items() if v}
         if kind == 'github':
-            return FetchResult(parse_github_list(r.text, params['repo']), complete=True, validators=meta)
+            if not re.search(r'<t[dh]\b|\|\s*(?:company|name)\s*\|', r.text, re.I):
+                raise ValueError('Unrecognized community list format')
+            # Community README formats can change independently of their HTTP
+            # status. An empty parse cannot establish that every job closed.
+            parsed = parse_github_list(r.text, params['repo'])
+            return FetchResult(parsed, complete=bool(parsed), validators=meta if parsed else {})
         data = r.json()
-        items = data if kind == 'lever' else data.get('jobs', [])
+        if kind != 'lever' and (not isinstance(data, dict) or 'jobs' not in data):
+            raise ValueError('Missing board postings field')
+        items = data if kind == 'lever' else data['jobs']
         if not isinstance(items, list):
             raise ValueError('Unexpected source response')
         for item in items:
@@ -104,12 +133,14 @@ def fetch_source(kind: str, params: dict, validators: dict | None = None, *, req
             jobs.append(Job(f'{kind}:{params.get("slug", "")}', item.get('company_name') or name, title, str(loc), url,
                             desc, remote=bool(item.get('isRemote')) or kind == 'remotive' or 'remote' in str(loc).lower(),
                             external_id=str(item.get('id') or canonical_url(url)), employment_type=typ or '', posted_at=_date(posted)))
-        return FetchResult(jobs, complete=True, validators=meta)
+        return FetchResult(jobs, complete=len(jobs) == len(items), validators=meta)
 
     if kind == 'themuse':
         complete = False
         for page in range(5):
             data = get('https://www.themuse.com/api/public/jobs', params={'page': page, 'descending': 'true'}).json()
+            if not isinstance(data.get('results'), list):
+                raise ValueError('Missing Muse result list')
             for item in data.get('results', []):
                 jobs.append(Job('themuse', (item.get('company') or {}).get('name', ''), item.get('name', ''),
                     ', '.join(x.get('name', '') for x in item.get('locations', [])), (item.get('refs') or {}).get('landing_page', ''),
@@ -123,6 +154,8 @@ def fetch_source(kind: str, params: dict, validators: dict | None = None, *, req
         # Search windows are not authoritative full-board snapshots.
         for page in range(1, 4):
             data = get('https://himalayas.app/jobs/api/search', params={'q': params['query'], 'country': params.get('country', 'US'), 'sort': 'recent', 'page': page}).json()
+            if not isinstance(data.get('jobs'), list):
+                raise ValueError('Missing Himalayas job list')
             items = data.get('jobs', [])
             for item in items:
                 locs = item.get('locationRestrictions') or []
@@ -141,6 +174,8 @@ def fetch_source(kind: str, params: dict, validators: dict | None = None, *, req
         complete = False
         for offset in range(0, 100, 20):
             data = get(f'https://{host}/wday/cxs/{slug}/{site}/jobs', method='POST', json={'appliedFacets': {}, 'limit': 20, 'offset': offset, 'searchText': ''}).json()
+            if not isinstance(data.get('jobPostings'), list):
+                raise ValueError('Missing Workday posting list')
             items = data.get('jobPostings', [])
             for item in items:
                 path = item.get('externalPath', '')
@@ -148,26 +183,32 @@ def fetch_source(kind: str, params: dict, validators: dict | None = None, *, req
                 jobs.append(Job(f'workday:{slug}', name, item.get('title', ''), loc,
                     f'https://{host}/en-US/{site}{path}', _text(item.get('description')),
                     external_id=str(item.get('jobReqId') or (item.get('bulletFields') or [path])[0])))
+                detail(jobs[-1], f'https://{host}/wday/cxs/{slug}/{site}{path}',
+                       lambda data: _text((data.get('jobPostingInfo') or {}).get('jobDescription')))
             if len(items) < 20 or (data.get('total') and offset + len(items) >= data['total']):
                 complete = True
                 break
-        return FetchResult(jobs, complete=complete)
+        return FetchResult(jobs, complete=complete, validators={'details': detail_state})
 
     if kind == 'smartrecruiters':
         slug = _slug(params['slug'])
         complete = False
         for offset in range(0, 500, 100):
             data = get(f'https://api.smartrecruiters.com/v1/companies/{slug}/postings', params={'limit': 100, 'offset': offset}).json()
+            if not isinstance(data.get('content'), list):
+                raise ValueError('Missing SmartRecruiters posting list')
             items = data.get('content', [])
             for item in items:
                 loc = item.get('location') or {}
                 jobs.append(Job(f'smartrecruiters:{slug}', name, item.get('name', ''),
                     ', '.join(str(loc.get(k) or '') for k in ('city', 'country')).strip(', '),
                     f'https://jobs.smartrecruiters.com/{slug}/{item["id"]}', '', external_id=str(item['id']), remote=bool(loc.get('remote'))))
+                detail(jobs[-1], f'https://api.smartrecruiters.com/v1/companies/{slug}/postings/{item["id"]}',
+                       lambda data: '\n'.join(_text(section.get('text')) for section in (data.get('jobAd', {}).get('sections') or {}).values() if isinstance(section, dict)))
             if not items or offset + len(items) >= data.get('totalFound', 0):
                 complete = True
                 break
-        return FetchResult(jobs, complete=complete)
+        return FetchResult(jobs, complete=complete, validators={'details': detail_state})
     if kind in {'jsearch', 'adzuna'}:
         for page in range(1, 4):
             if kind == 'jsearch':

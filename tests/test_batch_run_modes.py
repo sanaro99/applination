@@ -24,9 +24,9 @@ def env(tmp_path, monkeypatch):
         return run.id, u.id
 
 
-def test_waiting_run_reserves_owner_but_not_global_worker_slot(env):
+def test_waiting_run_does_not_reserve_owner_or_global_worker_slot(env):
     from server.runs import _active_run_exists, _active_run_count
-    assert _active_run_exists(env[1])
+    assert not _active_run_exists(env[1])
     assert _active_run_count() == 0
 
 

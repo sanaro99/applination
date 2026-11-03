@@ -13,7 +13,7 @@ export interface FeedJob {
   id: number; title: string; company: string; location: string; remote: boolean;
   url: string; description: string; source: string; posted_at: string | null;
   first_seen: string; last_checked: string | null; stale: boolean; active: boolean;
-  score: number; reason: string; saved: boolean; dismissed: boolean; applied: boolean;
+  score: number; reason: string; scoring: 'rules' | 'historical'; saved: boolean; dismissed: boolean; applied: boolean;
   application_id: number | null; can_generate: boolean;
   generation: { state: string; run_id: number; error: string } | null;
 }

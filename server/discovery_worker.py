@@ -78,6 +78,7 @@ def source_specs(user_id: int, cfg: dict):
 def sync_user(user_id: int, cfg: dict) -> None:
     specs = list(source_specs(user_id, cfg))
     with session() as s:
+        s.exec(select(User).where(User.id == user_id).with_for_update()).one()
         state = find_owned(s, DiscoveryState, user_id, user_id)
         if state is None:
             s.add(DiscoveryState(user_id=user_id))
@@ -112,6 +113,7 @@ def backfill_history(user_id: int) -> None:
     """Idempotent additive import; no network, AI, deletions or run rewrites."""
     key = f'user:{user_id}:history'
     with session() as s:
+        s.exec(select(User).where(User.id == user_id).with_for_update()).one()
         source = s.exec(select(DiscoverySource).where(DiscoverySource.key == key)).first()
         if source is not None:
             return
@@ -131,7 +133,8 @@ def backfill_history(user_id: int) -> None:
                 title=old.title, location=old.location, url=old.url, description=old.description,
                 remote=old.remote, first_seen=old.created_at, last_seen=old.created_at)
             s.add(posting); s.flush()
-            match = JobMatch(user_id=user_id, posting_id=posting.id, dismissed=old.dismissed, application_id=old.application_id)
+            match = JobMatch(user_id=user_id, posting_id=posting.id, dismissed=old.dismissed,
+                             score=old.match_score, reason=old.match_reason, application_id=old.application_id)
             s.add(match)
             seen[ext] = match
         s.commit()
@@ -144,6 +147,8 @@ def rematch_user(user_id: int, cfg: dict | None = None, master: dict | None = No
         master = load_master(path) if path.exists() else {}
     profile_hash = digest([cfg.get('search'), master, 'rules-v1'])
     with session() as s:
+        # Serialize alias inheritance with user actions and generation reservations.
+        s.exec(select(User).where(User.id == user_id).with_for_update()).one()
         state = find_owned(s, DiscoveryState, user_id, user_id)
         if state is None or not state.enabled:
             return
@@ -151,16 +156,33 @@ def rematch_user(user_id: int, cfg: dict | None = None, master: dict | None = No
         ids = [x.source_id for x in sources]
         postings = s.exec(select(DiscoveredJob).where(DiscoveredJob.source_id.in_(ids)).order_by(DiscoveredJob.last_seen.desc()).limit(10000)).all()
         matches = {x.posting_id: x for x in s.exec(owned(select(JobMatch), JobMatch, user_id)).all()}
+        alias_rows = s.exec(owned(select(JobMatch, DiscoveredJob.url).join(DiscoveredJob,
+            DiscoveredJob.id == JobMatch.posting_id), JobMatch, user_id)).all()
+        actions = {}
+        for match, url in alias_rows:
+            if not url:
+                continue
+            key = canonical_url(url)
+            group = actions.setdefault(key, {'saved': False, 'dismissed': False, 'applied': False, 'application_id': None})
+            for flag in ('saved', 'dismissed', 'applied'):
+                group[flag] = group[flag] or getattr(match, flag)
+            group['application_id'] = group['application_id'] or match.application_id
         subscribed_postings = {p.id for p in postings}
         for mid, match in matches.items():
             if mid not in subscribed_postings:
                 match.eligible = False
+                match.fingerprint = ''  # membership changed; re-entry must rescore
                 s.add(match)
         apps = s.exec(owned(select(Application), Application, user_id)).all()
         by_url = {canonical_url(x.url): x for x in apps if x.url}
         legacy = {dedupe_key(x.company, x.title): x for x in apps if not x.url}
         for posting in postings:
             match = matches.get(posting.id)
+            inherited = actions.get(canonical_url(posting.url), {}) if posting.url else {}
+            if match:
+                for flag, value in inherited.items():
+                    setattr(match, flag, value)
+                s.add(match)
             sig = digest([profile_hash, posting.content_hash, posting.active])
             if match and match.fingerprint == sig:
                 # Application status is independent from matching cache.
@@ -171,6 +193,8 @@ def rematch_user(user_id: int, cfg: dict | None = None, master: dict | None = No
                     s.add(match)
                 continue
             match = match or JobMatch(user_id=user_id, posting_id=posting.id)
+            for flag, value in inherited.items():
+                setattr(match, flag, value)
             search = cfg.get('search') or {}
             result = score_job(_as_job(posting), search, master) if posting.active else None
             if result and result[0] < int(search.get('min_match_score', 0)):
@@ -188,12 +212,23 @@ def rematch_user(user_id: int, cfg: dict | None = None, master: dict | None = No
         s.add(state); s.commit()
 
 
+def has_live_subscribers(source_id: int) -> bool:
+    with session() as s:
+        # noscope: public-board work may continue for any active subscriber.
+        row = s.exec(select(DiscoverySubscription).join(DiscoveryState,
+            DiscoveryState.user_id == DiscoverySubscription.user_id).join(User, User.id == DiscoveryState.user_id)
+            .where(DiscoverySubscription.source_id == source_id, DiscoveryState.enabled == True, User.disabled == False)).first()
+        return row is not None
+
+
 class SourceHTTP:
     def __init__(self, source_id, token, params, kind):
         self.source_id, self.token, self.params, self.kind, self.calls = source_id, token, params, kind, 0
 
     def __call__(self, method, url, **kwargs):
         from urllib.parse import urlsplit
+        if not has_live_subscribers(self.source_id):
+            raise RuntimeError('No enabled subscriber for source')
         self.calls += 1
         if self.calls > 30 or not renew_source(self.source_id, self.token):
             raise RuntimeError('Source request limit or lease expired')
@@ -225,6 +260,8 @@ class SourceHTTP:
             _host_next[host] = time.monotonic() + wait + 0.25
         if wait:
             time.sleep(min(wait, 10))
+        if not has_live_subscribers(self.source_id):
+            raise RuntimeError('No enabled subscriber for source')
         response = requests.request(method, url, allow_redirects=False, **kwargs)
         if 300 <= response.status_code < 400 and response.status_code != 304:
             raise RuntimeError('Source redirect requires adapter review')
@@ -277,6 +314,8 @@ def discovery_tick() -> None:
             DiscoverySource.next_due <= utc_now(), or_(DiscoverySource.lease_until == None, DiscoverySource.lease_until < utc_now()))
             .order_by(DiscoverySource.next_due, DiscoverySource.id).limit(64)).all()
     def poll(source):
+        if not discovery_enabled() or not has_live_subscribers(source.id):
+            return
         token = claim_source(source.id)
         if token:
             poll_source(source.id, token)

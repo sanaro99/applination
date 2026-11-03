@@ -95,3 +95,42 @@ def test_same_direct_url_across_sources_shares_actions_and_generation(clients):
     assert a.post(f'/api/jobs/{first}/generate').json()['run_id'] == a.post(f'/api/jobs/{second}/generate').json()['run_id']
     a.patch(f'/api/jobs/{second}', json={'dismissed': True})
     assert not a.get('/api/jobs').json()['items']
+
+
+def test_partial_source_success_does_not_refresh_unseen_posting(clients):
+    from datetime import timedelta
+    from server.time_utils import utc_now
+    from server.discovery_models import DiscoverySource, DiscoveredJob
+    a, _, uid, _ = clients
+    seed(uid)
+    old_date = utc_now() - timedelta(days=90)
+    with db.session() as s:
+        posting = s.exec(select(DiscoveredJob)).one()
+        posting.last_seen = old_date
+        source = s.get(DiscoverySource, posting.source_id)
+        source.last_success = utc_now()
+        s.add(posting); s.add(source); s.commit()
+    job = a.get('/api/jobs').json()['items'][0]
+    assert job['stale']
+    assert job['last_checked'].startswith(old_date.date().isoformat())
+
+
+def test_parallel_first_feed_reads_create_one_discovery_state(clients, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from server import discovery_api
+    from server.discovery_models import DiscoveryState
+    _, _, uid, _ = clients
+    barrier = threading.Barrier(2)
+    original = discovery_api.find_owned
+    def find(*args, **kwargs):
+        row = original(*args, **kwargs)
+        if args[1] is DiscoveryState and row is None:
+            barrier.wait(5)
+        return row
+    monkeypatch.setattr(discovery_api, 'find_owned', find)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        states = list(pool.map(discovery_api._state, [uid, uid]))
+    assert all(row.user_id == uid for row in states)
+    with db.session() as s:
+        assert len(s.exec(select(DiscoveryState)).all()) == 1

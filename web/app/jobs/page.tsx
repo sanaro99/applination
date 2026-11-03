@@ -40,7 +40,7 @@ function JobCard({ job }: { job: FeedJob }) {
       </div>
       <Button size="icon" variant={job.saved ? "secondary" : "ghost"} disabled={update.isPending} aria-label={`${job.saved ? "Unsave" : "Save"} ${job.title} at ${job.company}`} onClick={() => update.mutate({ saved: !job.saved })}><Bookmark className={cn("size-4", job.saved && "fill-current")} /></Button>
     </div>
-    <div className="my-4 rounded-lg bg-muted/40 px-3 py-2.5"><p className="text-sm leading-relaxed">{job.reason || "Matched to your saved search."}</p><p className="mt-1 text-xs text-muted-foreground">Rules match index {job.score} / 100</p></div>
+    <div className="my-4 rounded-lg bg-muted/40 px-3 py-2.5"><p className="text-sm leading-relaxed">{job.reason || "Matched to your saved search."}</p><p className="mt-1 text-xs text-muted-foreground">{job.scoring === 'historical' ? 'Historical fit index' : 'Rules match index'} {job.score} / 100</p></div>
     {job.description && <details className="mb-4 text-sm"><summary className="w-fit cursor-pointer text-muted-foreground hover:text-foreground">Read job description</summary><p className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap leading-relaxed">{job.description}</p></details>}
     <p className="mb-4 text-xs text-muted-foreground">{job.posted_at ? `Posted ${date(job.posted_at)}` : `First seen ${date(job.first_seen)}`} · Last checked {date(job.last_checked)}</p>
     {job.generation?.error && <p role="alert" className="mb-3 text-sm text-destructive">{job.generation.error}</p>}

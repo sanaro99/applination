@@ -1,4 +1,45 @@
 import pytest
+
+
+@pytest.mark.parametrize('search', [
+    {'job_type': 'full_time', 'keywords': ['software engineer intern']},
+    {'job_type': 'auto', 'keywords': ['software engineer new grad']},
+])
+def test_full_time_targets_skip_internship_only_subscription(search):
+    from server.discovery_worker import source_specs
+    cfg = {'search': search, 'sources': {'simplify_github': {'enabled': True}}}
+    repos = [params['repo'] for kind, params, _ in source_specs(1, cfg) if kind == 'github']
+    assert 'SimplifyJobs/Summer2026-Internships' not in repos
+    assert 'SimplifyJobs/New-Grad-Positions' in repos
+
+
+def test_switching_to_full_time_retires_old_internship_matches(setup):
+    from server.discovery_worker import sync_user, rematch_user
+    from server.discovery_models import DiscoverySource, JobMatch
+    from server.discovery_store import claim_source, publish_source
+    from src.discovery.sources import FetchResult
+    cfg = {'search': {'job_type': 'internship', 'keywords': ['software engineer']},
+           'sources': {'ashby': {'enabled': False}, 'simplify_github': {'enabled': True}}}
+    sync_user(setup, cfg)
+    with db.session() as s:
+        source = next(x for x in s.exec(select(DiscoverySource)).all() if 'Summer2026' in x.params)
+        sid = source.id
+    job = Job('github', 'Acme', 'Software Engineer', 'US', 'https://a/intern', '',
+              external_id='1', employment_type='internship')
+    publish_source(sid, claim_source(sid), FetchResult([job], complete=True))
+    rematch_user(setup, cfg, {})
+    with db.session() as s:
+        match = s.exec(select(JobMatch)).one()
+        assert match.eligible
+        match.saved = True
+        s.add(match); s.commit()
+    cfg['search']['job_type'] = 'full_time'
+    sync_user(setup, cfg)
+    rematch_user(setup, cfg, {})
+    with db.session() as s:
+        match = s.exec(select(JobMatch)).one()
+        assert not match.eligible
+        assert match.saved
 from sqlmodel import select
 
 import server.db as db

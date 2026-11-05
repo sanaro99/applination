@@ -13,6 +13,7 @@ import logging
 from typing import Any, Callable
 
 from .base import LLMProvider
+from ..ranking import ranking_method
 
 LOG = logging.getLogger(__name__)
 
@@ -284,14 +285,18 @@ def get_task_chains(llm_cfg: dict, *, user_id: int | None = None) -> dict[str, l
     ``llm.primary`` / ``llm.fallbacks`` values.
 
     Returns a dict keyed by task name, each value is a non-empty list of
-    LLMProvider instances in priority order.
+    LLMProvider instances in priority order. Local BM25 ranking is omitted
+    because it does not use a provider.
     """
     global_primary = llm_cfg.get("primary", "claude")
     global_fallbacks = llm_cfg.get("fallbacks", []) or []
     tasks_cfg = llm_cfg.get("tasks", {}) or {}
 
+    method = ranking_method(llm_cfg)
     result: dict[str, list[LLMProvider]] = {}
     for task in _TASK_NAMES:
+        if task == "ranking" and method == "bm25":
+            continue
         task_cfg = tasks_cfg.get(task, {}) or {}
         primary = task_cfg.get("primary", global_primary)
         fallbacks = task_cfg.get("fallbacks", global_fallbacks) or []

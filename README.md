@@ -110,6 +110,17 @@ You bring your own provider credentials. Supported options include OpenAI, Anthr
 
 For bulk generation, **Lower cost** mode offers discounted processing with supported OpenAI, Claude, or Gemini batch models. It trades speed for cost: each round can take up to 24 hours, and a full run may need multiple rounds. The app shows supported models and available estimates. Failed items pause for review so you can choose how to continue. Use immediate mode for work you need sooner.
 
+### Legacy CLI ranking
+
+The legacy CLI supports optional local BM25 ranking via
+`llm.tasks.ranking.method: bm25` (also selectable in **Workflows → Job ranking**).
+It matches full job descriptions against your resume and search keywords without
+ranking model calls; a local-ranking dry run needs no AI credentials. Document
+generation still uses your configured providers. This setting applies to the
+legacy CLI pipeline; the continuous discovery feed uses its own deterministic
+matching rules. Local scores reflect word overlap and may need a different
+minimum match score than LLM scoring.
+
 ### Your data and your review
 
 Each account has its own profile, settings, and generated documents. Provider credentials are encrypted at rest. Cloud AI tasks send the context needed for that task to the provider you select; Ollama tasks are handled by your paired local worker. Gmail message classification runs in your browser.

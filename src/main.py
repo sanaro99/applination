@@ -24,6 +24,7 @@ from .scrapers import remotive, themuse, greenhouse, adzuna, jsearch, simplify_g
 from .providers import get_task_chains
 from .tailor import Tailor
 from .profile import derive_profile, role_is_above_level
+from .ranking import ranking_method, rank_jobs as rank_jobs_local
 from .job_cache import JobCache
 from .reference_loader import (
     load_stories, match_stories,
@@ -233,6 +234,7 @@ def _categorize_job(job: Job) -> str:
 def rank_and_filter(jobs: list[Job], cfg: dict, tailor: Tailor,
                     user_profile: str, log,
                     *, candidate_profile: dict | None = None,
+                    master_resume: dict | None = None,
                     excluded_keys: set[str] | None = None) -> list[Job]:
     if not jobs:
         return []
@@ -254,7 +256,15 @@ def rank_and_filter(jobs: list[Job], cfg: dict, tailor: Tailor,
         f"Onsite cities: {', '.join(search.get('onsite_cities') or [])}\n"
         f"Countries: {', '.join(search.get('countries') or [])}"
     )
-    scored = tailor.rank_jobs(mini, target_profile)
+    method = ranking_method(cfg.get("llm") or {})
+    log.info("ranking %d jobs with %s", len(jobs), method)
+    if method == "bm25":
+        scored = rank_jobs_local(
+            mini, user_profile, master_resume=master_resume,
+            keywords=search.get("keywords") or [],
+        )
+    else:
+        scored = tailor.rank_jobs(mini, target_profile)
     scored_map = {s["idx"]: s for s in scored}
 
     for i, j in enumerate(jobs):

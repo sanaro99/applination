@@ -498,6 +498,7 @@ export const api = {
         fallbacks?: string[];
         models?: Record<string, string>;
         thinking?: "off" | "low" | "on" | boolean | null;
+        method?: "llm" | "bm25" | null;
       }
     >;
   }) =>

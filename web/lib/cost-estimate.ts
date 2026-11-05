@@ -25,25 +25,27 @@ export function estimateRun(
   opts?: { dryRun?: boolean; llmConfig?: LlmConfig; pricing?: PricingWindow },
 ): RunEstimate {
   const dry = opts?.dryRun ?? false;
+  const cfg = opts?.llmConfig;
+  const localRanking = cfg?.tasks.ranking?.method === "bm25";
   // Never apply DeepSeek rates to another provider or a mixed-provider run.
   // Dry runs only invoke ranking; task overrides otherwise inherit the global primary.
-  const tasks = dry ? ["ranking"] : [
+  const tasks = (dry ? ["ranking"] : [
     "ranking", "tailoring", "tailoring_premium", "cover_letter", "critique", "answer_questions",
-  ];
-  const cfg = opts?.llmConfig;
-  const deepSeekRun = !!cfg && tasks.every(
+  ]).filter((task) => task !== "ranking" || !localRanking);
+  const deepSeekRun = !!cfg && tasks.length > 0 && tasks.every(
     (task) => (cfg.tasks[task]?.primary ?? cfg.global.primary) === "deepseek",
   );
   const peak = deepSeekRun && !!opts?.pricing?.avoid_peak && !!opts.pricing.peak;
   const peakMult = peak ? 2 : 1;
-  const usd = !deepSeekRun ? null : dry
-    ? RANKING_USD * peakMult
-    : (RANKING_USD + PER_JOB_USD * count) * peakMult;
+  const rankingUsd = localRanking ? 0 : RANKING_USD;
+  const usd = dry && localRanking ? 0 : !deepSeekRun ? null
+    : (rankingUsd + (dry ? 0 : PER_JOB_USD * count)) * peakMult;
   const minutes = (BASE_SEC + (dry ? 0 : PER_JOB_SEC * count)) / 60;
   return { usd, minutes, peak };
 }
 
 export function formatUsd(n: number): string {
+  if (n === 0) return "$0.00";
   return n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`;
 }
 

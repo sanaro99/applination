@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { estimateRun } from "./cost-estimate";
+import { estimateRun, formatUsd } from "./cost-estimate";
 import type { LlmConfig, PricingWindow } from "./types";
 
 function config(primary: string): LlmConfig {
@@ -10,6 +10,31 @@ function config(primary: string): LlmConfig {
 const pricing: PricingWindow = {
   avoid_peak: true, peak: true, next_non_peak_utc: "2026-10-01T16:00:00Z", windows: [],
 };
+
+describe("local ranking cost estimates", () => {
+  function localConfig(primary: string): LlmConfig {
+    const cfg = config(primary);
+    cfg.tasks.ranking = { method: "bm25", primary: "openai", fallbacks: [], models: {}, thinking: null };
+    return cfg;
+  }
+
+  it("charges no model cost or peak scheduling for a local dry run", () => {
+    expect(estimateRun(200, { dryRun: true, llmConfig: localConfig("openai"), pricing }))
+      .toMatchObject({ usd: 0, peak: false });
+  });
+
+  it("retains generation pricing while ignoring the unused ranking provider", () => {
+    expect(estimateRun(10, { llmConfig: localConfig("deepseek") }).usd).toBeCloseTo(0.05);
+    expect(estimateRun(10, { llmConfig: localConfig("deepseek"), pricing }))
+      .toMatchObject({ usd: 0.10, peak: true });
+    expect(estimateRun(10, { llmConfig: localConfig("openai"), pricing }))
+      .toMatchObject({ usd: null, peak: false });
+  });
+
+  it("shows zero cost explicitly", () => {
+    expect(formatUsd(0)).toBe("$0.00");
+  });
+});
 
 describe("provider-aware run estimates", () => {
   it.each(["ollama", "openai", "gemini", "claude", "openrouter"])(

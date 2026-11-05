@@ -1,6 +1,31 @@
 import pytest
 
 
+def test_internship_list_metadata_blocks_generic_titles_for_full_time():
+    from src.discovery.sources import parse_github_list
+    from src.discovery.matching import score_job
+    text = '| Acme | Software Engineer | US | [Apply](https://a/1) |'
+    job = parse_github_list(text, 'SimplifyJobs/Summer2026-Internships')[0]
+    assert job.employment_type == 'internship'
+    assert score_job(job, {'job_type': 'full_time', 'keywords': ['software engineer']}, {}) is None
+
+
+def test_github_reparses_old_validators_once_for_employment_metadata():
+    from src.discovery.sources import fetch_source
+    calls = []
+    def request(*args, **kwargs):
+        calls.append(kwargs['headers'])
+        response = Response(text='| Company | Role | Location | Application |\n| Acme | Engineer | US | [Apply](https://a/1) |')
+        response.headers = {'ETag': 'v1'}
+        return response
+    params = {'repo': 'SimplifyJobs/Summer2026-Internships', 'branch': 'dev'}
+    first = fetch_source('github', params, {'etag': 'v1'}, request=request)
+    assert 'If-None-Match' not in calls[0]
+    assert first.jobs[0].employment_type == 'internship'
+    fetch_source('github', params, first.validators, request=request)
+    assert calls[1]['If-None-Match'] == 'v1'
+
+
 class Response:
     status_code = 200
     headers = {}

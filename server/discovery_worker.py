@@ -23,6 +23,7 @@ from src.discovery.matching import score_job
 from src.discovery.sources import fetch_source
 from src.master_resume import load_master
 from src.scrapers.schema import Job, dedupe_key
+from src.target_rules import role_keywords, wants_internship_source
 
 log = logging.getLogger(__name__)
 _host_lock = threading.Lock()
@@ -35,6 +36,11 @@ def discovery_enabled() -> bool:
 
 def source_specs(user_id: int, cfg: dict):
     sources = cfg.get('sources') or {}
+    search = cfg.get('search') or {}
+    include_internships = wants_internship_source(
+        role_keywords(search),
+        search.get('job_type') if search.get('job_type', 'auto') != 'auto' else None,
+    )
     for kind in ('greenhouse', 'lever', 'ashby', 'smartrecruiters'):
         block = sources.get(kind) or {}
         if not block.get('enabled', kind == 'ashby'):
@@ -50,13 +56,15 @@ def source_specs(user_id: int, cfg: dict):
     for kind in ('remotive', 'themuse'):
         if (sources.get(kind) or {}).get('enabled', False):
             yield kind, {}, 600
-    if (sources.get('simplify_github') or {}).get('enabled', False):
+    if (sources.get('simplify_github') or {}).get('enabled', False) and include_internships:
         yield 'github', {'repo': 'SimplifyJobs/Summer2026-Internships', 'branch': 'dev'}, 600
     if (sources.get('github_lists') or {}).get('enabled', True):
         entries = (sources.get('github_lists') or {}).get('repositories', [
             {'repo': 'SimplifyJobs/New-Grad-Positions', 'branch': 'dev'},
         ])
         for entry in entries:
+            if 'internship' in entry['repo'].casefold() and not include_internships:
+                continue
             yield 'github', {'repo': entry['repo'], 'branch': entry.get('branch', 'main')}, 600
     search = cfg.get('search') or {}
     if (sources.get('himalayas') or {}).get('enabled', False):

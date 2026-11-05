@@ -92,11 +92,14 @@ def fetch_source(kind: str, params: dict, validators: dict | None = None, *, req
             url = {'ashby': f'https://api.ashbyhq.com/posting-api/job-board/{slug}',
                    'greenhouse': f'https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true',
                    'lever': f'https://api.lever.co/v0/postings/{slug}?mode=json'}[kind]
-        r = get(url, conditional=True)
+        # Reparse cached community lists once after adding employment metadata.
+        conditional = kind != 'github' or validators.get('parser_version') == 2
+        r = get(url, conditional=conditional)
         if r.status_code == 304:
             return FetchResult(not_modified=True, validators=validators)
         meta = {k: v for k, v in {'etag': r.headers.get('ETag'), 'modified': r.headers.get('Last-Modified')}.items() if v}
         if kind == 'github':
+            meta['parser_version'] = 2
             if not re.search(r'<t[dh]\b|\|\s*(?:company|name)\s*\|', r.text, re.I):
                 raise ValueError('Unrecognized community list format')
             # Community README formats can change independently of their HTTP
@@ -258,5 +261,6 @@ def parse_github_list(text: str, repo: str) -> list[Job]:
         title = _text(cells[1])
         key = digest(canonical_url(url))
         jobs[key] = Job(f'github:{repo}', company, title, _text(cells[2]), url, '', external_id=key,
-                        remote='remote' in cells[2].lower())
+                        remote='remote' in cells[2].lower(),
+                        employment_type='internship' if 'internship' in repo.casefold() else '')
     return list(jobs.values())

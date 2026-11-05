@@ -43,7 +43,7 @@ export function ChangeReview({
       <Button
         size="sm"
         variant="ghost"
-        className="h-7 gap-1.5 px-2 text-xs"
+        className="h-auto min-h-7 max-w-full flex-wrap gap-1.5 whitespace-normal px-2 text-xs sm:h-7 sm:flex-nowrap sm:whitespace-nowrap"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >

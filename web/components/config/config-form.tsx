@@ -94,7 +94,7 @@ export function ConfigForm() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <ChangeReview
           before={flattenConfig(baseline)}
           after={flattenConfig(draft)}
@@ -196,11 +196,11 @@ export function ConfigForm() {
               key={toggle.key}
               className="flex items-center justify-between gap-3 py-1"
             >
-              <div>
+              <div className="min-w-0">
                 <span className="text-sm capitalize">
                   {sourceLabel(toggle.key)}
                 </span>
-                <code className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                <code className="ml-2 break-all rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                   {toggle.key}
                 </code>
               </div>

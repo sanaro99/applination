@@ -331,6 +331,15 @@ export type DeploymentVersion = {
 };
 
 export const api = {
+  listJobs: (params: import('./types').FeedQuery = {}) => {
+    const qs = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) if (value !== undefined) qs.set(key, String(value));
+    return http<{ items: import('./types').FeedJob[]; next_offset: number | null }>(`/api/jobs?${qs}`);
+  },
+  discoveryStatus: () => http<import('./types').DiscoveryStatus>('/api/jobs/discovery'),
+  setDiscovery: (enabled: boolean) => http<import('./types').DiscoveryStatus>('/api/jobs/discovery', { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+  updateJob: (id: number, body: { saved?: boolean; dismissed?: boolean; applied?: boolean }) => http<{ ok: boolean }>(`/api/jobs/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  generateJob: (id: number) => http<{ run_id: number }>(`/api/jobs/${id}/generate`, { method: 'POST' }),
   // `demo` tells the unauthenticated login page whether to offer the demo.
   health: () => http<{ ok: boolean; demo: boolean }>("/api/health"),
   version: () => http<DeploymentVersion>("/api/version"),
@@ -356,6 +365,8 @@ export const api = {
     }),
 
   startRun: (body: {
+    execution_mode?: 'immediate' | 'batch';
+    batch_routes?: Record<string, import('./batch-run').BatchRoute>;
     dry_run?: boolean;
     no_pdf?: boolean;
     no_cache?: boolean;
@@ -368,6 +379,18 @@ export const api = {
     }),
 
   getPricingWindow: () => http<PricingWindow>("/api/pricing-window"),
+
+  batchCapabilities: () => http<import('./batch-run').BatchCapability[]>('/api/batch-capabilities'),
+  batchStatus: (id: number) => http<import('./batch-run').BatchSummary>(`/api/runs/${id}/batch`),
+  previewBatchRecovery: (id: number, item_ids: string[], action: string) =>
+    http<{preview_token: string; item_ids: string[]; action: string; notice: string}>(`/api/runs/${id}/batch/preview`,
+      {method: 'POST', body: JSON.stringify({item_ids, action})}),
+  confirmBatchRecovery: (id: number, action: string, preview_token: string) =>
+    http(`/api/runs/${id}/batch/${action}`, {method: 'POST', body: JSON.stringify({preview_token})}),
+  cancelBatch: (id: number) => http(`/api/runs/${id}/batch/cancel`, {method: 'POST'}),
+  resumeBatch: (id: number) => http(`/api/runs/${id}/batch/resume`, {method: 'POST'}),
+  reconcileBatch: (id: number, job_id: number, provider_id: string) =>
+    http(`/api/runs/${id}/batch/reconcile`, {method: 'POST', body: JSON.stringify({job_id, provider_id})}),
 
   listRuns: () => http<Run[]>("/api/runs"),
   getRun: (id: number) => http<Run>(`/api/runs/${id}`),

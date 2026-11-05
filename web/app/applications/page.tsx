@@ -41,7 +41,7 @@ function ApplicationsView() {
   return (
     <div className="mx-auto max-w-7xl space-y-4">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>
             Applications
             {runId && (

@@ -33,7 +33,7 @@ export function SectionCard({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="grid w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-xl px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex sm:gap-3"
       >
         <ChevronRight
           className={cn(
@@ -41,11 +41,11 @@ export function SectionCard({
             open && "rotate-90",
           )}
         />
-        <span className="flex-1">
+        <span className="min-w-0 flex-1">
           <span className="block font-medium">{title}</span>
           <span className="block text-xs text-muted-foreground">{why}</span>
         </span>
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+        <span className="col-start-2 break-words text-xs tabular-nums text-muted-foreground sm:shrink-0">
           {summary}
         </span>
       </button>

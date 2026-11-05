@@ -18,7 +18,7 @@ COPY . .
 # client bundle, so setting this on the NAS does nothing — it must be baked in
 # here. Same-origin by default: Traefik routes /api and /files on this same
 # hostname through to the backend container.
-ARG NEXT_PUBLIC_API_BASE=https://applination.sanchitarora.me
+ARG NEXT_PUBLIC_API_BASE=""
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
 # Kept in both images so the build metadata is available for image inspection.
 # The Config page fetches the authoritative runtime value from /api/version.
@@ -36,7 +36,7 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
-    TZ=America/Los_Angeles
+    TZ=UTC
 
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 

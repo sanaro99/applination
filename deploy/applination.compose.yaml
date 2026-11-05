@@ -1,4 +1,4 @@
-# Applination — Sanchit-Cloud Seattle
+# Applination — example container deployment
 #
 # Paste into TrueNAS: Apps -> Discover -> ⋮ (top right) -> Install via YAML,
 # app name "applination".
@@ -6,14 +6,17 @@
 # Host ports: 3001 web, 3002 api. Both bind loopback only — the sole public
 # path is Cloudflare Tunnel -> Traefik :443 -> here.
 #
+# Example template: replace your-org with your image namespace and customize
+# the storage root, ports, and timezone for your installation.
+#
 # PREREQUISITES (do these first, in order):
-#   1. /mnt/apps-pool/appconfig/applination.env exists (chmod 600) and sets
+#   1. /srv/applination/applination.env exists (chmod 600) and sets
 #      POSTGRES_PASSWORD, DATABASE_URL, and REDIS_PASSWORD (see
 #      applination.env.example)
-#   2. /mnt/apps-pool/appconfig/applination/data exists and holds your migrated
+#   2. /srv/applination/data exists and holds your migrated
 #      per-user tree (data/users/<id>/{config.yaml,master_data,output}) — see
-#      scripts/migrate_to_multiuser.py and Step 7 of docs/DEPLOY-SEATTLE.md
-#   3. /mnt/apps-pool/appconfig/applination/pgdata exists (empty is fine —
+#      scripts/migrate_to_multiuser.py and the migration section of docs/DEPLOYMENT.md
+#   3. /srv/applination/pgdata exists (empty is fine —
 #      Postgres initialises it on first boot)
 # Compose refuses to start if env_file or a bind source is missing.
 
@@ -31,14 +34,14 @@ services:
     environment:
       POSTGRES_USER: applination
       POSTGRES_DB: applination
-      TZ: America/Los_Angeles
+      TZ: UTC
     # POSTGRES_PASSWORD comes from here, not a top-level ${VAR} default in
     # `environment:` above — that syntax is resolved by Compose at YAML-parse
     # time from the shell/project .env, which TrueNAS's "Install via YAML"
     # apps do not populate from this file. env_file: injects it straight into
     # the container instead, the same mechanism applination-api already uses.
     env_file:
-      - /mnt/apps-pool/appconfig/applination.env
+      - /srv/applination/applination.env
     volumes:
       # Mounted at the *parent* directory, not .../data. Since the postgres:18
       # image, the entrypoint stores data in a version-namespaced subdirectory
@@ -47,7 +50,7 @@ services:
       # and new version's data need to be visible under one mount for that.
       # Mounting directly at .../data (the pre-18 layout) makes the image
       # refuse to start: see docker-library/postgres#1259.
-      - /mnt/apps-pool/appconfig/applination/pgdata:/var/lib/postgresql
+      - /srv/applination/pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U applination -d applination"]
       interval: 10s
@@ -66,7 +69,7 @@ services:
     image: redis:8-alpine
     restart: unless-stopped
     env_file:
-      - /mnt/apps-pool/appconfig/applination.env
+      - /srv/applination/applination.env
     command:
       - sh
       - -c
@@ -83,12 +86,12 @@ services:
       com.centurylinklabs.watchtower.enable: "false"
 
   applination-api:
-    image: ghcr.io/sanaro99/applination-api:latest
+    image: ghcr.io/your-org/applination-api:latest
     restart: unless-stopped
     ports:
       - "127.0.0.1:3002:8000"
     env_file:
-      - /mnt/apps-pool/appconfig/applination.env
+      - /srv/applination/applination.env
     depends_on:
       applination-db:
         condition: service_healthy
@@ -100,18 +103,18 @@ services:
       # master_data and output mounts have nothing left to bind — and leaving
       # them would shadow the repo's committed master_data/guidelines and
       # master_data/templates, which are read globally for every user.
-      - /mnt/apps-pool/appconfig/applination/data:/app/data
+      - /srv/applination/data:/app/data
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
   applination-web:
-    image: ghcr.io/sanaro99/applination-web:latest
+    image: ghcr.io/your-org/applination-web:latest
     restart: unless-stopped
     ports:
       - "127.0.0.1:3001:3000"
     environment:
       NODE_ENV: production
-      TZ: America/Los_Angeles
+      TZ: UTC
     depends_on:
       - applination-api
     labels:

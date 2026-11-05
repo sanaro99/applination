@@ -1,7 +1,7 @@
 name: Build and push images
 
 # Two images per push: the FastAPI backend and the Next.js frontend.
-# Watchtower on the Seattle NAS polls GHCR every 120s and recreates whichever
+# An optional Watchtower installation can poll GHCR and recreate whichever
 # container has a new digest.
 
 on:
@@ -66,7 +66,7 @@ jobs:
           # it has to be a build arg. Public value, not a secret. Override by
           # setting an Actions *variable* named NEXT_PUBLIC_API_BASE.
           build-args: |
-            NEXT_PUBLIC_API_BASE=${{ vars.NEXT_PUBLIC_API_BASE || 'https://applination.sanchitarora.me' }}
+            NEXT_PUBLIC_API_BASE=${{ vars.NEXT_PUBLIC_API_BASE || '' }}
             APPLINATION_VERSION=${{ steps.app-version.outputs.value }}
             APPLINATION_BUILD_SHA=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.name }}

@@ -7,9 +7,12 @@
  *   - tailoring + cover letters scale ~linearly with the selected count
  * Actuals swing with retries/cache hits, so this is labelled "rough" in the UI.
  */
+import type { LlmConfig, PricingWindow } from "./types";
+
 export interface RunEstimate {
-  usd: number;
+  usd: number | null;
   minutes: number;
+  peak: boolean;
 }
 
 const RANKING_USD = 0.03; // fixed per run (all fetched jobs ranked)
@@ -19,14 +22,26 @@ const PER_JOB_SEC = 30; // tailor + cover per selected job
 
 export function estimateRun(
   count: number,
-  opts?: { dryRun?: boolean; peak?: boolean; rankingMethod?: "llm" | "bm25" },
+  opts?: { dryRun?: boolean; llmConfig?: LlmConfig; pricing?: PricingWindow },
 ): RunEstimate {
   const dry = opts?.dryRun ?? false;
-  const peakMult = opts?.peak ? 2 : 1;
-  const rankingUsd = opts?.rankingMethod === "bm25" ? 0 : RANKING_USD;
-  const usd = (rankingUsd + (dry ? 0 : PER_JOB_USD * count)) * peakMult;
+  const cfg = opts?.llmConfig;
+  const localRanking = cfg?.tasks.ranking?.method === "bm25";
+  // Never apply DeepSeek rates to another provider or a mixed-provider run.
+  // Dry runs only invoke ranking; task overrides otherwise inherit the global primary.
+  const tasks = (dry ? ["ranking"] : [
+    "ranking", "tailoring", "tailoring_premium", "cover_letter", "critique", "answer_questions",
+  ]).filter((task) => task !== "ranking" || !localRanking);
+  const deepSeekRun = !!cfg && tasks.length > 0 && tasks.every(
+    (task) => (cfg.tasks[task]?.primary ?? cfg.global.primary) === "deepseek",
+  );
+  const peak = deepSeekRun && !!opts?.pricing?.avoid_peak && !!opts.pricing.peak;
+  const peakMult = peak ? 2 : 1;
+  const rankingUsd = localRanking ? 0 : RANKING_USD;
+  const usd = dry && localRanking ? 0 : !deepSeekRun ? null
+    : (rankingUsd + (dry ? 0 : PER_JOB_USD * count)) * peakMult;
   const minutes = (BASE_SEC + (dry ? 0 : PER_JOB_SEC * count)) / 60;
-  return { usd, minutes };
+  return { usd, minutes, peak };
 }
 
 export function formatUsd(n: number): string {

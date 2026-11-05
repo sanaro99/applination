@@ -120,7 +120,7 @@ offer it beside the form when `GET /api/health` reports `demo: true`.
   the fixture.
 - **The demo is fully writable and restored nightly** by
   `scripts/seed_demo.py` (cron wrapper: `scripts/seed_demo_cron.sh`, installed
-  per `docs/DEPLOY-SEATTLE.md`). A read-only demo of an interactive product
+  per `docs/DEPLOYMENT.md`). A read-only demo of an interactive product
   demonstrates nothing.
 - The demo user is **exempt from the per-user LLM rate limit** — simulated calls
   cost nothing, and a per-user limit on a shared account is one visitor locking

@@ -51,9 +51,9 @@ export function StoredSecretsCard() {
               {data.secrets.map((s) => (
                 <li
                   key={s.name}
-                  className="flex items-center justify-between gap-3 text-sm"
+                  className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm"
                 >
-                  <code className="text-muted-foreground">{s.name}</code>
+                  <code className="min-w-0 break-all text-muted-foreground">{s.name}</code>
                   {s.readable ? (
                     <Badge variant="secondary" className="font-mono">
                       <ShieldCheck className="mr-1 size-3" />

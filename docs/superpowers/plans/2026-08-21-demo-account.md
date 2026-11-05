@@ -1544,7 +1544,7 @@ Create `scripts/seed_demo.py`:
 ```python
 """Restore the shared demo account to its committed fixture.
 
-Run nightly from cron (see docs/DEPLOY-SEATTLE.md). The demo is fully writable
+Run nightly from cron (see docs/DEPLOYMENT.md). The demo is fully writable
 so it feels like real software; this is what undoes the consequences.
 
     python scripts/seed_demo.py           # wipe and re-seed
@@ -1894,7 +1894,7 @@ git commit -m "feat(web): tell demo visitors that the AI responses are simulated
 ### Task 8: Nightly re-seed and documentation
 
 **Files:**
-- Modify: `docs/DEPLOY-SEATTLE.md` (a cron section)
+- Modify: `docs/DEPLOYMENT.md` (a cron section)
 - Modify: `CLAUDE.md` (a "Demo account" section, and the `demo` provider in the `llm:` config list)
 - Modify: `README.md` (a short "Try it" note)
 - Create: `scripts/seed_demo_cron.sh`
@@ -1923,11 +1923,11 @@ docker exec "$CONTAINER" python scripts/seed_demo.py
 
 Run: `chmod +x scripts/seed_demo_cron.sh`
 
-Confirm the container name first — `grep -n "container_name" deploy/*.yml docs/DEPLOY-SEATTLE.md | head` — and use the real one as the default.
+Confirm the container name first — `grep -n "container_name" deploy/*.yml docs/DEPLOYMENT.md | head` — and use the real one as the default.
 
 - [ ] **Step 2: Document the cron in the deploy guide**
 
-Add to `docs/DEPLOY-SEATTLE.md`, in the operations section:
+Add to `docs/DEPLOYMENT.md`, in the operations section:
 
 ````markdown
 ## Nightly demo re-seed
@@ -1987,7 +1987,7 @@ it beside the form when `GET /api/health` reports `demo: true`.
   degrades to valid output instead of breaking the demo. The demo config sets
   `llm.primary: demo`, so **nothing else in `src/` knows the demo exists**.
 - **The demo is fully writable and restored nightly** by
-  `scripts/seed_demo.py`, run from cron (see `docs/DEPLOY-SEATTLE.md`). A
+  `scripts/seed_demo.py`, run from cron (see `docs/DEPLOYMENT.md`). A
   read-only demo of an interactive product demonstrates nothing.
 - The demo user is **exempt from the per-user LLM rate limit** (simulated calls
   cost nothing; a per-user limit on a shared account is a lockout). Per-IP
@@ -2033,13 +2033,13 @@ Any empty surface here is a fixture gap: fix `demo_data/seed.json` and re-run `p
 - [ ] **Step 6: Commit and open the PR**
 
 ```bash
-git add docs/DEPLOY-SEATTLE.md CLAUDE.md README.md scripts/seed_demo_cron.sh
+git add docs/DEPLOYMENT.md CLAUDE.md README.md scripts/seed_demo_cron.sh
 git commit -m "docs(demo): document the demo account and its nightly re-seed"
 git push -u origin feat/demo-account
 gh pr create --title "feat: add a John Doe demo account with simulated AI" --body "Closes #38 …"
 ```
 
-Do **not** merge — `main` is protected and every merge auto-deploys to the Seattle NAS. The PR is for review.
+Do **not** merge — `main` is protected and every merge auto-deploys to the deployment host. The PR is for review.
 
 ---
 

@@ -15,6 +15,7 @@ import { api, subscribeRun } from "@/lib/api";
 import { isRunActive } from "@/lib/use-latest-runs";
 import type { PipelineEvent } from "@/lib/types";
 import { RankedPool } from "@/components/ranked-pool";
+import { BatchRunProgress } from '@/components/batch-run-progress';
 
 export default function RunDetailPage({
   params,
@@ -31,7 +32,7 @@ export default function RunDetailPage({
     // the live UI catches up; a finished run never changes.
     refetchInterval: (query) => {
       const r = query.state.data;
-      return r && isRunActive(r.status) ? 3000 : false;
+      return r && isRunActive(r.status) ? (r.execution_mode === 'batch' ? 15000 : 3000) : false;
     },
   });
   const { data: log, refetch: refetchLog } = useQuery({
@@ -106,7 +107,7 @@ export default function RunDetailPage({
           >
             {run.status}
           </Badge>
-          {run.status === "running" && (
+          {run.status === "running" && run.execution_mode !== "batch" && (
             <>
               <Button
                 variant="outline"
@@ -137,6 +138,7 @@ export default function RunDetailPage({
         </div>
       </div>
 
+      {run.execution_mode === 'batch' && <BatchRunProgress runId={run.id} />}
       <Card>
         <CardHeader>
           <CardTitle>Run #{run.id}</CardTitle>

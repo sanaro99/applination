@@ -251,7 +251,7 @@ Plus the route-enumeration test and the scope-lint test.
   have no `user_id`, so it cannot run against a schema already at `head`
   (NOT NULL). The runbook now steps back to the baseline revision, copies, then
   upgrades — which is exactly the backfill path the migration was written for.
-  See Steps 5b/6b in `docs/DEPLOY-SEATTLE.md`.
+  See the SQLite migration section in `docs/DEPLOYMENT.md`.
 - **`web/.env.local` had `NEXT_PUBLIC_API_BASE=http://127.0.0.1:8000` set**,
   which would have overridden the new `""` default and broken auth in dev
   precisely as this document predicted. It is gitignored, so it is a per-clone
@@ -339,7 +339,7 @@ the server uses.
 ### Deploy
 
 Compose bind mounts collapse from four to one — everything lives under `data/`.
-Update `deploy/applination.compose.yaml` and `docs/DEPLOY-SEATTLE.md` in the same
+Update `deploy/applination.compose.yaml` and `docs/DEPLOYMENT.md` in the same
 PR, including a rollout runbook. `scripts/migrate_to_multiuser.py` moves the
 three host directories into `data/users/1/` and rewrites the absolute
 `Application.folder_path` values in the same transaction. Idempotent and
@@ -419,10 +419,8 @@ regardless of how large `output/` is.
 
 ## Rollout
 
-**The Seattle instance has been intentionally stopped** while the three PRs
-landed. All three are merged, so the cutover below is now the remaining work;
-`docs/DEPLOY-SEATTLE.md` carries the executable version of it (Steps 9-11 are
-the per-user filesystem move).
+Stop public traffic for the maintenance window. Follow the migration sections
+in `docs/DEPLOYMENT.md` for the database copy and per-account filesystem move.
 
 This means the migrations do **not** have to be run one PR at a time. Do them as
 a single maintenance window once PR 3 merges, in this order:
@@ -435,7 +433,7 @@ a single maintenance window once PR 3 merges, in this order:
    `deploy/applination.compose.yaml`, start the stack. Postgres initialises and
    the API runs `alembic upgrade head`.
 4. `scripts/sqlite_to_postgres.py --dry-run`, then for real (PR 1's runbook,
-   `docs/DEPLOY-SEATTLE.md`).
+   `docs/DEPLOYMENT.md`).
 5. `scripts/migrate_to_multiuser.py --dry-run`, then for real (PR 3). This
    moves the three directories **and** rewrites `Application.folder_path`;
    skipping it leaves every document link pointing at a path that no longer
@@ -466,7 +464,7 @@ Same discipline for `POSTGRES_PASSWORD`, added in PR 1.
 ## Working conventions
 
 - **Issue → branch → PR.** `main` is protected; every merge auto-deploys to the
-  Seattle NAS in ~2 minutes. Never push to `main`.
+  deployment host in ~2 minutes. Never push to `main`.
 - **Never `git add -A` blindly.** `master_data.tgz` / `output.tgz` may sit
   untracked in the repo root and contain personal data. This repository is
   **public**. They are gitignored now, but check what you stage.

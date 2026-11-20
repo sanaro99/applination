@@ -66,6 +66,13 @@ def extract(
         # LinkedIn blocks automated browsers; let the user fill it manually.
         return ExtractedJob(url=body.url)
 
+    from src.url_safety import UnsafeURL, assert_public_url
+
+    try:
+        assert_public_url(body.url)
+    except UnsafeURL as exc:
+        raise HTTPException(400, str(exc)) from None
+
     from .cache import cache
     cache_key = "applination:job-extraction:v1:%s:%s" % (
         user.id,

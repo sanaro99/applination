@@ -85,6 +85,9 @@ def set_secret(user_id: int, name: str, value: str) -> None:
     if not value:
         delete_secret(user_id, name)
         return
+    from .demo import refuse_for_demo
+
+    refuse_for_demo(user_id)
     ciphertext = encrypt(value)
     with session() as s:
         # noscope: UserSecret's primary key IS (user_id, name) — scoped by

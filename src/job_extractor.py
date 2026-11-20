@@ -396,6 +396,28 @@ class JobExtractor:
 
     def _fetch(self, url: str) -> tuple[str, str]:
         from playwright.sync_api import sync_playwright
+
+        from src.url_safety import assert_public_url, is_public_url
+
+        # The browser runs on the API server, so a user-typed URL must never
+        # reach the server's own network (see src/url_safety.py).
+        assert_public_url(url)
+        verdicts: dict[str, bool] = {}
+
+        def _guard(route) -> None:  # noqa: ANN001
+            target = route.request.url
+            if target.startswith(("data:", "blob:")):
+                route.continue_()
+                return
+            origin = target.split("/", 3)[:3]
+            key = "/".join(origin)
+            if key not in verdicts:
+                verdicts[key] = is_public_url(target)
+            if verdicts[key]:
+                route.continue_()
+            else:
+                route.abort("blockedbyclient")
+
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(user_agent=(
@@ -403,6 +425,9 @@ class JobExtractor:
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/120.0.0.0 Safari/537.36"
             ))
+            # Every request, including redirects and subresources: a public
+            # page can bounce the browser to a private address.
+            page.route("**/*", _guard)
             page.goto(url, wait_until="networkidle", timeout=30_000)
             for sel in [".job__description", ".posting-description", "#job-description",
                         "[class*='description']", "#content", ".job-details"]:

@@ -296,6 +296,14 @@ def export_csv(
         q = q.order_by(Application.created_at.desc())
         rows = s.exec(q).all()
 
+    def cell(value: object) -> object:
+        # Company, title and location come from public job postings; a value
+        # starting with = + - @ would run as a formula when the CSV is opened
+        # in Excel or Sheets (CSV injection). Prefix it so it stays text.
+        if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+            return "'" + value
+        return value
+
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow([
@@ -303,14 +311,14 @@ def export_csv(
         "status", "tags", "url", "applied_at", "deadline", "created_at",
     ])
     for a in rows:
-        w.writerow([
+        w.writerow([cell(v) for v in [
             a.company, a.title, a.location, a.source, a.match_score,
             a.status.value if hasattr(a.status, "value") else a.status,
             a.tags, a.url,
             a.applied_at.isoformat() if a.applied_at else "",
             a.deadline.isoformat() if a.deadline else "",
             a.created_at.isoformat() if a.created_at else "",
-        ])
+        ]])
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",

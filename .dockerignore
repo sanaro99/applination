@@ -14,6 +14,8 @@ master_data/bio.md
 master_data/*.docx
 master_data/*.pdf
 master_data/stories/*.md
+# The tag taxonomy is committed and global; the API reads it for every user.
+!master_data/stories/_INDEX.md
 master_data/cover_letters/examples/*
 .job_cache.json
 

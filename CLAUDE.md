@@ -34,8 +34,13 @@ python -m src.tweak data/users/1/output/2026-04-24/Company_Role/resume.docx "Emp
 python -m src.tweak resume.docx "more ML focus" --provider gemini
 python -m src.tweak resume.docx --interactive
 
+# Whole app in Docker (db + api + web), one command; http://localhost:3000.
+# Encryption key auto-created at data/secret.key. Windows: scripts\start.cmd.
+# Free cloud hosting with the same file: docs/FREE-HOSTING.md
+docker compose up -d --build
+
 # Web app (FastAPI + Next.js, replaces the old Streamlit app.py)
-.\scripts\dev.ps1                         # starts both: API :8000, web :3000
+.\scripts\dev.ps1                         # starts both: API :8000, web :3000; first run creates .venv, installs deps, creates data/secret.key
 python -m uvicorn server.app:app --reload --reload-dir server --reload-dir src --port 8000   # API only
 cd web && npm run dev                                    # web only
 

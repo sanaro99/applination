@@ -129,4 +129,12 @@ You decide which jobs to pursue and what to submit. Check generated claims again
 
 ## Run it yourself or contribute
 
-See the [technical guide](docs/TECHNICAL.md) for architecture, local setup, configuration, AI providers, scheduling, batch processing, and implementation constraints. The [deployment guide](docs/DEPLOYMENT.md) covers a self-hosted container installation.
+To run Applination on your own computer, install [Docker Desktop](https://www.docker.com/products/docker-desktop/), clone this repository, and run:
+
+```bash
+docker compose up -d --build
+```
+
+Then open http://localhost:3000. On Windows you can double-click `scripts\start.cmd` instead.
+
+See the [technical guide](docs/TECHNICAL.md) for architecture, development setup, configuration, AI providers, scheduling, batch processing, and implementation constraints. [Free hosting](docs/FREE-HOSTING.md) puts the same setup online at no cost, and the [deployment guide](docs/DEPLOYMENT.md) covers a self-hosted container installation behind your own reverse proxy.

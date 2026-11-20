@@ -14,6 +14,14 @@ const nextConfig: NextConfig = {
   // HTTP compression app-wide is a non-issue.
   compress: false,
 
+  // The /api rewrite proxies with a 30s idle timeout by default. Several API
+  // calls legitimately sit silent for longer (resume tailoring, coach replies,
+  // resume import: none of them stream), and Next answers those with a 500
+  // while the API keeps working. Give the proxy room for the slowest call.
+  experimental: {
+    proxyTimeout: 10 * 60 * 1000,
+  },
+
   // Proxy the API through Next so the browser only ever talks to one origin.
   //
   // This is load-bearing for authentication, not a convenience. In dev the page

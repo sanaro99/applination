@@ -20,6 +20,12 @@ COPY . .
 # hostname through to the backend container.
 ARG NEXT_PUBLIC_API_BASE=""
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+# Also build-time: next.config.ts resolves the /api rewrite target when the
+# standalone server is built. The default suits a reverse proxy that routes
+# /api itself; the root docker-compose.yml sets http://api:8000 so the web
+# container proxies the API and is the only thing the browser talks to.
+ARG API_PROXY_TARGET="http://127.0.0.1:8000"
+ENV API_PROXY_TARGET=$API_PROXY_TARGET
 # Kept in both images so the build metadata is available for image inspection.
 # The Config page fetches the authoritative runtime value from /api/version.
 ARG APPLINATION_VERSION=0.1.1

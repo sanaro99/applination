@@ -93,3 +93,31 @@ def test_malformed_board_and_unrecognized_community_format_are_not_authoritative
     assert not result.complete
     empty = fetch_source('github', {'repo': 'acme/jobs'}, {}, request=lambda *a, **k: Response(text='<table><tr><td>Format changed</td></tr></table>'))
     assert not empty.complete and not empty.validators
+
+
+def test_list_cleanup_and_board_harvest():
+    from src.discovery.sources import ats_boards, parse_github_list
+    text = ('<table><tr><td><strong>🔥 Amazon</strong></td><td>Software Engineer I</td>'
+            '<td><details><summary><strong>2 locations</strong></summary>Seattle, WA</br>NYC</details></td>'
+            '<td><a href="https://jobs.ashbyhq.com/Sierra/123">Apply</a></td></tr></table>')
+    [job] = parse_github_list(text, 'acme/list')
+    assert job.company == 'Amazon'
+    assert job.location == 'Seattle, WA; NYC'
+    found = ats_boards([job.url, 'https://job-boards.greenhouse.io/Twitch/jobs/1',
+                        'https://boards.greenhouse.io/embed/job_app?for=x', 'https://jobs.lever.co/palantir/abc',
+                        'https://example.com/jobs.lever.co/evil'])
+    assert found['ashby'] == {'Sierra'} and found['greenhouse'] == {'twitch'} and found['lever'] == {'palantir'}
+
+
+def test_github_list_path_is_validated():
+    import pytest
+    from src.discovery.sources import fetch_source
+    with pytest.raises(ValueError):
+        fetch_source('github', {'repo': 'acme/jobs', 'path': '../secret.md'}, {})
+    seen = []
+    def request(method, url, **kw):
+        seen.append(url)
+        raise RuntimeError('stop')
+    with pytest.raises(RuntimeError):
+        fetch_source('github', {'repo': 'acme/jobs', 'branch': 'main', 'path': 'NEW_GRAD_USA.md'}, {}, request=request)
+    assert seen == ['https://raw.githubusercontent.com/acme/jobs/main/NEW_GRAD_USA.md']

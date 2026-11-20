@@ -81,3 +81,24 @@ interrupted request, so retry can create another charge. Completed applications
 and files are not deleted. An unresolved old provider batch remains available in
 run history for manual reconciliation; it does not hold a discovery or document
 slot. New `POST /api/runs` calls return HTTP 410 with a link to `/jobs`.
+
+## Sources
+
+Every source key and its default when a config has no block for it lives in
+`SOURCE_DEFAULTS` (`server/discovery_worker.py`); Config -> Job boards shows a
+switch for each default-on source even when its block is missing. On by
+default: Ashby (a short built-in list), the community new-grad lists
+(`github_lists`: SimplifyJobs New-Grad-Positions and speedyapply's
+`NEW_GRAD_USA.md`), and `ats_from_lists`.
+
+`ats_from_lists` turns those lists into employer boards. Every apply link that
+points at a public Ashby, Greenhouse, Lever or SmartRecruiters board yields that
+company's slug (`src.discovery.sources.ats_boards`), and the company's whole
+board is then polled directly, hourly, capped by `max_boards` (default 250).
+The lists only say a company hires new grads; the board gives its other open
+roles with full descriptions, straight from the employer. Boards come and go
+with the lists, so no slug list needs curating.
+
+Saving config re-syncs subscriptions and rematches straight away
+(`refresh_user_soon`), and recommendations are filtered to sources the user
+still follows, so switching a source off empties it from the feed at once.

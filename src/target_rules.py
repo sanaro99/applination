@@ -134,6 +134,18 @@ def posting_job_type(job: Job) -> str:
     return _type_from_text(" ".join(hints))
 
 
+# Abbreviations job lists use for cities people type out in full.
+_CITY_ALIASES = (
+    (re.compile(r"\bnyc\b"), "new york"),
+    (re.compile(r"\bsf\b"), "san francisco"),
+)
+
+
+def _with_city_aliases(location: str) -> str:
+    extra = [name for pattern, name in _CITY_ALIASES if pattern.search(location)]
+    return "; ".join([location, *extra]) if extra else location
+
+
 def allows_job(job: Job, search: dict) -> bool:
     kind = resolve_job_type(search)
     actual = posting_job_type(job)
@@ -142,7 +154,7 @@ def allows_job(job: Job, search: dict) -> bool:
     if kind not in {"full_time", "any"} and actual != kind:
         return False
 
-    location = (job.location or "").casefold()
+    location = _with_city_aliases((job.location or "").casefold())
     is_remote = job.remote or "remote" in location
     if is_remote:
         return bool(search.get("remote_ok", True))

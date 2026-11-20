@@ -84,7 +84,10 @@ def fetch_source(kind: str, params: dict, validators: dict | None = None, *, req
             if not re.fullmatch(r'[\w.-]+/[\w.-]+', repo):
                 raise ValueError('Invalid GitHub repository')
             branch = _slug(params.get('branch', 'main'))
-            url = f'https://raw.githubusercontent.com/{repo}/{branch}/README.md'
+            path = params.get('path', 'README.md')
+            if not re.fullmatch(r'(?:[\w-]+/)*[\w.-]+\.md', path) or '..' in path:
+                raise ValueError('Invalid GitHub list path')
+            url = f'https://raw.githubusercontent.com/{repo}/{branch}/{path}'
         elif kind == 'remotive':
             url = 'https://remotive.com/api/remote-jobs'
         else:
@@ -238,6 +241,44 @@ def fetch_source(kind: str, params: dict, validators: dict | None = None, *, req
     raise ValueError(f'Unsupported discovery source: {kind}')
 
 
+# Public job-board APIs that an apply link in a community list can point at.
+# Each pattern captures the board slug the matching adapter above polls, so a
+# list of new-grad postings doubles as a list of employers worth watching.
+_ATS_LINKS = {
+    'ashby': re.compile(r'https?://jobs\.ashbyhq\.com/([A-Za-z0-9_-]{1,100})(?=[/?#]|$)', re.I),
+    'greenhouse': re.compile(r'https?://(?:job-boards|boards)\.greenhouse\.io/([A-Za-z0-9_-]{1,100})(?=[/?#]|$)', re.I),
+    'lever': re.compile(r'https?://jobs\.lever\.co/([A-Za-z0-9_-]{1,100})(?=[/?#]|$)', re.I),
+    'smartrecruiters': re.compile(r'https?://jobs\.smartrecruiters\.com/([A-Za-z0-9_-]{1,100})(?=[/?#]|$)', re.I),
+}
+# Path segments that look like a slug but are part of the board's own routes.
+_NOT_BOARDS = {'embed', 'jobs', 'job', 'api', 'v0', 'v1', 'oneclick-ui'}
+
+
+def ats_boards(urls) -> dict[str, set[str]]:
+    """Board slugs per ATS for every apply URL that points at a public board."""
+    found: dict[str, set[str]] = {kind: set() for kind in _ATS_LINKS}
+    for url in urls:
+        for kind, pattern in _ATS_LINKS.items():
+            match = pattern.match(url or '')
+            if match and match.group(1).casefold() not in _NOT_BOARDS:
+                # Greenhouse and Lever slugs are case-insensitive; Ashby's are not.
+                found[kind].add(match.group(1) if kind in {'ashby', 'smartrecruiters'} else match.group(1).lower())
+    return found
+
+
+def _list_company(cell: str) -> str:
+    text = re.sub(r'\[([^]]+)\]\([^)]*\)', r'\1', _text(cell)).replace('**', '').strip()
+    # Lists decorate hot postings with emoji ("🔥 Amazon"); keep the name only.
+    return re.sub(r'^[^\w↳↪]+', '', text).strip()
+
+
+def _list_location(cell: str) -> str:
+    # "<summary>5 locations</summary>Seattle, WA</br>NYC" -> "Seattle, WA; NYC"
+    cell = re.sub(r'<summary\b.*?</summary>', '', cell, flags=re.S | re.I)
+    cell = re.sub(r'<\s*/?\s*br\s*/?>', '; ', cell, flags=re.I)
+    return '; '.join(part.strip() for part in _text(cell).split(';') if part.strip())
+
+
 def parse_github_list(text: str, repo: str) -> list[Job]:
     """Parse HTML and Markdown lists while preserving company carry-forward."""
     rows = [re.findall(r'<td\b[^>]*>(.*?)</td>', row, re.S | re.I) for row in re.findall(r'<tr\b[^>]*>(.*?)</tr>', text, re.S | re.I)]
@@ -246,7 +287,7 @@ def parse_github_list(text: str, repo: str) -> list[Job]:
     for cells in rows:
         if len(cells) < 4:
             continue
-        first = re.sub(r'\[([^]]+)\]\([^)]*\)', r'\1', _text(cells[0])).strip()
+        first = _list_company(cells[0])
         if first.casefold() in {'company', 'name'}:
             continue
         if first and not first.startswith(('↳', '↪')):
@@ -260,7 +301,8 @@ def parse_github_list(text: str, repo: str) -> list[Job]:
             continue
         title = _text(cells[1])
         key = digest(canonical_url(url))
-        jobs[key] = Job(f'github:{repo}', company, title, _text(cells[2]), url, '', external_id=key,
-                        remote='remote' in cells[2].lower(),
+        location = _list_location(cells[2])
+        jobs[key] = Job(f'github:{repo}', company, title, location, url, '', external_id=key,
+                        remote='remote' in location.lower(),
                         employment_type='internship' if 'internship' in repo.casefold() else '')
     return list(jobs.values())

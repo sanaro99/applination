@@ -279,3 +279,25 @@ def test_structured_put_requires_a_session(app_env):
     with TestClient(app_env) as anon:
         r = anon.put("/api/config/structured", json={"data": {}})
         assert r.status_code == 401
+
+
+def test_default_on_discovery_source_missing_from_the_file_still_gets_a_switch(client):
+    """An older config has no `ashby` block, yet job discovery polls Ashby by
+    default. The form must offer that switch, and turning it off must stick."""
+    client.get("/api/config/structured")
+    text = config_text()
+    doc = yaml.safe_load(text)
+    del doc["sources"]["ashby"]
+    client.put("/api/config", json={"text": yaml.safe_dump(doc)})
+
+    toggles = client.get("/api/config/structured").json()["data"]["sources"]["toggles"]
+    assert {"key": "ashby", "enabled": True} in toggles
+
+    data = client.get("/api/config/structured").json()["data"]
+    data["sources"]["toggles"] = [
+        {**t, "enabled": False} if t["key"] == "ashby" else t for t in data["sources"]["toggles"]
+    ]
+    assert client.put("/api/config/structured", json={"data": data}).status_code == 200
+    assert on_disk()["sources"]["ashby"] == {"enabled": False}
+    toggles = client.get("/api/config/structured").json()["data"]["sources"]["toggles"]
+    assert {"key": "ashby", "enabled": False} in toggles

@@ -13,7 +13,7 @@
  * One Save for the document, matching the single structured PUT, and the same
  * change review the master-data forms use.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RotateCcw, Save } from "lucide-react";
 import { toast } from "sonner";
@@ -40,6 +40,11 @@ const SOURCE_LABELS: Record<string, string> = {
   simplify_github: "Simplify / Pitt CSC list",
   greenhouse: "Greenhouse boards",
   lever: "Lever boards",
+  ashby: "Ashby boards",
+  smartrecruiters: "SmartRecruiters boards",
+  workday: "Workday boards",
+  github_lists: "New-grad lists (GitHub)",
+  ats_from_lists: "Employer boards found in those lists",
 };
 
 const sourceLabel = (key: string) =>
@@ -75,11 +80,21 @@ export function ConfigForm() {
     onError: (e) => toast.error(String(e)),
   });
 
+  const dirty =
+    !!draft && !!baseline && JSON.stringify(draft) !== JSON.stringify(baseline);
+
+  // A switch flipped and never saved changes nothing, and the Save button is
+  // a long scroll away from the Job boards card. Warn before the tab closes.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
   if (isLoading || !draft || !baseline) {
     return <Skeleton className="h-[60svh] w-full" />;
   }
-
-  const dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
 
   const setSearch = (p: Partial<ConfigSections["search"]>) =>
     setDraft({ ...draft, search: { ...draft.search, ...p } });
@@ -94,12 +109,17 @@ export function ConfigForm() {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-3 bg-background/95 px-1 py-2 backdrop-blur">
         <ChangeReview
           before={flattenConfig(baseline)}
           after={flattenConfig(draft)}
         />
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {dirty && (
+            <span role="status" className="text-xs font-medium text-primary">
+              Unsaved changes
+            </span>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -188,7 +208,7 @@ export function ConfigForm() {
 
         <SectionCard
           title="Job boards"
-          why="Which sources a run fetches from. More boards means more candidates and a longer run."
+          why="Which sources runs and the Jobs feed use. Changes apply to the Jobs feed as soon as you save."
           summary={`${enabledCount} of ${draft.sources.toggles.length} on`}
         >
           {draft.sources.toggles.map((toggle, i) => (

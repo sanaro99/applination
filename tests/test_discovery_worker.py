@@ -201,3 +201,33 @@ def test_resubscribed_unchanged_posting_is_rematched(setup):
     sync_user(setup, cfg); rematch_user(setup, cfg, {})
     with db.session() as s:
         assert s.exec(select(JobMatch)).one().eligible
+
+
+def test_boards_found_in_list_links_are_polled_directly_once():
+    from server.discovery_worker import source_specs
+    cfg = {'search': {'job_type': 'full_time', 'keywords': ['software engineer']},
+           'sources': {'ashby': {'enabled': True, 'companies': ['ramp']}}}
+    harvested = {'ashby': {'ramp', 'sierra'}, 'lever': {'palantir'}, 'greenhouse': set()}
+    specs = [(kind, params.get('slug'), interval) for kind, params, interval in source_specs(1, cfg, harvested)]
+    assert ('ashby', 'ramp', 600) in specs
+    assert ('ashby', 'sierra', 3600) in specs and ('lever', 'palantir', 3600) in specs
+    assert [s for s in specs if s[1] == 'ramp'] == [('ashby', 'ramp', 600)]
+    cfg['sources']['ats_from_lists'] = {'enabled': False}
+    assert not any(slug == 'sierra' for _, slug, _ in
+                   [(k, p.get('slug'), i) for k, p, i in source_specs(1, cfg, harvested)])
+
+
+def test_disabled_source_leaves_the_feed_on_next_sync(setup):
+    from server.discovery_worker import sync_user, rematch_user
+    from server.discovery_models import DiscoverySource, DiscoverySubscription
+    cfg = {'search': {'keywords': ['software engineer']},
+           'sources': {'ashby': {'enabled': False}, 'github_lists': {'enabled': False},
+                       'himalayas': {'enabled': True}}}
+    sync_user(setup, cfg)
+    with db.session() as s:
+        kinds = {s.get(DiscoverySource, x.source_id).kind for x in s.exec(select(DiscoverySubscription)).all()}
+    assert kinds == {'himalayas'}
+    cfg['sources']['himalayas']['enabled'] = False
+    sync_user(setup, cfg)
+    with db.session() as s:
+        assert not s.exec(select(DiscoverySubscription)).all()

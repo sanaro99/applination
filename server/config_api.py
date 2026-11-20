@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from .auth import require_user
 from .db import User
+from .discovery_worker import SOURCE_DEFAULTS, refresh_user_soon
 from .deps import load_config, load_config_redacted, paths_for, update_config
 from .user_secrets import extract_secrets, secrets_status
 from src.target_rules import JobType, JOB_TYPES
@@ -39,6 +40,11 @@ def _read(path: Path) -> str:
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _refresh_discovery(user: User) -> None:
+    """Apply saved source and search changes to the job feed now."""
+    refresh_user_soon(user.id)
 
 
 @router.get("/config")
@@ -80,6 +86,7 @@ def put_config(body: TextBody, user: User = Depends(require_user)) -> dict:
             text = buf.getvalue()
 
     _write(paths.config_path, text)
+    _refresh_discovery(user)
     return {"ok": True}
 
 
@@ -111,6 +118,7 @@ def put_search_keywords(body: KeywordsBody, user: User = Depends(require_user)) 
         if body.job_type is not None:
             search["job_type"] = body.job_type
     update_config(user, mut)
+    _refresh_discovery(user)
     return {"ok": True}
 
 
@@ -157,6 +165,27 @@ _REMINDER_DEFAULTS: dict = {
 }
 
 
+def _source_toggles(sources: dict) -> list[dict]:
+    """One switch per source block in file order, then any source job
+    discovery runs by default that this config has no block for.
+
+    Without the second half a default-on source (Ashby, the new-grad lists)
+    pulls jobs into the feed with no switch anywhere in the form to stop it.
+    """
+    toggles = [
+        {"key": key, "enabled": bool(block.get("enabled"))}
+        for key, block in sources.items()
+        if isinstance(block, dict) and "enabled" in block
+    ]
+    present = {t["key"] for t in toggles} | set(sources)
+    toggles += [
+        {"key": key, "enabled": default}
+        for key, default in SOURCE_DEFAULTS.items()
+        if default and key not in present
+    ]
+    return toggles
+
+
 def _pick(section: object, defaults: dict) -> dict:
     src = section if isinstance(section, dict) else {}
     return {k: src.get(k, default) for k, default in defaults.items()}
@@ -186,11 +215,7 @@ def get_config_structured(user: User = Depends(require_user)) -> dict:
                 # File order, and only blocks that actually have a switch — the
                 # form offers what this config has, not what some list in the
                 # browser says it should have.
-                "toggles": [
-                    {"key": key, "enabled": bool(block.get("enabled"))}
-                    for key, block in sources.items()
-                    if isinstance(block, dict) and "enabled" in block
-                ],
+                "toggles": _source_toggles(sources),
                 "greenhouse_extra_companies": [str(c) for c in (extra or [])],
             },
             "output": _pick(cfg.get("output"), _OUTPUT_DEFAULTS),
@@ -347,10 +372,16 @@ def put_config_structured(
         if isinstance(block_root, dict):
             for toggle in sources.get("toggles") or []:
                 block = block_root.get(toggle["key"])
-                # A switch for a scraper this config has no block for would be
-                # a key `main.fetch_all` never reads. Ignore rather than invent.
                 if isinstance(block, dict):
                     _set_changed(block, "enabled", toggle["enabled"])
+                elif block is None and toggle["key"] in SOURCE_DEFAULTS and (
+                    toggle["enabled"] != SOURCE_DEFAULTS[toggle["key"]]
+                ):
+                    # Job discovery reads these keys with a default even when
+                    # the block is missing, so switching one away from its
+                    # default needs a block to say so. Unknown keys are still
+                    # ignored rather than invented.
+                    block_root[toggle["key"]] = {"enabled": toggle["enabled"]}
             greenhouse = block_root.get("greenhouse")
             if isinstance(greenhouse, dict) and "greenhouse_extra_companies" in sources:
                 _set_changed(
@@ -371,4 +402,5 @@ def put_config_structured(
                     _set_changed(node, key, values[key])
 
     update_config(user, mut)
+    _refresh_discovery(user)
     return {"ok": True}

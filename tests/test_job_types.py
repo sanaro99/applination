@@ -200,3 +200,10 @@ def test_himalayas_preserves_typed_posting_with_current_location_payload(monkeyp
     assert len(found) == 1 and found[0].location == "United States"
     assert found[0].posted_at is not None
     assert allows_job(found[0], {"job_type": "temporary"})
+
+
+def test_city_abbreviations_in_lists_match_spelled_out_targets():
+    search = {"onsite_cities": ["New York", "San Francisco"], "remote_ok": False}
+    assert allows_job(Job("github", "Acme", "Software Engineer", "Seattle, WA; NYC", "https://a/1", ""), search)
+    assert allows_job(Job("github", "Acme", "Software Engineer", "SF", "https://a/2", ""), search)
+    assert not allows_job(Job("github", "Acme", "Software Engineer", "Seattle, WA", "https://a/3", ""), search)

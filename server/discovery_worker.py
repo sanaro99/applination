@@ -20,7 +20,7 @@ from .scoping import owned, find_owned
 from .time_utils import utc_now
 from src.discovery.identity import digest, canonical_url
 from src.discovery.matching import score_job
-from src.discovery.sources import fetch_source
+from src.discovery.sources import ats_boards, fetch_source
 from src.master_resume import load_master
 from src.scrapers.schema import Job, dedupe_key
 from src.target_rules import role_keywords, wants_internship_source
@@ -34,59 +34,127 @@ def discovery_enabled() -> bool:
     return os.environ.get('CONTINUOUS_DISCOVERY_ENABLED', '0').lower() in {'1', 'true', 'yes'}
 
 
-def source_specs(user_id: int, cfg: dict):
+# Every source key discovery understands, and whether it runs when the
+# user's config has no block for it. Config -> Job boards shows a switch for
+# each of these even when the block is missing, so a default-on source can
+# always be turned off from the form.
+SOURCE_DEFAULTS = {
+    'greenhouse': False, 'lever': False, 'ashby': True, 'smartrecruiters': False,
+    'ats_from_lists': True, 'github_lists': True, 'simplify_github': False,
+    'remotive': False, 'themuse': False, 'himalayas': False, 'workday': False,
+    'jsearch': False, 'adzuna': False,
+}
+DEFAULT_ASHBY = ['notion', 'ramp', 'openai', 'linear', 'cohere', 'replit', 'supabase', 'plaid']
+DEFAULT_GITHUB_LISTS = [
+    {'repo': 'SimplifyJobs/New-Grad-Positions', 'branch': 'dev'},
+    {'repo': 'speedyapply/2026-SWE-College-Jobs', 'branch': 'main', 'path': 'NEW_GRAD_USA.md'},
+]
+ATS_KINDS = ('greenhouse', 'lever', 'ashby', 'smartrecruiters')
+
+
+def source_enabled(sources: dict, kind: str) -> bool:
+    block = sources.get(kind)
+    return bool((block if isinstance(block, dict) else {}).get('enabled', SOURCE_DEFAULTS.get(kind, False)))
+
+
+def github_list_specs(cfg: dict) -> list[dict]:
     sources = cfg.get('sources') or {}
     search = cfg.get('search') or {}
     include_internships = wants_internship_source(
         role_keywords(search),
         search.get('job_type') if search.get('job_type', 'auto') != 'auto' else None,
     )
-    for kind in ('greenhouse', 'lever', 'ashby', 'smartrecruiters'):
+    specs = []
+    if source_enabled(sources, 'simplify_github') and include_internships:
+        specs.append({'repo': 'SimplifyJobs/Summer2026-Internships', 'branch': 'dev'})
+    if source_enabled(sources, 'github_lists'):
+        for entry in (sources.get('github_lists') or {}).get('repositories') or DEFAULT_GITHUB_LISTS:
+            if 'internship' in entry['repo'].casefold() and not include_internships:
+                continue
+            spec = {'repo': entry['repo'], 'branch': entry.get('branch', 'main')}
+            if entry.get('path'):
+                spec['path'] = entry['path']
+            specs.append(spec)
+    return specs
+
+
+def source_specs(user_id: int, cfg: dict, harvested: dict[str, set[str]] | None = None):
+    """Every (kind, params, interval) this user's config subscribes to.
+
+    ``harvested`` holds board slugs pulled from the apply links of the
+    community lists this user follows (see ``harvested_boards``). Those
+    employers are polled directly on their own ATS, which gives full job
+    descriptions straight from the employer instead of a one-line list entry.
+    """
+    sources = cfg.get('sources') or {}
+    search = cfg.get('search') or {}
+    configured: set[tuple[str, str]] = set()
+    for kind in ATS_KINDS:
         block = sources.get(kind) or {}
-        if not block.get('enabled', kind == 'ashby'):
+        if not source_enabled(sources, kind):
             continue
         companies = list(block.get('companies') or []) + list(block.get('extra_companies') or [])
         if kind == 'greenhouse' and block.get('use_builtin_list', True):
             from src.scrapers.greenhouse_companies import BUILT_IN_SLUGS
             companies += BUILT_IN_SLUGS
         if kind == 'ashby' and not companies:
-            companies = ['notion', 'ramp', 'openai', 'linear', 'cohere', 'replit', 'supabase', 'plaid']
+            companies = DEFAULT_ASHBY
         for slug in sorted(set(companies)):
+            configured.add((kind, slug.casefold()))
             yield kind, {'slug': slug}, 600
+    if harvested and source_enabled(sources, 'ats_from_lists'):
+        block = sources.get('ats_from_lists') or {}
+        cap = max(0, min(1000, int(block.get('max_boards', 250))))
+        picked = 0
+        for kind in ATS_KINDS:
+            for slug in sorted(harvested.get(kind) or ()):
+                if picked >= cap:
+                    break
+                if (kind, slug.casefold()) in configured:
+                    continue
+                picked += 1
+                # Hourly: these boards are found automatically, so be polite.
+                yield kind, {'slug': slug}, 3600
     for kind in ('remotive', 'themuse'):
-        if (sources.get(kind) or {}).get('enabled', False):
+        if source_enabled(sources, kind):
             yield kind, {}, 600
-    if (sources.get('simplify_github') or {}).get('enabled', False) and include_internships:
-        yield 'github', {'repo': 'SimplifyJobs/Summer2026-Internships', 'branch': 'dev'}, 600
-    if (sources.get('github_lists') or {}).get('enabled', True):
-        entries = (sources.get('github_lists') or {}).get('repositories', [
-            {'repo': 'SimplifyJobs/New-Grad-Positions', 'branch': 'dev'},
-        ])
-        for entry in entries:
-            if 'internship' in entry['repo'].casefold() and not include_internships:
-                continue
-            yield 'github', {'repo': entry['repo'], 'branch': entry.get('branch', 'main')}, 600
-    search = cfg.get('search') or {}
-    if (sources.get('himalayas') or {}).get('enabled', False):
+    for spec in github_list_specs(cfg):
+        yield 'github', spec, 600
+    if source_enabled(sources, 'himalayas'):
         for query in (search.get('keywords') or [])[:20]:
             yield 'himalayas', {'query': query, 'country': (search.get('countries') or ['us'])[0].upper(), 'owner': user_id}, 600
-    for item in (sources.get('workday') or {}).get('boards', []) if (sources.get('workday') or {}).get('enabled') else []:
+    for item in (sources.get('workday') or {}).get('boards', []) if source_enabled(sources, 'workday') else []:
         yield 'workday', {k: item[k] for k in ('slug', 'site', 'host')}, 3600
     # Credentialed aggregators require explicit background opt-in in addition
     # to their ordinary source switch. All calls share one per-owner budget.
     discovery = cfg.get('discovery') or {}
     if discovery.get('aggregators_enabled', False):
         for kind in ('jsearch', 'adzuna'):
-            if (sources.get(kind) or {}).get('enabled'):
+            if source_enabled(sources, kind):
                 for country in (search.get('countries') or ['us'])[:5]:
                     yield kind, {'query': ' OR '.join((search.get('keywords') or [])[:20]), 'country': country,
                                  'owner': user_id, 'budget': max(1, min(1000, int(discovery.get('aggregator_daily_budget', 10))))}, 21600
 
 
+def _public_key(kind: str, params: dict) -> str:
+    return f'public:{kind}:' + digest(params)
+
+
+def harvested_boards(s, cfg: dict) -> dict[str, set[str]]:
+    """ATS board slugs from the active postings of this user's community lists."""
+    keys = [_public_key('github', spec) for spec in github_list_specs(cfg)]
+    if not keys:
+        return {}
+    # noscope: public list postings, selected by the source keys this config follows.
+    urls = s.exec(select(DiscoveredJob.url).join(DiscoverySource, DiscoverySource.id == DiscoveredJob.source_id)
+                  .where(DiscoverySource.key.in_(keys), DiscoveredJob.active == True)).all()
+    return ats_boards(urls)
+
+
 def sync_user(user_id: int, cfg: dict) -> None:
-    specs = list(source_specs(user_id, cfg))
     with session() as s:
         s.exec(select(User).where(User.id == user_id).with_for_update()).one()
+        specs = list(source_specs(user_id, cfg, harvested_boards(s, cfg)))
         state = find_owned(s, DiscoveryState, user_id, user_id)
         if state is None:
             s.add(DiscoveryState(user_id=user_id))
@@ -97,11 +165,15 @@ def sync_user(user_id: int, cfg: dict) -> None:
                 revisions = s.exec(select(UserSecret.name, UserSecret.updated_at).where(UserSecret.user_id == user_id,
                     UserSecret.name.startswith(f'sources.{kind}.'))).all()
                 params['credential_revision'] = digest([list(row) for row in revisions])
-            key = f'user:{user_id}:' + digest([kind, params]) if 'owner' in params else f'public:{kind}:' + digest(params)
+            key = f'user:{user_id}:' + digest([kind, params]) if 'owner' in params else _public_key(kind, params)
             source = s.exec(select(DiscoverySource).where(DiscoverySource.key == key)).first()
             if source is None:
                 source = DiscoverySource(key=key, kind=kind, params=json.dumps(params), interval_seconds=interval)
                 s.add(source); s.flush()
+            elif source.interval_seconds != interval and 'owner' not in params:
+                # A board both listed and harvested is polled at the faster rate.
+                source.interval_seconds = min(source.interval_seconds, interval)
+                s.add(source)
             wanted.add(source.id)
             if source.id not in current:
                 s.add(DiscoverySubscription(user_id=user_id, source_id=source.id))
@@ -218,6 +290,28 @@ def rematch_user(user_id: int, cfg: dict | None = None, master: dict | None = No
             s.add(match)
         state.fingerprint, state.last_matched, state.error = profile_hash, utc_now(), ''
         s.add(state); s.commit()
+
+
+def refresh_user_soon(user_id: int) -> None:
+    """Re-sync subscriptions and rematch right after a config save.
+
+    Without this, a source switched off in Config keeps its jobs in the feed
+    until the next scheduler tick, which reads as the switch being ignored.
+    Runs in a daemon thread so the save request returns at once; no network
+    and no AI, only database work.
+    """
+    if not discovery_enabled():
+        return
+
+    def run():
+        try:
+            cfg = load_config_redacted(user_id)
+            sync_user(user_id, cfg)
+            rematch_user(user_id, cfg)
+        except Exception:
+            log.exception('Unable to refresh discovery after a config change for user %s', user_id)
+
+    threading.Thread(target=run, name=f'discovery-refresh-{user_id}', daemon=True).start()
 
 
 def has_live_subscribers(source_id: int) -> bool:

@@ -85,19 +85,32 @@ sources:
     companies: []          # e.g. [mistral, plaid] — verify at jobs.lever.co/{slug}
 
   # Himalayas — free public keyword-search API, no key needed, no company list
-  # to curate. Remote jobs only. https://himalayas.app/docs/remote-jobs-api
+  # to curate. Remote jobs only, reposted by an aggregator rather than taken
+  # from the employer, so it is off by default. https://himalayas.app/docs/remote-jobs-api
   himalayas:
-    enabled: true
+    enabled: false
 
   ashby:
     enabled: true
     companies: [notion, ramp, openai, linear, cohere, replit, supabase, plaid]
 
+  # Community-maintained new-grad lists. Every entry links to the employer's
+  # own application page.
   github_lists:
     enabled: true
     repositories:
       - repo: SimplifyJobs/New-Grad-Positions
         branch: dev
+      - repo: speedyapply/2026-SWE-College-Jobs
+        branch: main
+        path: NEW_GRAD_USA.md
+
+  # Employers found in those lists' apply links (Ashby, Greenhouse, Lever and
+  # SmartRecruiters boards) are polled directly on their public job-board API,
+  # hourly, so their other open roles arrive with the full description. No key.
+  ats_from_lists:
+    enabled: true
+    max_boards: 250
 
   smartrecruiters:
     enabled: false

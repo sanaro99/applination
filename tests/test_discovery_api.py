@@ -18,11 +18,13 @@ def clients(tmp_path, monkeypatch):
     return a, b, ua['id'], ub['id']
 
 
-def seed(uid):
-    from server.discovery_models import DiscoverySource, DiscoveredJob, JobMatch
+def seed(uid, subscribed=True):
+    from server.discovery_models import DiscoverySource, DiscoveredJob, DiscoverySubscription, JobMatch
     with db.session() as s:
         source = DiscoverySource(key=f'test:{uid}', kind='ashby')
         s.add(source); s.flush()
+        if subscribed:
+            s.add(DiscoverySubscription(user_id=uid, source_id=source.id))
         posting = DiscoveredJob(source_id=source.id, external_id='1', title='Engineer', company='Acme',
                                 url='https://example.com/job/1', description='Requirements: Python. ' * 20)
         s.add(posting); s.flush()
@@ -40,6 +42,21 @@ def test_feed_is_scoped_and_dismiss_is_reversible(clients):
     assert not a.get('/api/jobs').json()['items']
     assert a.patch(f'/api/jobs/{mid}', json={'dismissed': False}).status_code == 200
     assert a.get('/api/jobs').json()['items'][0]['id'] == mid
+
+
+def test_recommendations_hide_sources_the_user_no_longer_follows(clients):
+    from server.discovery_models import DiscoverySubscription
+    a, _, uid, _ = clients
+    mid = seed(uid)
+    assert [x['id'] for x in a.get('/api/jobs').json()['items']] == [mid]
+    with db.session() as s:
+        for row in s.exec(select(DiscoverySubscription).where(DiscoverySubscription.user_id == uid)).all():
+            s.delete(row)
+        s.commit()
+    # Turned off in Config: gone from recommendations before any rematch,
+    # but still reachable from the collection views.
+    assert not a.get('/api/jobs').json()['items']
+    assert [x['id'] for x in a.get('/api/jobs?view=all').json()['items']] == [mid]
 
 
 def test_paused_batch_cannot_block_idempotent_selected_generation(clients, monkeypatch):
@@ -81,11 +98,12 @@ def test_applied_without_documents_appears_in_tracker_and_pause_is_private(clien
 
 def test_same_direct_url_across_sources_shares_actions_and_generation(clients):
     a, _, uid, _ = clients
-    from server.discovery_models import DiscoverySource, DiscoveredJob, JobMatch
+    from server.discovery_models import DiscoverySource, DiscoveredJob, DiscoverySubscription, JobMatch
     first = seed(uid)
     with db.session() as s:
         src = DiscoverySource(key='second', kind='greenhouse')
         s.add(src); s.flush()
+        s.add(DiscoverySubscription(user_id=uid, source_id=src.id))
         posting = DiscoveredJob(source_id=src.id, external_id='other', title='Engineer', company='Acme',
                                 url='https://example.com/job/1', description='Requirements: Python. ' * 20)
         s.add(posting); s.flush()

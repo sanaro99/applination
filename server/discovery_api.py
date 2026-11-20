@@ -95,12 +95,22 @@ def list_jobs(q: str = Query('', max_length=200), view: Literal['recommended', '
         grouping = case((DiscoveredJob.url != '', DiscoveredJob.url), else_=cast(DiscoveredJob.id, String))
         ranked = owned(select(JobMatch.id.label('match_id'), func.row_number().over(partition_by=grouping,
             order_by=(DiscoveredJob.active.desc(), DiscoveredJob.last_seen.desc(), JobMatch.id)).label('position'))
-            .join(DiscoveredJob, DiscoveredJob.id == JobMatch.posting_id), JobMatch, user).subquery()
+            .join(DiscoveredJob, DiscoveredJob.id == JobMatch.posting_id), JobMatch, user)
+        # Recommendations come only from sources this user still follows.
+        # Turning a source off drops its subscription on save (and on every
+        # scheduler tick); filtering here, before duplicates collapse, keeps
+        # its jobs out at once and lets a followed copy of the same posting
+        # stand in for an unfollowed one.
+        followed = owned(select(DiscoverySubscription.source_id), DiscoverySubscription, user)
+        if view == 'recommended':
+            ranked = ranked.where(DiscoveredJob.source_id.in_(followed))
+        ranked = ranked.subquery()
         query = owned(select(JobMatch, DiscoveredJob, DiscoverySource).join(DiscoveredJob, DiscoveredJob.id == JobMatch.posting_id)
                       .join(DiscoverySource, DiscoverySource.id == DiscoveredJob.source_id), JobMatch, user).where(
                           JobMatch.id.in_(select(ranked.c.match_id).where(ranked.c.position == 1)))
         if view == 'recommended':
-            query = query.where(JobMatch.eligible == True, JobMatch.dismissed == False, JobMatch.applied == False, JobMatch.application_id == None, DiscoveredJob.active == True)
+            query = query.where(JobMatch.eligible == True, JobMatch.dismissed == False, JobMatch.applied == False, JobMatch.application_id == None, DiscoveredJob.active == True,
+                                DiscoveredJob.source_id.in_(followed))
         elif view == 'saved':
             query = query.where(JobMatch.saved == True)
         elif view == 'dismissed':

@@ -264,6 +264,9 @@ class ApprovalBody(BaseModel):
 
 @site_router.post("/tokens/{token_hash}/approve")
 def approve_worker(token_hash: str, body: ApprovalBody, user: User = Depends(require_site_user)) -> dict:
+    from .demo import refuse_for_demo
+
+    refuse_for_demo(user)
     now = utc_now()
     with session() as s:
         grant = s.exec(owned(select(LocalOllamaGrant), LocalOllamaGrant, user).where(

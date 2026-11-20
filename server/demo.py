@@ -79,6 +79,34 @@ def is_demo_user(user: object) -> bool:
     return normalize_email(getattr(user, "email", "") or "") == DEMO_EMAIL
 
 
+DEMO_REFUSAL = (
+    "The shared demo account cannot store API keys or connect accounts, "
+    "because every visitor shares it. Sign up to use your own."
+)
+
+
+def is_demo_user_id(user_id: int) -> bool:
+    with session() as s:
+        # noscope: reading one row by primary key only to compare its email.
+        user = s.get(User, user_id)
+    return user is not None and is_demo_user(user)
+
+
+def refuse_for_demo(user: object) -> None:
+    """403 if ``user`` (a ``User`` or an id) is the shared demo account.
+
+    The demo is writable on purpose, but anything a visitor attaches to it is
+    handed to every later visitor: a stored API key would be spent by strangers,
+    and a connected Gmail token would let them read that person's inbox through
+    inbox sync. Credentials and device pairings are therefore refused outright.
+    """
+    from fastapi import HTTPException
+
+    demo = is_demo_user(user) if hasattr(user, "email") else is_demo_user_id(int(user))  # type: ignore[arg-type]
+    if demo:
+        raise HTTPException(403, DEMO_REFUSAL)
+
+
 def ensure_demo_user() -> int:
     """Return the demo user's id, creating the account if it is absent.
 
@@ -128,6 +156,8 @@ def _wipe(user_id: int) -> None:
     Order matters: ChatMessage and SavedAnswer carry foreign keys into
     ChatSession and Application, and RankedJob into both Application and Run.
     """
+    from .db import ExtensionGrant, LocalOllamaGrant, UserSecret
+
     ordered = (
         ChatMessage,
         SavedAnswer,
@@ -136,6 +166,12 @@ def _wipe(user_id: int) -> None:
         Application,
         Run,
         Setting,
+        # Credentials and device pairings are refused for the demo now
+        # (refuse_for_demo), but rows created before that guard existed must
+        # not survive the nightly restore.
+        UserSecret,
+        ExtensionGrant,
+        LocalOllamaGrant,
     )
     with session() as s:
         for model in ordered:

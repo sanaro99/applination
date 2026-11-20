@@ -143,6 +143,9 @@ class ApproveBody(BaseModel):
 @pair_router.post("/approve")
 @limiter.limit(LOGIN_LIMIT)
 def approve_pair(request: Request, body: ApproveBody, user: User = Depends(require_user)) -> dict:
+    from .demo import refuse_for_demo
+
+    refuse_for_demo(user)
     with session() as s:
         # noscope: user_code identifies a pending, unauthenticated pairing.
         pairing = s.exec(select(ExtensionPairing).where(

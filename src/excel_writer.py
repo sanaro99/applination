@@ -65,6 +65,13 @@ def build_tracker(jobs: list[dict], out_path: Path, day: str):
         ws.cell(row=row, column=15, value=j.get("match_reason", ""))
 
         for col in range(1, len(HEADER) + 1):
+            # Company, title and reason come from public job postings. openpyxl
+            # stores any string starting with "=" as a formula, so a posting
+            # titled "=HYPERLINK(...)" would execute in the user's Excel.
+            # Force such cells back to plain text.
+            cell = ws.cell(row=row, column=col)
+            if cell.data_type == "f":
+                cell.data_type = "s"
             ws.cell(row=row, column=col).alignment = Alignment(
                 vertical="center", wrap_text=(col in (4, 5, 15))
             )

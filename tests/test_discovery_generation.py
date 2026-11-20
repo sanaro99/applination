@@ -155,3 +155,28 @@ def test_retry_reconciles_already_persisted_documents_without_spending_again(eng
         assert s.exec(select(GenerationRequest)).one().state == 'done'
         assert s.get(db.Run, run_id).status == db.RunStatus.done
         assert s.get(JobMatch, mid).application_id == app_id
+
+
+def test_worker_claim_check_survives_request_loaded_in_same_session(engine):
+    """_work loads the request, then fences its claim in the same session.
+
+    The ORM's default "evaluate" sync compared the loaded naive lease_until
+    against an aware now and raised TypeError, so every dispatched generation
+    died before starting and was later reported as "Generation interrupted".
+    """
+    from server.discovery_generation import enqueue_generation, claim_is_current
+    from server.discovery_models import GenerationRequest
+    enqueue_generation(GenerateBody(company='Acme', title='Engineer', description='Python ' * 100), 1)
+    with db.session() as s:
+        req = s.exec(select(GenerationRequest)).one()
+        req.state, req.lease_token, req.lease_until = 'running', 'owner', utc_now() + timedelta(minutes=3)
+        s.add(req); s.commit(); rid = req.id
+    with db.session() as s:
+        loaded = s.get(GenerationRequest, rid)  # held, so it stays in the identity map as in _work
+        assert claim_is_current(s, rid, 'owner')
+        assert loaded.id == rid
+        s.commit()
+    with db.session() as s:
+        req = s.get(GenerationRequest, rid)
+        assert req.lease_until.tzinfo is None
+        assert not claim_is_current(s, rid, 'someone-else')

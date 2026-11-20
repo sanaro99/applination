@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Settings2, XCircle, Zap } from "lucide-react";
+import { CheckCircle2, ChevronRight, Loader2, Settings2, XCircle, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ProviderKeyGuide } from "@/components/provider-key-guide";
 import { api } from "@/lib/api";
 import type { ProviderInfo, ProviderTestResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -120,12 +121,14 @@ export function ProvidersPanel() {
           })
         )}
         <p className="pt-1 text-xs text-muted-foreground">
-          A test makes one short model call to check connectivity and latency.
+          Need a key? Click Configure on a provider for step-by-step setup and a
+          link to its key page. A test makes one short model call to check
+          connectivity and latency.
         </p>
       </CardContent>
       <Dialog open={editing !== null} onOpenChange={(open) => { if (!open) setEditing(null); }}>
         {editing && (
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
             <ProviderConfiguration
               key={editing.name}
               provider={editing}
@@ -159,6 +162,13 @@ function ProviderConfiguration({ provider, onSaved }: {
   const [manual, setManual] = useState(false);
   const isOllama = provider.name === "ollama";
   const isCloudflare = provider.name === "cloudflare";
+  const { data: setup } = useQuery({
+    queryKey: ["provider-setup"],
+    queryFn: () => api.providerSetup(),
+    staleTime: Infinity,
+    retry: false,
+  });
+  const guide = setup?.providers.find((p) => p.id === provider.name);
 
   const discover = useMutation({
     mutationFn: (browseCatalog: boolean) => api.listProviderModels(provider.name, {
@@ -194,7 +204,7 @@ function ProviderConfiguration({ provider, onSaved }: {
   return (
     <>
       <DialogHeader>
-        <DialogTitle className="capitalize">Configure {provider.name}</DialogTitle>
+        <DialogTitle className={guide ? undefined : "capitalize"}>Configure {guide?.label ?? provider.name}</DialogTitle>
         <DialogDescription>
           {isOllama
             ? "Choose the local model used for Ollama."
@@ -202,6 +212,18 @@ function ProviderConfiguration({ provider, onSaved }: {
         </DialogDescription>
       </DialogHeader>
       <div className="space-y-4">
+        {guide && (
+          <details
+            className="group rounded-md border border-border/60 bg-muted/30 p-3"
+            open={!provider.configured}
+          >
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-sm font-medium [&::-webkit-details-marker]:hidden">
+              <ChevronRight className="size-4 transition-transform group-open:rotate-90" />
+              {isOllama ? `How to set up ${guide.label}` : `How to get your ${guide.label} ${isCloudflare ? "token" : "key"}`}
+            </summary>
+            <ProviderKeyGuide provider={guide} className="mt-3" />
+          </details>
+        )}
         {!isOllama && (
           <div className="space-y-1.5">
             <Label htmlFor="provider-api-key">{isCloudflare ? "API token" : "API key"}</Label>

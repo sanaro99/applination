@@ -1,4 +1,4 @@
-"""Check that provider console links still resolve.
+"""Check that provider setup links (key page, sign-up, billing, docs) still resolve.
 
 Deliberately NOT a unit test: it makes real network calls, and network flake
 must never break the build. Run it manually or on a schedule. A clean run is
@@ -19,15 +19,24 @@ sys.path.insert(0, str(ROOT))
 from server.provider_setup import PROVIDERS  # noqa: E402
 
 
+LINK_FIELDS = ("console_url", "signup_url", "billing_url", "docs_url")
+
+
+def _links():
+    for entry in PROVIDERS:
+        for field in LINK_FIELDS:
+            if entry.get(field):
+                yield entry, field, entry[field]
+
+
 def main() -> int:
     failures = 0
     with httpx.Client(follow_redirects=True, timeout=20.0) as client:
-        for entry in PROVIDERS:
-            url = entry["console_url"]
+        for entry, field, url in _links():
             try:
                 resp = client.get(url)
             except Exception as exc:  # noqa: BLE001
-                print(f"FAIL {entry['id']:12} {url} -> {exc}")
+                print(f"FAIL {entry['id']:12} {field:12} {url} -> {exc}")
                 failures += 1
                 continue
             landed = str(resp.url)
@@ -35,7 +44,7 @@ def main() -> int:
             if resp.status_code >= 400:
                 failures += 1
             note = "" if landed == url else f"  (redirected to {landed})"
-            print(f"{status} {entry['id']:12} {resp.status_code} {url}{note}")
+            print(f"{status} {entry['id']:12} {field:12} {resp.status_code} {url}{note}")
     print()
     if failures:
         print(f"{failures} link(s) need attention. Do not bump verified_on.")

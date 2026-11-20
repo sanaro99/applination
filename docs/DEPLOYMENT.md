@@ -2,7 +2,7 @@
 
 This guide uses example hostnames, paths, and account names. Replace them with values for your installation before deploying. Keep your actual environment file, access-policy addresses, and infrastructure inventory outside the repository.
 
-The [technical guide](TECHNICAL.md) covers local development and application configuration. The templates under `deploy/` describe a container installation with PostgreSQL, an internal Redis cache, a FastAPI API, and a Next.js frontend.
+The [technical guide](TECHNICAL.md) covers local development and application configuration. For the simplest single-machine setup, a root `docker-compose.yml` that builds from source, and a free cloud option, see [Free hosting](FREE-HOSTING.md). The templates under `deploy/` describe a container installation with PostgreSQL, an internal Redis cache, a FastAPI API, and a Next.js frontend.
 
 ## Architecture
 

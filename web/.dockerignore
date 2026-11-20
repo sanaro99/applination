@@ -15,3 +15,11 @@ AGENTS.md
 # ~1GB of self-hosted WebLLM weights, downloaded locally per docs. Never
 # baked into the image — GHCR would choke and the layer is useless anyway.
 public/models
+
+# Local scratch and test output: never part of the image, and an unreadable
+# folder here would fail the build context on Windows.
+tmp
+.playwright-cli
+playwright-report
+test-results
+*.log

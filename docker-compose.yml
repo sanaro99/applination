@@ -1,0 +1,110 @@
+# Applination: the whole app on one machine with one command.
+#
+#   docker compose up -d --build      # first start (and after `git pull`)
+#   open http://localhost:3000
+#   docker compose down               # stop; your data stays
+#
+# Works the same on a laptop (Windows, macOS, Linux) and on a small cloud VM.
+# Nothing here needs editing for a local install. Optional settings go in a
+# `.env` file next to this one; see `.env.example`.
+#
+# The browser only ever talks to the web container. Next.js proxies /api to
+# the API container on the internal network, so login cookies are same-origin
+# and only one port is published.
+#
+# Where your data lives:
+#   ./data/            accounts' config, profile, generated documents, and the
+#                      auto-generated encryption key (data/secret.key)
+#   pgdata volume      the Postgres database (`docker volume ls`)
+# Both survive `docker compose down`. `docker compose down -v` deletes the
+# database volume, so never add -v unless you mean it.
+
+name: applination
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: applination
+      POSTGRES_DB: applination
+      # Only reachable on the internal compose network, never published.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-applination}
+    volumes:
+      # Parent directory, not .../data: postgres:18 keeps data in a
+      # version-namespaced subdirectory (docker-library/postgres#1259).
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U applination -d applination"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: applination-api:local
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://applination:${POSTGRES_PASSWORD:-applination}@db:5432/applination
+      # Empty means "use or create data/secret.key" (scripts/docker-entrypoint.sh).
+      # Set it in .env to manage the key yourself.
+      APPLINATION_SECRET_KEY: ${APPLINATION_SECRET_KEY:-}
+      APPLINATION_SECRET_KEY_FILE: /app/data/secret.key
+      ALLOWED_ORIGINS: ${PUBLIC_URL:-http://localhost:3000}
+      MAX_CONCURRENT_RUNS: ${MAX_CONCURRENT_RUNS:-2}
+      DEMO_ENABLED: ${DEMO_ENABLED:-1}
+      # The /jobs feed: checks public job sources about every ten minutes and
+      # matches them to each account without AI calls. On by default for this
+      # single-machine setup; set 0 in .env to pause it.
+      CONTINUOUS_DISCOVERY_ENABLED: ${CONTINUOUS_DISCOVERY_ENABLED:-1}
+      TZ: ${TZ:-UTC}
+      # The API is reached only through the web container (and, for a public
+      # install, a tunnel in front of it), so trust its X-Forwarded-Proto.
+      # That is what keeps the session cookie `Secure` behind HTTPS.
+      FORWARDED_ALLOW_IPS: "*"
+    volumes:
+      - ./data:/app/data
+    # Not published: the web container proxies /api here. Uncomment to call
+    # the API directly from the host (e.g. http://127.0.0.1:8000/docs).
+    # ports:
+    #   - "127.0.0.1:8000:8000"
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        # Baked into the Next.js build: where the /api rewrite points.
+        API_PROXY_TARGET: http://api:8000
+    image: applination-web:local
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      TZ: ${TZ:-UTC}
+    ports:
+      # Loopback only by default. For access from other devices on your
+      # network set WEB_BIND=0.0.0.0 in .env.
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}:3000"
+
+  # Optional public URL through a Cloudflare Tunnel (free). Off unless you
+  # start it with:  docker compose --profile tunnel up -d
+  # Needs CLOUDFLARE_TUNNEL_TOKEN in .env and the tunnel's public hostname
+  # pointed at http://web:3000. See docs/FREE-HOSTING.md.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - web
+
+volumes:
+  pgdata:

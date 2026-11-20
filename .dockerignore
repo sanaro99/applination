@@ -14,11 +14,29 @@ master_data/bio.md
 master_data/*.docx
 master_data/*.pdf
 master_data/stories/*.md
+# The tag taxonomy is committed and global; the API reads it for every user.
+!master_data/stories/_INDEX.md
 master_data/cover_letters/examples/*
 .job_cache.json
 
 # The frontend has its own image and its own build context.
 web/
+
+# Local scratch and tool state. Docker reads every file in the context before
+# filtering, so a folder it cannot open (a locked worktree under tmp/ on
+# Windows) fails the whole build with "Access is denied" unless excluded here.
+tmp/
+.tmp/
+*.log
+.worktrees/
+worktrees/
+.codex*/
+.playwright-cli/
+.playwright-mcp/
+playwright-report/
+test-results/
+node_modules/
+**/node_modules/
 
 # Dev cruft
 .git

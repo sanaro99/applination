@@ -28,6 +28,9 @@
 # master_data (resume, bio, personal stories) and output (generated resumes and
 # cover letters). This repository is public — none of it may ever be committed.
 /data/users/
+# Encryption key created by docker-compose.yml / scripts/dev.ps1. It decrypts
+# every stored API key and Gmail token.
+/data/secret.key
 .job_cache.json
 
 # Deploy staging tarballs (the deployment migration guide suggests creating

@@ -11,68 +11,74 @@ This guide covers running and developing Applination. For the product walkthroug
 
 Applination is **multi-user**. Anyone can sign up; each account brings its own API keys and keeps its own config, profile and documents under `data/users/<id>/`. That whole directory is gitignored — this repository is public.
 
-## Prerequisites
+## Run it on your own computer
 
-- **Python 3.11+**
-- **Node.js 20+** and npm
-- **PostgreSQL 18** — `scripts/dev.ps1` starts one in Docker automatically if nothing is listening on port 5432; otherwise point `DATABASE_URL` at your own
-- At least one LLM provider key, or Ollama plus the local Applination worker
-- **PDF conversion** (optional): Microsoft Word (Windows/macOS) or LibreOffice (`soffice` on PATH, Linux). Use `--no-pdf` if you have neither.
+There are two ways. Pick **Docker** to use the app, and the **dev script** to work on its code.
 
-## Getting started
+### Option A: Docker (one command)
 
-### 1. Clone and install
+You need only [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine with Compose on Linux).
 
 ```bash
 git clone https://github.com/sanaro99/applination.git
 cd applination
-
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
-
-pip install -r requirements.txt
-
-cd web
-npm install
-cd ..
+docker compose up -d --build
 ```
 
-### 2. Set the encryption key
+Open **http://localhost:3000** and create an account. On Windows you can instead double-click `scripts\start.cmd`, which checks that Docker is running, starts everything, waits until the app answers, and opens your browser. `scripts\stop.cmd` stops it.
 
-API keys and Gmail tokens are encrypted at rest with a Fernet key the server holds:
+- The first start builds the images and takes several minutes. Later starts take seconds.
+- After `git pull`, run `docker compose up -d --build` again to rebuild.
+- Your data survives restarts. Accounts, profiles, and documents are in `./data/`, and the database is in the `applination_pgdata` Docker volume. `docker compose down -v` deletes that volume, so leave out `-v`.
+- The encryption key for stored API keys is created on first start at `data/secret.key`. Back it up together with `data/`, because stored keys cannot be read without it.
+- PDF conversion works out of the box because the API image includes LibreOffice.
+- Optional settings, such as a different port, go in a `.env` file. See [`.env.example`](../.env.example).
 
-```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
+To make your local install reachable from anywhere, or to run the same stack on a free cloud VM, see [Free hosting](FREE-HOSTING.md).
 
-Put the result in `APPLINATION_SECRET_KEY` in your environment. Without it the app runs, but it cannot store API keys.
+### Option B: Development servers (hot reload)
 
-### 3. Start the development servers
+Prerequisites:
+
+- **Python 3.11+**
+- **Node.js 20+** and npm
+- **Docker Desktop** for the database, or your own **PostgreSQL 18** with `DATABASE_URL` pointing at it
+- **PDF conversion** (optional): Microsoft Word (Windows/macOS) or LibreOffice (`soffice` on PATH, Linux). Use `--no-pdf` with the CLI if you have neither.
+
+On Windows, clone the repository and run:
 
 ```powershell
-.\scripts\dev.ps1
+.\scripts\dev.ps1      # or double-click scripts\dev.cmd
 ```
 
-This brings up Postgres if needed, applies migrations, then starts the FastAPI backend on **http://127.0.0.1:8000** and the Next.js front end on **http://127.0.0.1:3000**.
+The script sets up everything it needs on the first run and skips what is already done afterwards:
 
-To run them separately, start Postgres and set `DATABASE_URL` to its connection string if you are not using the local default. Apply the schema before starting the API:
+1. It creates `.venv` and installs `requirements.txt`, and runs `npm install` in `web/`. Each reinstalls only when its lockfile changes.
+2. It loads optional settings from `.env`, and creates the encryption key at `data/secret.key` if `APPLINATION_SECRET_KEY` is not set.
+3. If nothing listens on port 5432 and `DATABASE_URL` is unset, it starts a Postgres container, waits until it accepts connections, and applies migrations.
+4. It starts the FastAPI backend on **http://127.0.0.1:8000** and the Next.js front end on **http://127.0.0.1:3000**. Press Ctrl+C to stop both.
+
+On macOS or Linux, run the same steps by hand:
 
 ```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+(cd web && npm install)
+
+docker run -d --name applination-postgres-dev -e POSTGRES_USER=applination \
+  -e POSTGRES_DB=applination -e POSTGRES_PASSWORD=applination -p 5432:5432 postgres:18-alpine
+export APPLINATION_SECRET_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+# Keep that key: put it in your shell profile or .env, or stored API keys become unreadable.
+
 python -m alembic upgrade head
 python -m uvicorn server.app:app --reload --reload-dir server --reload-dir src --port 8000
+# second terminal:
+cd web && npm run dev
 ```
 
-In a second terminal:
+The Next.js dev server proxies `/api` to the backend, so the browser sees one origin and the session cookie works. Without `APPLINATION_SECRET_KEY` the app still runs, but it cannot store API keys.
 
-```bash
-cd web
-npm run dev
-```
-
-### 4. Optional: the in-browser email classifier
+### Optional: the in-browser email classifier
 
 Inbox sync sorts emails using a small model that runs inside your browser. Download it once per clone:
 
@@ -82,7 +88,7 @@ python scripts/fetch_webllm_model.py
 
 This fetches roughly 700MB into `web/public/models/` (gitignored) so the browser does not have to reach huggingface.co, which some networks block. Skip it if you are not using inbox sync.
 
-### 5. Sign up and onboard
+### Sign up and onboard
 
 Open **http://localhost:3000**, create an account, and the setup wizard walks you through:
 
@@ -94,7 +100,7 @@ Open **http://localhost:3000**, create an account, and the setup wizard walks yo
 | Interview | A short AI conversation fills experience gaps and drafts your bio and first stories |
 | Search prefs | Job titles, locations, minimum score, and a cap on documents per run |
 
-### 6. Dry run, then a full run
+### Dry run, then a full run
 
 A dry run fetches and scores jobs without generating any documents — much cheaper, and a good way to sanity-check your search settings.
 

@@ -41,9 +41,9 @@ export function StoredSecretsCard() {
           </p>
         ) : data.secrets.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No keys stored yet. Add one under <code>llm.&lt;provider&gt;.api_key</code>{" "}
-            in the editor below and save — it will be encrypted and the field
-            cleared.
+            No keys stored yet. Click Configure next to a provider under LLM
+            providers: it shows how to get a key from that provider, and the key
+            you paste is stored encrypted, never in config.yaml.
           </p>
         ) : (
           <>

@@ -16,14 +16,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Check, ExternalLink, Loader2 } from "lucide-react";
+import { AlertCircle, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, type EnrichStep, type ProviderSetup } from "@/lib/api";
 import { LocalOllamaSetup } from "@/components/local-ollama-setup";
+import { ProviderKeyGuide } from "@/components/provider-key-guide";
 import { SAMPLE } from "@/lib/sample-data";
 import { cn } from "@/lib/utils";
 
@@ -204,19 +205,7 @@ export function ChapterIgnition({ onBack }: { onBack: () => void }) {
 
             {p.id === providerId ? (
               <div className="mt-4 space-y-3">
-                <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-                  {p.steps.map((step) => (
-                    <li key={step}>{step}</li>
-                  ))}
-                </ol>
-                <a
-                  href={p.console_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={buttonVariants({ size: "sm" })}
-                >
-                  Open {p.label} <ExternalLink className="size-3.5" />
-                </a>
+                <ProviderKeyGuide provider={p} />
                 {p.needs_key ? (
                   <div className="grid gap-1.5">
                     <Label htmlFor="journey-api-key">API key</Label>
@@ -232,15 +221,8 @@ export function ChapterIgnition({ onBack }: { onBack: () => void }) {
                     ) : null}
                   </div>
                 ) : null}
-                <p className="text-xs text-muted-foreground">{p.cost_note}</p>
                 {p.id === "ollama" ? (
                   <LocalOllamaSetup compact onReadyChange={setOllamaReady} />
-                ) : null}
-                {p.stale ? (
-                  <p className="text-xs text-muted-foreground">
-                    These steps were checked on {p.verified_on} and may have
-                    moved — the link is the thing to trust.
-                  </p>
                 ) : null}
               </div>
             ) : null}

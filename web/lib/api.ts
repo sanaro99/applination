@@ -189,9 +189,18 @@ export type ProviderSetup = {
   recommended: boolean;
   why: string;
   model: string;
+  /** Deep link to the page where the key is created. */
   console_url: string;
+  signup_url: string | null;
+  /** Where to add credit, for providers that are prepaid. */
+  billing_url: string | null;
+  docs_url: string | null;
   steps: string[];
   key_shape: { prefix: string; min_len: number };
+  /** Plain description of a valid key, so "did I copy the right thing?" has an answer. */
+  key_hint: string;
+  /** The provider shows the full key only once, at creation. */
+  shown_once: boolean;
   cost_note: string;
   needs_key: boolean;
   verified_on: string;

@@ -46,15 +46,34 @@ def test_every_provider_has_the_required_fields():
     required = {
         "id", "label", "recommended", "why", "model", "console_url",
         "steps", "key_shape", "cost_note", "needs_key", "verified_on",
+        "signup_url", "billing_url", "docs_url", "key_hint", "shown_once",
     }
     for p in PROVIDERS:
         assert required <= set(p), f"{p['id']} is missing {required - set(p)}"
 
 
 def test_steps_stay_shallow():
-    """Three lines survives a vendor redesign; a nine-step click path does not."""
+    """A handful of lines naming what the user sees survives a vendor redesign;
+    a nine-step click path does not."""
     for p in PROVIDERS:
-        assert 0 < len(p["steps"]) <= 3, p["id"]
+        assert 0 < len(p["steps"]) <= 4, p["id"]
+
+
+def test_every_key_provider_says_what_its_key_looks_like():
+    """The guide's job ends at "did I paste the right thing?"."""
+    for p in PROVIDERS:
+        if p["needs_key"]:
+            assert p["key_hint"].strip(), p["id"]
+            prefix = p["key_shape"]["prefix"]
+            if prefix:
+                assert prefix in p["key_hint"], p["id"]
+
+
+def test_optional_links_are_https_or_absent():
+    for p in PROVIDERS:
+        for field in ("signup_url", "billing_url", "docs_url"):
+            url = p[field]
+            assert url is None or url.startswith("https://"), (p["id"], field)
 
 
 def test_no_copy_quotes_a_number():

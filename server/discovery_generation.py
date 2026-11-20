@@ -20,10 +20,16 @@ class GenerationLeaseLost(RuntimeError):
 
 def claim_is_current(s, request_id: int, token: str) -> bool:
     """Fence publication in the *same transaction* as its application/run writes."""
-    now = utc_now()
+    # lease_until is a naive UTC column. Compare and write naive UTC, and skip
+    # the ORM's in-Python session sync: with the request already loaded in this
+    # session (as _work does), the default "evaluate" strategy compared the
+    # loaded naive value against an aware now and raised TypeError, so the
+    # worker died before doing anything and the lease silently expired.
+    now = utc_now().replace(tzinfo=None)
     result = s.execute(update(GenerationRequest).where(GenerationRequest.id == request_id,
         GenerationRequest.state == 'running', GenerationRequest.lease_token == token,
-        GenerationRequest.lease_until > now).values(lease_until=now + timedelta(minutes=3)))
+        GenerationRequest.lease_until > now).values(lease_until=now + timedelta(minutes=3))
+        .execution_options(synchronize_session=False))
     return result.rowcount == 1
 
 

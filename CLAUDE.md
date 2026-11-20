@@ -62,6 +62,13 @@ tenant table must go through `server/scoping.py` (`owned` / `get_owned` /
 explicit `# noscope: <reason>` — `tests/test_scope_lint.py` fails the build
 otherwise.
 
+**Server-side fetches of user URLs go through `src/url_safety.py`.** The
+single-job extractor's headless browser runs on the API server, so the typed
+URL and every request the page makes are refused unless they are http(s) to a
+public address (no localhost, private ranges, cloud metadata or `file://`).
+`ALLOW_PRIVATE_URL_FETCH=1` lifts the address check for a trusted single-user
+install.
+
 **Everything is per-user.** There is no global `config.yaml`, `master_data/` or
 `output/` any more, and no `require_owner` — the gate is gone because what it
 guarded is gone.
@@ -125,6 +132,11 @@ offer it beside the form when `GET /api/health` reports `demo: true`.
 - The demo user is **exempt from the per-user LLM rate limit** — simulated calls
   cost nothing, and a per-user limit on a shared account is one visitor locking
   out every other. Per-IP limits still apply.
+- **The demo refuses credentials and device pairings** (`server/demo.refuse_for_demo`,
+  called from `user_secrets.set_secret` and the extension / local-Ollama
+  approve routes). Writable does not mean anything goes: a key or Gmail token
+  stored on a shared account is handed to every later visitor. The nightly
+  restore also wipes `UserSecret` and grant rows.
 - `DEMO_ENABLED=0` disables the whole thing.
 - **Everything in `demo_data/` is fictional** — this repository is public. The
   persona's employers and school are invented; real companies appear only as
